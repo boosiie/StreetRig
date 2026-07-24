@@ -8,14 +8,29 @@
 import SwiftUI
 
 struct ContentView: View {
+    /// How long the splash stays up. Temporary timed splash — later this
+    /// will be driven by real audio-engine / asset warmup completing.
+    private let splashDuration: Duration = .seconds(4)
+
+    @State private var isLoading = true
+
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        ZStack {
+            if isLoading {
+                LoadingView()
+                    .transition(.opacity)
+            } else {
+                MainView()
+                    .transition(.opacity)
+            }
         }
-        .padding()
+        .preferredColorScheme(.dark)
+        .task {
+            try? await Task.sleep(for: splashDuration)
+            withAnimation(.easeInOut(duration: 0.6)) {
+                isLoading = false
+            }
+        }
     }
 }
 
