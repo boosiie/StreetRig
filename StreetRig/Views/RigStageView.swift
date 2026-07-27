@@ -37,13 +37,6 @@ struct RigStageView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
-        .overlay(alignment: .top) {
-            Text("MY RIG")
-                .font(.caption.weight(.bold))
-                .tracking(2)
-                .foregroundStyle(RigTheme.textMuted)
-                .padding(.top, 12)
-        }
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(RigTheme.amber, lineWidth: 2)

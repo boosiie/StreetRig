@@ -11,7 +11,7 @@ import SwiftUI
 
 struct CollectionTabView: View {
     @EnvironmentObject var store: RigStore
-    @State private var showLibrary = false
+    @State private var isDropTargeted = false
 
     /// Amps, cabinets, combos — the guitar is fixed so it's not listed.
     private var ampsAndCabs: [GearItem] {
@@ -37,21 +37,13 @@ struct CollectionTabView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("MY GEAR")
-                    .font(.caption2.weight(.bold))
-                    .tracking(1.5)
-                    .foregroundStyle(RigTheme.textMuted)
-                Spacer()
-                Button { showLibrary = true } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(RigTheme.amber)
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 14)
-            .padding(.bottom, 10)
+            Text("MY GEAR")
+                .font(.caption2.weight(.bold))
+                .tracking(1.5)
+                .foregroundStyle(RigTheme.textMuted)
+                .padding(.horizontal, 14)
+                .padding(.top, 14)
+                .padding(.bottom, 10)
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
@@ -67,10 +59,22 @@ struct CollectionTabView: View {
         .overlay(alignment: .trailing) {
             Rectangle().fill(Color.white.opacity(0.07)).frame(width: 1)
         }
-        .fullScreenCover(isPresented: $showLibrary) {
-            LibraryView(onClose: { showLibrary = false })
-                .environmentObject(store)
+        .overlay {
+            Rectangle()
+                .strokeBorder(RigTheme.amber, lineWidth: 3)
+                .opacity(isDropTargeted ? 0.85 : 0)
+                .animation(.easeInOut(duration: 0.15), value: isDropTargeted)
+                .allowsHitTesting(false)
         }
+        // Drop a library card here to add it to the collection.
+        .dropDestination(for: GearItem.self) { items, _ in
+            var added = false
+            for item in items where !store.isOwned(item) {
+                store.addToCollection(item)
+                added = true
+            }
+            return added
+        } isTargeted: { isDropTargeted = $0 }
     }
 
     @ViewBuilder

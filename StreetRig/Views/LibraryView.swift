@@ -2,68 +2,64 @@
 //  LibraryView.swift
 //  StreetRig
 //
-//  The gear library, laid out with a left Gear / Amp / Pedal tab rail, a
-//  search field, and the device bar along the bottom. The Amp tab leads with
-//  two big choices — Amp + Cabinet vs Combo Amp — then lists that type's
-//  models. Tapping a tile adds it to the collection (owned shows a check).
-//  Opened full-screen from the "+" in the collection tab; Back returns.
+//  The gear-library page content (the left swipe page in the app shell). Two
+//  tabs, Amp and Pedal, each showing category cards; tapping a card opens a
+//  drill-down page listing that category's models (Back returns). Amp offers
+//  Amp + Cabinet vs Combo Amp; Pedal shows one card per pedal category.
+//  Tapping a model tile adds it to the collection (owned shows a check).
 //
 
 import SwiftUI
 
-struct LibraryView: View {
+struct LibraryContentView: View {
     @EnvironmentObject var store: RigStore
-    var onClose: () -> Void
 
-    enum Tab: String, CaseIterable, Identifiable {
-        case gear = "Gear", amp = "Amp", pedal = "Pedal"
-        var id: String { rawValue }
-    }
-    enum AmpMode { case stack, combo }
+    enum Section: Hashable { case amp, pedal }
+    enum Drill: Hashable { case ampStack, ampCombo, pedal(GearCategory) }
 
-    @State private var tab: Tab = .gear
-    @State private var ampMode: AmpMode = .stack
+    @State private var section: Section = .amp
+    @State private var drill: Drill?
     @State private var query = ""
 
-    private let allOrder: [GearCategory] = [
-        .amp, .cabinet, .comboAmp,
-        .tuner, .wah, .compressor, .overdrive, .eq, .noiseGate,
-        .modulation, .pitch, .delay, .reverb, .volume, .looper
-    ]
     private let pedalOrder: [GearCategory] = [
         .tuner, .wah, .compressor, .overdrive, .eq, .noiseGate,
         .modulation, .pitch, .delay, .reverb, .volume, .looper
     ]
-    private let columns = [GridItem(.adaptive(minimum: 148, maximum: 210), spacing: 14)]
+    private let columns = [GridItem(.adaptive(minimum: 150, maximum: 210), spacing: 14)]
 
     var body: some View {
-        ZStack {
-            RigTheme.background.ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                topBar
-                HStack(spacing: 0) {
-                    tabRail
-                    content.frame(maxWidth: .infinity, maxHeight: .infinity)
+        VStack(spacing: 0) {
+            if let drill {
+                drillHeader(drill)
+                ScrollView {
+                    modelGrid(categories(for: drill), showHeaders: drill == .ampStack)
+                        .padding(20)
                 }
-                DeviceBarView()
+            } else {
+                header
+                ScrollView {
+                    if query.isEmpty {
+                        cards.padding(20)
+                    } else {
+                        modelGrid(section == .amp ? [.amp, .cabinet, .comboAmp] : pedalOrder,
+                                  showHeaders: true)
+                            .padding(20)
+                    }
+                }
             }
         }
-        .preferredColorScheme(.dark)
     }
 
-    // MARK: - Top bar
+    // MARK: - Card level
 
-    private var topBar: some View {
+    private var header: some View {
         HStack(spacing: 16) {
-            Button(action: onClose) {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.left")
-                    Text("Back")
-                }
-                .font(.body.weight(.semibold))
-                .foregroundStyle(RigTheme.amber)
+            HStack(spacing: 4) {
+                segTab("Amp", .amp)
+                segTab("Pedal", .pedal)
             }
+            .padding(4)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(RigTheme.backgroundLift))
 
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(RigTheme.textMuted)
@@ -78,83 +74,163 @@ struct LibraryView: View {
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 9)
+            .padding(.vertical, 8)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(RigTheme.backgroundLift))
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
-            .frame(maxWidth: 420)
+            .frame(maxWidth: 360)
 
             Spacer(minLength: 0)
-
-            Text("GEAR LIBRARY")
-                .font(.caption.weight(.bold))
-                .tracking(1.5)
-                .foregroundStyle(RigTheme.textMuted)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(RigTheme.background)
-        .overlay(alignment: .bottom) { Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1) }
     }
 
-    // MARK: - Left tab rail
+    private func segTab(_ title: String, _ value: Section) -> some View {
+        let selected = section == value
+        return Button {
+            withAnimation(.easeInOut(duration: 0.15)) { section = value }
+        } label: {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(selected ? .black : RigTheme.textMuted)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(selected ? RigTheme.amber : Color.clear)
+                )
+        }
+        .buttonStyle(.plain)
+    }
 
-    private var tabRail: some View {
-        VStack(spacing: 6) {
-            ForEach(Tab.allCases) { t in
-                Button { withAnimation(.easeInOut(duration: 0.15)) { tab = t } } label: {
-                    Text(t.rawValue)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(tab == t ? RigTheme.amber : RigTheme.textMuted)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                        .background(tab == t ? RigTheme.backgroundLift : Color.clear)
-                        .overlay(alignment: .leading) {
-                            Rectangle().fill(RigTheme.amber).frame(width: 3).opacity(tab == t ? 1 : 0)
+    @ViewBuilder
+    private var cards: some View {
+        switch section {
+        case .amp:
+            HStack(spacing: 16) {
+                ampCard(.ampStack, title: "Amp + Cabinet", stack: true)
+                ampCard(.ampCombo, title: "Combo Amp", stack: false)
+            }
+        case .pedal:
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
+                ForEach(pedalOrder, id: \.self) { pedalCategoryCard($0) }
+            }
+        }
+    }
+
+    private func ampCard(_ target: Drill, title: String, stack: Bool) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) { drill = target }
+        } label: {
+            VStack(spacing: 12) {
+                Group {
+                    if stack {
+                        VStack(spacing: 4) {
+                            GearArtView(item: GearItem(name: "", category: .amp)).frame(width: 88, height: 32)
+                            GearArtView(item: GearItem(name: "", category: .cabinet)).frame(width: 102, height: 62)
                         }
+                    } else {
+                        GearArtView(item: GearItem(name: "", category: .comboAmp)).frame(width: 112, height: 90)
+                    }
                 }
-                .buttonStyle(.plain)
+                .frame(height: 104)
+                Text(title).font(.headline.weight(.semibold)).foregroundStyle(RigTheme.textPrimary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(18)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(RigTheme.backgroundLift))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+            .overlay(alignment: .topTrailing) {
+                Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(RigTheme.textMuted).padding(12)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func pedalCategoryCard(_ category: GearCategory) -> some View {
+        let representative = RigStore.catalog.first { $0.category == category }
+        let count = RigStore.catalog.filter { $0.category == category }.count
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) { drill = .pedal(category) }
+        } label: {
+            VStack(spacing: 10) {
+                GearArtView(item: representative)
+                    .frame(width: 44, height: 60)
+                    .frame(height: 62)
+                Text(category.displayName)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(RigTheme.textPrimary)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                Text("\(count) model\(count == 1 ? "" : "s")")
+                    .font(.caption2)
+                    .foregroundStyle(RigTheme.textMuted)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(RigTheme.backgroundLift))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
+            .overlay(alignment: .topTrailing) {
+                Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(RigTheme.textMuted).padding(8)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Drill-down level
+
+    private func drillHeader(_ drill: Drill) -> some View {
+        HStack {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { self.drill = nil }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left")
+                    Text("Back")
+                }
+                .font(.body.weight(.semibold))
+                .foregroundStyle(RigTheme.amber)
             }
             Spacer()
+            Text(drillTitle(drill))
+                .font(.headline.weight(.bold))
+                .foregroundStyle(RigTheme.textPrimary)
+            Spacer()
+            Color.clear.frame(width: 64, height: 1)
         }
-        .padding(.top, 12)
-        .frame(width: 120)
-        .background(RigTheme.background.opacity(0.5))
-        .overlay(alignment: .trailing) { Rectangle().fill(Color.white.opacity(0.07)).frame(width: 1) }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .overlay(alignment: .bottom) { Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1) }
     }
 
-    // MARK: - Content per tab
-
-    @ViewBuilder
-    private var content: some View {
-        switch tab {
-        case .gear:
-            ScrollView { gearSections(allOrder).padding(20) }
-        case .pedal:
-            ScrollView { gearSections(pedalOrder).padding(20) }
-        case .amp:
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    HStack(spacing: 16) {
-                        ampModeCard(.stack, title: "Amp + Cabinet")
-                        ampModeCard(.combo, title: "Combo Amp")
-                    }
-                    gearSections(ampMode == .stack ? [.amp, .cabinet] : [.comboAmp])
-                }
-                .padding(20)
-            }
+    private func categories(for drill: Drill) -> [GearCategory] {
+        switch drill {
+        case .ampStack: return [.amp, .cabinet]
+        case .ampCombo: return [.comboAmp]
+        case .pedal(let category): return [category]
         }
     }
 
+    private func drillTitle(_ drill: Drill) -> String {
+        switch drill {
+        case .ampStack: return "Amp + Cabinet"
+        case .ampCombo: return "Combo Amp"
+        case .pedal(let category): return category.displayName
+        }
+    }
+
+    // MARK: - Shared
+
     @ViewBuilder
-    private func gearSections(_ categories: [GearCategory]) -> some View {
+    private func modelGrid(_ categories: [GearCategory], showHeaders: Bool) -> some View {
         LazyVStack(alignment: .leading, spacing: 22) {
             ForEach(categories, id: \.self) { category in
                 let items = catalog(for: category)
                 if !items.isEmpty {
-                    Text(sectionTitle(category))
-                        .font(.caption.weight(.bold)).tracking(1.2)
-                        .foregroundStyle(RigTheme.trim)
+                    if showHeaders {
+                        Text(sectionTitle(category))
+                            .font(.caption.weight(.bold)).tracking(1.2)
+                            .foregroundStyle(RigTheme.trim)
+                    }
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
                         ForEach(items) { LibraryTile(item: $0) }
                     }
@@ -169,40 +245,6 @@ struct LibraryView: View {
             }
         }
     }
-
-    private func ampModeCard(_ mode: AmpMode, title: String) -> some View {
-        let selected = ampMode == mode
-        return Button {
-            withAnimation(.easeInOut(duration: 0.2)) { ampMode = mode }
-        } label: {
-            VStack(spacing: 12) {
-                Group {
-                    if mode == .stack {
-                        VStack(spacing: 4) {
-                            GearArtView(item: GearItem(name: "", category: .amp)).frame(width: 88, height: 32)
-                            GearArtView(item: GearItem(name: "", category: .cabinet)).frame(width: 102, height: 62)
-                        }
-                    } else {
-                        GearArtView(item: GearItem(name: "", category: .comboAmp)).frame(width: 112, height: 90)
-                    }
-                }
-                .frame(height: 104)
-                Text(title)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(RigTheme.textPrimary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(18)
-            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(RigTheme.backgroundLift))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(selected ? RigTheme.amber : Color.white.opacity(0.08), lineWidth: selected ? 2 : 1)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Helpers
 
     private func catalog(for category: GearCategory) -> [GearItem] {
         RigStore.catalog.filter { $0.category == category && matches($0) }
@@ -270,13 +312,19 @@ private struct LibraryTile: View {
             }
         }
         .buttonStyle(.plain)
+        .draggable(item) {
+            GearArtView(item: item)
+                .frame(width: 64, height: 64)
+                .padding(8)
+        }
         .disabled(owned)
         .opacity(owned ? 0.72 : 1)
     }
 }
 
 #Preview {
-    LibraryView(onClose: {})
+    LibraryContentView()
         .environmentObject(RigStore.preview)
+        .background(RigTheme.background)
         .preferredColorScheme(.dark)
 }
