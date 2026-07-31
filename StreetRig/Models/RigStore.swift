@@ -14,6 +14,7 @@ import Combine
 final class RigStore: ObservableObject {
     @Published var collection: [GearItem]
     @Published var rig: RigConfiguration
+    @Published var arSlots: [ARSlot] = [ARSlot(), ARSlot(), ARSlot()]
 
     private let saveURL: URL
     private let persist: Bool
@@ -28,20 +29,21 @@ final class RigStore: ObservableObject {
         if persist, let loaded = Self.load(from: saveURL) {
             collection = loaded.collection
             rig = loaded.rig
+            if let slots = loaded.arSlots { arSlots = slots }
         } else {
             let seed = Self.seed()
             collection = seed.collection
             rig = seed.rig
             if persist {
                 // Persist the seed immediately so the first launch is durable.
-                Self.write(PersistedState(collection: seed.collection, rig: seed.rig), to: saveURL)
+                Self.write(PersistedState(collection: seed.collection, rig: seed.rig, arSlots: arSlots), to: saveURL)
             }
         }
 
         guard persist else { return }
 
-        // Debounced autosave on any change (covers slider drags, drops, reorders).
-        Publishers.CombineLatest($collection, $rig)
+        // Debounced autosave on any change (covers slider drags, drops, reorders, AR slots).
+        Publishers.CombineLatest3($collection, $rig, $arSlots)
             .dropFirst()
             .debounce(for: .seconds(0.4), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.save() }
@@ -127,6 +129,27 @@ final class RigStore: ObservableObject {
         collection.append(GearItem(name: item.name, category: item.category))
     }
 
+    // MARK: - AR stomp slots
+
+    /// The pedal assigned to an AR slot, if any.
+    func arPedal(_ index: Int) -> GearItem? {
+        guard arSlots.indices.contains(index), let id = arSlots[index].pedalId else { return nil }
+        return item(id)
+    }
+
+    /// Assign (or clear) the pedal in an AR slot.
+    func setARSlot(_ index: Int, pedalId: UUID?) {
+        guard arSlots.indices.contains(index) else { return }
+        arSlots[index].pedalId = pedalId
+        if pedalId == nil { arSlots[index].isOn = false }
+    }
+
+    /// Toggle an AR slot's pedal on/off (only if a pedal is assigned).
+    func toggleARSlot(_ index: Int) {
+        guard arSlots.indices.contains(index), arSlots[index].pedalId != nil else { return }
+        arSlots[index].isOn.toggle()
+    }
+
     /// Two-way binding to one knob of one owned item (used by the zoom sliders).
     func binding(itemId: UUID, param: String) -> Binding<Double> {
         Binding(
@@ -145,11 +168,12 @@ final class RigStore: ObservableObject {
     struct PersistedState: Codable {
         var collection: [GearItem]
         var rig: RigConfiguration
+        var arSlots: [ARSlot]?
     }
 
     func save() {
         guard persist else { return }
-        Self.write(PersistedState(collection: collection, rig: rig), to: saveURL)
+        Self.write(PersistedState(collection: collection, rig: rig, arSlots: arSlots), to: saveURL)
     }
 
     private static func stateURL() -> URL {

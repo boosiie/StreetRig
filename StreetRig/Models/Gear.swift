@@ -160,3 +160,14 @@ struct RigConfiguration: Codable, Hashable {
     var ampSection: AmpSection
     var pedalIds: [UUID]
 }
+
+/// One of the three AR "stomp" slots: an assigned pedal and its on/off state.
+struct ARSlot: Codable, Hashable {
+    var pedalId: UUID?
+    var isOn: Bool
+
+    init(pedalId: UUID? = nil, isOn: Bool = false) {
+        self.pedalId = pedalId
+        self.isOn = isOn
+    }
+}
