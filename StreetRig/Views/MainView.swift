@@ -11,13 +11,14 @@
 import SwiftUI
 
 enum AppPage: Int, CaseIterable, Hashable {
-    case library = 0, main = 1, ar = 2
+    case library = 0, main = 1, controls = 2, ar = 3
 
     var title: String {
         switch self {
-        case .library: return "GEAR LIBRARY"
-        case .main:    return "MY RIG"
-        case .ar:      return "PEDAL AR"
+        case .library:  return "GEAR LIBRARY"
+        case .main:     return "MY RIG"
+        case .controls: return "CONTROLS"
+        case .ar:       return "PEDAL AR"
         }
     }
 
@@ -43,6 +44,8 @@ struct MainView: View {
                             .tag(AppPage.library)
                         RigStageView(focused: $focused)
                             .tag(AppPage.main)
+                        ControlBoardView()
+                            .tag(AppPage.controls)
                         ARPedalSetupView()
                             .tag(AppPage.ar)
                     }
