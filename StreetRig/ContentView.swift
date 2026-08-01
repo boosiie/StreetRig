@@ -31,6 +31,14 @@ struct ContentView: View {
                 isLoading = false
             }
         }
+        .task {
+            // Headless offline-render harness (launch arg / env flag). The
+            // Simulator has no audio input, so this file-render through the real
+            // AUAudioUnit graph is the automated verification path.
+            guard AudioEngineController.shouldRunOfflineRenderAtLaunch else { return }
+            let controller = AudioEngineController()
+            _ = await controller.runOfflineRender()
+        }
     }
 }
 
