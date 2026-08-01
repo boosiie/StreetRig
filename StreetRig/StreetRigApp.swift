@@ -9,9 +9,12 @@ import SwiftUI
 
 @main
 struct StreetRigApp: App {
+    @StateObject private var store = RigStore()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(store)
         }
     }
 }
