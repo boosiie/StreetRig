@@ -196,7 +196,7 @@ final class RigStore: ObservableObject {
 
     static func seed() -> (collection: [GearItem], rig: RigConfiguration) {
         let guitar   = GearItem(name: "Les Paul Standard", category: .guitar)
-        let amp      = GearItem(name: "Marshall JCM800",   category: .amp)
+        let amp      = GearItem(name: "Marshall JCM800",   category: .amp, values: ["Gain": 0, "Bass": 2, "Mid": 5, "Treble": 5, "Presence": 8, "Master": 10])
         let cab      = GearItem(name: "Marshall 1960A 4x12", category: .cabinet)
         let combo    = GearItem(name: "Fender Deluxe",     category: .comboAmp)
         let tuner    = GearItem(name: "Boss TU-3",         category: .tuner)

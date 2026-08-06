@@ -53,12 +53,27 @@ struct RigStageView: View {
 
     // MARK: - Rig content
 
+    /// Show the real-time 3D amp only when the flag is on, it's a head+cab stack
+    /// (not a combo), and the amp item opts in. Otherwise everything stays vector.
+    private var show3DAmp: Bool {
+        FeatureFlags.amp3D && !store.isCombo && (store.ampItem?.uses3DModel ?? false)
+    }
+
     private var rigContent: some View {
         ZStack(alignment: .bottom) {
             // Centered: amp head + cabinet + pedalboard
             VStack(spacing: 12) {
                 if store.isCombo {
                     gearView(.combo, item: store.ampItem, width: 156, height: 116)
+                } else if show3DAmp {
+                    // 3D hero: head + cab as one rotatable, PBR-lit model. Drag to
+                    // orbit, pinch to zoom, tap to open the control overlay. Falls
+                    // back to the vector VStack below when the flag is off.
+                    AmpModel3DView(item: store.ampItem) {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) { focused = .amp }
+                    }
+                    .frame(width: 200, height: 168)
+                    .accessibilityLabel("3D amp — drag to rotate, tap to open controls")
                 } else {
                     VStack(spacing: 5) {
                         gearView(.amp, item: store.ampItem, width: 138, height: 46)
