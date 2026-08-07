@@ -2,10 +2,12 @@
 //  RigStageView.swift
 //  StreetRig
 //
-//  The center stage. Amp head + cabinet + pedalboard sit centered; a single
-//  guitar rests on a stand to the right. Drag anywhere to tilt up to ~20° in
-//  any direction; let go and it rubber-bands back to center. Tap a component
-//  to zoom in. Drop a collection card on it to swap that part.
+//  The center stage. With 3D enabled the whole rig is one SceneKit diorama
+//  (RigStage3DView) — amp centered, pedalboard in front, guitar to the right —
+//  that you orbit as a single scene. With 3D off (or a combo amp) it falls back
+//  to the flat vector layout: amp head + cabinet + pedalboard centered, a guitar
+//  on a stand to the right, drag to tilt up to ~20° and rubber-band back. Tap a
+//  component to zoom in. Drop a collection card on it to swap that part.
 //
 
 import SwiftUI
@@ -25,15 +27,28 @@ struct RigStageView: View {
 
     private let maxAngle: CGFloat = 20
 
+    /// One 3D diorama for a head+cab stack; the vector layout otherwise.
+    private var use3DStage: Bool { FeatureFlags.amp3D && !store.isCombo }
+
     var body: some View {
         ZStack {
             stageBackground
 
-            rigContent
-                .rotation3DEffect(.degrees(Double(tilt.width)),  axis: (x: 0, y: 1, z: 0), perspective: 0.5)
-                .rotation3DEffect(.degrees(Double(-tilt.height)), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
-                .simultaneousGesture(rotateDrag)
-                .padding(.top, 26)
+            if use3DStage {
+                // The whole rig orbits together as one scene — no SwiftUI warp.
+                RigStage3DView(amp: store.ampItem, pedals: store.pedalItems, guitar: store.guitar,
+                               focused: focused) { component in
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) { focused = component }
+                }
+                .padding(.horizontal, 8)
+                .padding(.top, 20)
+            } else {
+                vectorRig
+                    .rotation3DEffect(.degrees(Double(tilt.width)),  axis: (x: 0, y: 1, z: 0), perspective: 0.5)
+                    .rotation3DEffect(.degrees(Double(-tilt.height)), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
+                    .simultaneousGesture(rotateDrag)
+                    .padding(.top, 26)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
@@ -51,9 +66,9 @@ struct RigStageView: View {
         } isTargeted: { isTargeted = $0 }
     }
 
-    // MARK: - Rig content
+    // MARK: - Vector fallback (flag off, or a combo amp)
 
-    private var rigContent: some View {
+    private var vectorRig: some View {
         ZStack(alignment: .bottom) {
             // Centered: amp head + cabinet + pedalboard
             VStack(spacing: 12) {
@@ -65,7 +80,7 @@ struct RigStageView: View {
                         gearView(.cabinet, item: store.cabinetItem, width: 166, height: 98)
                     }
                 }
-                pedalboard
+                vectorPedalboard
             }
 
             // Single guitar on a stand, to the right
@@ -82,7 +97,7 @@ struct RigStageView: View {
         }
     }
 
-    private var pedalboard: some View {
+    private var vectorPedalboard: some View {
         HStack(spacing: 10) {
             if store.pedalItems.isEmpty {
                 Text("Drop pedals here")
@@ -132,7 +147,7 @@ struct RigStageView: View {
         }
     }
 
-    // MARK: - Tilt gesture (rubber-band back to center on release)
+    // MARK: - Tilt gesture for the vector layout (rubber-band back to center)
 
     private var rotateDrag: some Gesture {
         DragGesture()

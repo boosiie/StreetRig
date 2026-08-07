@@ -11,6 +11,16 @@ import SwiftUI
 struct StreetRigApp: App {
     @StateObject private var store = RigStore()
 
+    init() {
+        #if DEBUG
+        // One-off: export the procedural models to editable 3D files (see
+        // ModelExporter). Trigger with STREETRIG_EXPORT=1 in the launch env.
+        if ProcessInfo.processInfo.environment["STREETRIG_EXPORT"] == "1" {
+            ModelExporter.exportAll()
+        }
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

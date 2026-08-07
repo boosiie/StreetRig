@@ -136,11 +136,30 @@ struct GearItem: Identifiable, Codable, Hashable, Transferable {
     /// Current values keyed by parameter name.
     var values: [String: Double]
 
-    init(id: UUID = UUID(), name: String, category: GearCategory, values: [String: Double]? = nil) {
+    // MARK: 3D model hooks (optional → backward-compatible with saved JSON)
+
+    /// Opt this specific item in/out of real-time 3D rendering. `nil` (the
+    /// value for every already-persisted item) means "use the category default"
+    /// — see `uses3DModel`. Optional so old `rig_state.json` files still decode.
+    var has3DModel: Bool?
+    /// Name of a bundled `.usdz` to load for this item (without extension). When
+    /// present, `AmpModel3DView` loads it instead of building the procedural
+    /// stand-in — the documented seam for dropping in a real, vetted model.
+    var modelName: String?
+
+    /// Whether this item should render with the 3D pipeline. Amps default to 3D;
+    /// everything else defaults to vector art. `has3DModel` overrides per item.
+    var uses3DModel: Bool { has3DModel ?? (category == .amp) }
+
+    init(id: UUID = UUID(), name: String, category: GearCategory,
+         values: [String: Double]? = nil,
+         has3DModel: Bool? = nil, modelName: String? = nil) {
         self.id = id
         self.name = name
         self.category = category
         self.values = values ?? Dictionary(uniqueKeysWithValues: category.parameters.map { ($0.name, $0.defaultValue) })
+        self.has3DModel = has3DModel
+        self.modelName = modelName
     }
 
     static var transferRepresentation: some TransferRepresentation {
