@@ -8,11 +8,14 @@
 //  "moving the living room" — instead of the old split model where a SwiftUI
 //  rotation3DEffect warped a flat snapshot while each model orbited on its own.
 //
+//  Tapping a component plays a TWO-STAGE focus transition: stage 1 flies the
+//  camera in to center that component and turn it face-on ("flat" to the screen);
+//  when that lands, stage 2 zooms the control overlay in (see MainView). Closing
+//  the overlay flies the camera back to the diorama.
+//
 //  Reuses the same procedural builders as the standalone views (ProceduralAmp,
-//  PedalboardScene, ProceduralGuitar) so there's one source of truth per model.
-//  A single tap is hit-tested to the amp / a pedal / the guitar and routed to
-//  the stage's zoom overlay. The amp's knobs still turn live from GearItem.values.
-//  Gated by FeatureFlags.amp3D (stacks only; a combo falls back to vector art).
+//  PedalboardScene, ProceduralGuitar). The amp's knobs turn live from
+//  GearItem.values. Gated by FeatureFlags.amp3D (stacks only; combo → vector).
 //
 
 import SwiftUI
@@ -23,7 +26,9 @@ struct RigStage3DView: UIViewRepresentable {
     var amp: GearItem?
     var pedals: [GearItem]
     var guitar: GearItem?
-    /// Routes a tapped component to the stage so it can open the zoom overlay.
+    /// The stage's current focus. When it returns to nil the camera flies back.
+    var focused: RigComponent?
+    /// Fired after stage 1 lands, so the stage can open the zoom overlay (stage 2).
     var onFocus: ((RigComponent) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(onFocus: onFocus) }
@@ -55,12 +60,19 @@ struct RigStage3DView: UIViewRepresentable {
     }
 
     func updateUIView(_ view: SCNView, context: Context) {
-        context.coordinator.onFocus = onFocus
+        let coord = context.coordinator
+        coord.onFocus = onFocus
+
         let sig = RigDiorama.signature(amp: amp, pedals: pedals, guitar: guitar)
-        if context.coordinator.signature != sig {
+        if coord.signature != sig {
             rebuild(view, context: context)          // gear set changed → rebuild
         } else {
-            context.coordinator.applyAmp(values: amp?.values ?? [:])   // just knob values
+            coord.applyAmp(values: amp?.values ?? [:])   // just knob values
+        }
+
+        // Overlay dismissed (focus → nil) → fly the camera back to the diorama.
+        if focused == nil, coord.focusedNow != nil, !coord.animatingForward {
+            coord.resetCamera()
         }
     }
 
@@ -81,6 +93,13 @@ struct RigStage3DView: UIViewRepresentable {
         var onFocus: ((RigComponent) -> Void)?
         weak var view: SCNView?
         var signature = ""
+
+        /// Component the camera is currently focused on (or flying toward).
+        var focusedNow: RigComponent?
+        /// True while stage 1 (the fly-in) is animating, so the return handler
+        /// in updateUIView doesn't misfire before stage 2 has even opened.
+        var animatingForward = false
+
         private var knobs: [String: SCNNode] = [:]
 
         init(onFocus: ((RigComponent) -> Void)?) { self.onFocus = onFocus }
@@ -98,8 +117,10 @@ struct RigStage3DView: UIViewRepresentable {
             }
         }
 
+        // MARK: Tap → stage 1
+
         @objc func handleTap(_ g: UITapGestureRecognizer) {
-            guard let view else { return }
+            guard let view, focusedNow == nil else { return }        // ignore taps while focused
             let hits = view.hitTest(g.location(in: view),
                                     options: [.searchMode: SCNHitTestSearchMode.all.rawValue])
             for hit in hits {
@@ -108,14 +129,90 @@ struct RigStage3DView: UIViewRepresentable {
                     if let name = n.name {
                         if name.hasPrefix("pedal_"),
                            let id = UUID(uuidString: String(name.dropFirst("pedal_".count))) {
-                            onFocus?(.pedal(id)); return
+                            focus(on: n, component: .pedal(id)); return
                         }
-                        if name == "ampRoot"    { onFocus?(.amp); return }
-                        if name == "guitarRoot" { onFocus?(.guitar); return }
+                        if name == "ampRoot" { focus(on: n, component: .amp); return }
+                        // Guitar is intentionally not focusable — no controls to adjust.
                     }
                     node = n.parent
                 }
             }
+        }
+
+        /// Stage 1: fly the camera in to center `node` and view its control face
+        /// straight-on. When it lands, hand off to stage 2 via `onFocus`.
+        private func focus(on node: SCNNode, component: RigComponent) {
+            guard let view, let cam = view.pointOfView else { return }
+            focusedNow = component
+            animatingForward = true
+            view.allowsCameraControl = false                 // take over the camera
+
+            let (pos, ori) = focusPose(for: node, component: component)
+            SCNTransaction.begin()
+            SCNTransaction.animationDuration = 0.6
+            SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            SCNTransaction.completionBlock = { [weak self] in
+                guard let self else { return }
+                self.animatingForward = false
+                DispatchQueue.main.async { self.onFocus?(component) }   // stage 2
+            }
+            cam.position = pos
+            cam.orientation = ori
+            SCNTransaction.commit()
+        }
+
+        /// Fly the camera back to the diorama and hand control back to the user.
+        func resetCamera() {
+            focusedNow = nil
+            guard let view, let cam = view.pointOfView else { return }
+            SCNTransaction.begin()
+            SCNTransaction.animationDuration = 0.5
+            SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            SCNTransaction.completionBlock = { [weak view] in
+                guard let view else { return }
+                view.defaultCameraController.target = RigDiorama.lookTarget
+                view.allowsCameraControl = true
+            }
+            cam.position = RigDiorama.cameraPosition
+            cam.eulerAngles = SCNVector3(RigDiorama.cameraPitch, 0, 0)
+            SCNTransaction.commit()
+        }
+
+        /// Camera position + orientation that centers `node` and looks straight
+        /// at its control face (knob panel for a pedal, faceplate for the amp,
+        /// body front for the guitar) so it reads "flat" to the screen.
+        private func focusPose(for node: SCNNode, component: RigComponent) -> (SCNVector3, SCNQuaternion) {
+            // Per component: a local focal point to keep dead-center, the control
+            // face normal to look along, and how far back the camera sits.
+            let localFocus: SCNVector3
+            let localNormal: SCNVector3
+            let dist: Float
+            switch component {
+            case .pedal:
+                localFocus = SCNVector3(0, 0.47, -0.42)  // the center knob (middle of the top row)
+                localNormal = SCNVector3(0, 0.85, 0.5)   // knob panel (top), tilted toward the front
+                dist = 1.15
+            case .amp, .cabinet, .combo:
+                localFocus = SCNVector3(0, 1.12, 0.68)   // center of the amp's knob row on the faceplate
+                localNormal = SCNVector3(0, 0, 1)        // straight-on to the faceplate → flat to the screen
+                dist = 3.6
+            case .guitar:
+                localFocus = SCNVector3(0, 0, 0)
+                localNormal = SCNVector3(0, 0, 1)        // body front
+                dist = 2.6
+            }
+            let center = node.convertPosition(localFocus, to: nil)         // focal point in world space
+            let n = normalized(node.convertVector(localNormal, to: nil))   // face normal in world space
+            let camPos = SCNVector3(center.x + n.x * dist, center.y + n.y * dist, center.z + n.z * dist)
+            let tmp = SCNNode()
+            tmp.position = camPos
+            tmp.look(at: center)                          // point -Z at the focal point, +Y up
+            return (camPos, tmp.orientation)
+        }
+
+        private func normalized(_ v: SCNVector3) -> SCNVector3 {
+            let l = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+            return l > 1e-5 ? SCNVector3(v.x / l, v.y / l, v.z / l) : SCNVector3(0, 0, 1)
         }
 
         // Let taps coexist with the camera controller's orbit gesture.
@@ -130,7 +227,11 @@ struct RigStage3DView: UIViewRepresentable {
 /// positions are in a single world so one camera orbit moves everything together.
 enum RigDiorama {
     /// The point the camera orbits around (roughly the middle of the arrangement).
-    static let lookTarget = SCNVector3(0.55, 0.7, 0.3)
+    static let lookTarget = SCNVector3(0.5, 0.9, 0.0)
+    /// Default diorama camera pose (also the pose the focus animation returns to).
+    static let cameraPosition = SCNVector3(0.5, 3.1, 6.9)
+    static let cameraPitch: Float = -0.31
+    static let cameraFOV: CGFloat = 42
 
     static func signature(amp: GearItem?, pedals: [GearItem], guitar: GearItem?) -> String {
         "\(amp?.id.uuidString ?? "-")|\(guitar?.id.uuidString ?? "-")|"
@@ -152,15 +253,15 @@ enum RigDiorama {
         }
         let ampScale: Float = 0.55
         ampRoot.scale = SCNVector3(ampScale, ampScale, ampScale)
-        ampRoot.position = SCNVector3(-0.4, 2.15 * ampScale, -0.9)
+        ampRoot.position = SCNVector3(-0.1, 2.15 * ampScale, -0.9)   // aligned in x with the pedalboard
         world.addChildNode(ampRoot)
 
         // ---- Pedalboard: in front of the amp (toward the camera).
         if !pedals.isEmpty {
             let board = PedalboardScene.boardNode(pedals: pedals)
-            let bScale: Float = 0.5
+            let bScale: Float = 0.44                     // slightly smaller board
             board.scale = SCNVector3(bScale, bScale, bScale)
-            board.position = SCNVector3(-0.2, 0.16 * bScale, 1.7)
+            board.position = SCNVector3(-0.1, 0.16 * bScale, 0.4)   // close in front of the amp
             board.eulerAngles.x = -0.12                 // slight rake toward the camera
             world.addChildNode(board)
         }
@@ -172,7 +273,7 @@ enum RigDiorama {
         ProceduralGuitar.buildStand(into: guitarRoot)
         let gScale: Float = 0.34
         guitarRoot.scale = SCNVector3(gScale, gScale, gScale)
-        guitarRoot.position = SCNVector3(2.2, 2.1 * gScale, -0.3)
+        guitarRoot.position = SCNVector3(1.8, 2.1 * gScale, -0.3)   // in closer to the amp
         guitarRoot.eulerAngles.y = -0.5
         world.addChildNode(guitarRoot)
 
@@ -180,16 +281,16 @@ enum RigDiorama {
 
         // ---- Lighting + grounding shadows + camera.
         Studio3D.addLighting(to: scene)
-        Studio3D.addContactShadow(to: scene.rootNode, width: 2.8, height: 2.0, at: SCNVector3(-0.4, 0.02, -0.85))
+        Studio3D.addContactShadow(to: scene.rootNode, width: 2.8, height: 2.0, at: SCNVector3(-0.1, 0.02, -0.85))
         if !pedals.isEmpty {
-            Studio3D.addContactShadow(to: scene.rootNode, width: 3.0, height: 1.2, at: SCNVector3(-0.2, 0.02, 1.65))
+            Studio3D.addContactShadow(to: scene.rootNode, width: 3.0, height: 1.2, at: SCNVector3(-0.1, 0.02, 0.35))
         }
-        Studio3D.addContactShadow(to: scene.rootNode, width: 1.3, height: 1.1, at: SCNVector3(2.2, 0.02, -0.2))
+        Studio3D.addContactShadow(to: scene.rootNode, width: 1.3, height: 1.1, at: SCNVector3(1.8, 0.02, -0.2))
 
-        // Zoomed-in, natural 3/4 "living-room" view. Horizontal projection makes
-        // the fov span the rig's width so it fills the portrait width; a gentle
-        // downward angle keeps the gear faces visible. User can pinch to zoom/orbit.
-        let camNode = Studio3D.addCamera(to: scene, position: SCNVector3(0.6, 2.7, 5.3), tilt: -0.36, fov: 43)
+        // Natural 3/4 "living-room" view, pulled back a touch so the full amp
+        // (head included) fits. Horizontal projection makes the fov span the
+        // rig's width so it fills the portrait width; user can pinch to zoom/orbit.
+        let camNode = Studio3D.addCamera(to: scene, position: cameraPosition, tilt: cameraPitch, fov: cameraFOV)
         camNode.camera?.projectionDirection = .horizontal
         return scene
     }
@@ -202,7 +303,8 @@ enum RigDiorama {
         pedals: [GearItem(name: "Tube Screamer", category: .overdrive),
                  GearItem(name: "Carbon Copy", category: .delay),
                  GearItem(name: "Boss RV-6", category: .reverb)],
-        guitar: GearItem(name: "Les Paul Standard", category: .guitar)
+        guitar: GearItem(name: "Les Paul Standard", category: .guitar),
+        focused: nil
     )
     .frame(height: 460)
     .background(RigTheme.background)

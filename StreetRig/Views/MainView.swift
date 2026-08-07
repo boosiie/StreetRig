@@ -11,13 +11,12 @@
 import SwiftUI
 
 enum AppPage: Int, CaseIterable, Hashable {
-    case library = 0, main = 1, controls = 2, ar = 3
+    case library = 0, main = 1, ar = 2
 
     var title: String {
         switch self {
         case .library:  return "GEAR LIBRARY"
         case .main:     return "MY RIG"
-        case .controls: return "CONTROLS"
         case .ar:       return "PEDAL AR"
         }
     }
@@ -44,8 +43,6 @@ struct MainView: View {
                             .tag(AppPage.library)
                         RigStageView(focused: $focused)
                             .tag(AppPage.main)
-                        ControlBoardView()
-                            .tag(AppPage.controls)
                         ARPedalSetupView()
                             .tag(AppPage.ar)
                     }
@@ -58,7 +55,8 @@ struct MainView: View {
                 ComponentDetailView(component: component) {
                     withAnimation(.easeInOut(duration: 0.25)) { focused = nil }
                 }
-                .transition(.opacity)
+                // Stage 2: zoom the control panel in over the now-centered model.
+                .transition(.scale(scale: 0.82).combined(with: .opacity))
                 .zIndex(1)
             }
         }

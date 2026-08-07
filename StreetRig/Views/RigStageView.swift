@@ -36,7 +36,8 @@ struct RigStageView: View {
 
             if use3DStage {
                 // The whole rig orbits together as one scene — no SwiftUI warp.
-                RigStage3DView(amp: store.ampItem, pedals: store.pedalItems, guitar: store.guitar) { component in
+                RigStage3DView(amp: store.ampItem, pedals: store.pedalItems, guitar: store.guitar,
+                               focused: focused) { component in
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) { focused = component }
                 }
                 .padding(.horizontal, 8)

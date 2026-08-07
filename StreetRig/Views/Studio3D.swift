@@ -29,15 +29,15 @@ enum Studio3D {
 
     // MARK: - Lighting (key + fill + ambient + image-based environment)
 
-    static func addLighting(to scene: SCNScene, keyIntensity: CGFloat = 780,
-                            envIntensity: CGFloat = 1.15) {
+    static func addLighting(to scene: SCNScene, keyIntensity: CGFloat = 850,
+                            envIntensity: CGFloat = 1.25) {
         scene.lightingEnvironment.contents = environmentImage()   // IBL for PBR reflections
         scene.lightingEnvironment.intensity = envIntensity
 
         let key = SCNLight()
         key.type = .directional
         key.intensity = keyIntensity
-        key.temperature = 5200
+        key.temperature = 6300                                  // neutral daylight, not warm
         let keyNode = SCNNode()
         keyNode.light = key
         keyNode.eulerAngles = SCNVector3(-0.9, 0.5, 0)          // upper front-left
@@ -45,16 +45,26 @@ enum Studio3D {
 
         let fill = SCNLight()
         fill.type = .directional
-        fill.intensity = 300
-        fill.temperature = 7200
+        fill.intensity = 330
+        fill.temperature = 6800
         let fillNode = SCNNode()
         fillNode.light = fill
-        fillNode.eulerAngles = SCNVector3(-0.25, -0.9, 0)       // cooler right fill
+        fillNode.eulerAngles = SCNVector3(-0.25, -0.9, 0)       // soft right fill
         scene.rootNode.addChildNode(fillNode)
+
+        // Cool rim light from behind-above for a clean studio edge highlight.
+        let rim = SCNLight()
+        rim.type = .directional
+        rim.intensity = 460
+        rim.temperature = 7400
+        let rimNode = SCNNode()
+        rimNode.light = rim
+        rimNode.eulerAngles = SCNVector3(0.6, 3.0, 0)
+        scene.rootNode.addChildNode(rimNode)
 
         let ambient = SCNLight()
         ambient.type = .ambient
-        ambient.intensity = 110
+        ambient.intensity = 85
         let ambientNode = SCNNode()
         ambientNode.light = ambient
         scene.rootNode.addChildNode(ambientNode)

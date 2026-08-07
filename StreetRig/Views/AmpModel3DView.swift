@@ -165,12 +165,13 @@ enum ProceduralAmp {
         let tolex = UIColor(red: 0.09, green: 0.09, blue: 0.10, alpha: 1)   // black cabinet
         let cream = UIColor(red: 0.92, green: 0.88, blue: 0.78, alpha: 1)   // faceplate
         let gold  = UIColor(red: 0.79, green: 0.63, blue: 0.29, alpha: 1)   // trim
-        let amber = UIColor(red: 1.00, green: 0.60, blue: 0.18, alpha: 1)   // tube glow
+        let jewel = UIColor(red: 0.86, green: 0.11, blue: 0.11, alpha: 1)   // red power jewel
+        let point = UIColor(white: 0.90, alpha: 1)                          // off-white knob pointer
         let cloth = UIColor(white: 0.045, alpha: 1)                         // grille baffle
 
-        let tolexMat = Studio3D.pbr(tolex, metalness: 0.0, roughness: 0.85)
-        let creamMat = Studio3D.pbr(cream, metalness: 0.55, roughness: 0.32)
-        let goldMat  = Studio3D.pbr(gold,  metalness: 0.90, roughness: 0.28)
+        let tolexMat = Studio3D.pbr(tolex, metalness: 0.0, roughness: 0.82)
+        let creamMat = Studio3D.pbr(cream, metalness: 0.5,  roughness: 0.35)
+        let goldMat  = Studio3D.pbr(gold,  metalness: 0.9,  roughness: 0.34)   // satin brass (not a mirror)
         let clothMat = Studio3D.pbr(cloth, metalness: 0.0,  roughness: 0.95)
         let knobMat  = Studio3D.pbr(UIColor(white: 0.10, alpha: 1), metalness: 0.2, roughness: 0.45)
         let coneMat  = Studio3D.pbr(UIColor(white: 0.16, alpha: 1), metalness: 0.1, roughness: 0.70)
@@ -188,23 +189,18 @@ enum ProceduralAmp {
         let span: Float = 2.5
         let step = names.count > 1 ? span / Float(names.count - 1) : 0
         for (i, name) in names.enumerated() {
-            let knob = makeKnob(body: knobMat, pointer: amber)
+            let knob = makeKnob(body: knobMat, pointer: point)
             knob.name = AmpScene.knobNodeName(name)
             knob.position = SCNVector3(-span / 2 + Float(i) * step, 1.12, 0.68)
             root.addChildNode(knob)
         }
 
-        // ---- Power lamp: emissive amber "tube glow" + a small warm light ----
-        let lamp = SCNSphere(radius: 0.055)
-        lamp.materials = [Studio3D.pbr(amber, metalness: 0.0, roughness: 0.3, emission: amber)]
+        // ---- Power jewel: a small dim-red indicator — no light cast, no bloom wash ----
+        let jewelDim = UIColor(red: 0.45, green: 0.02, blue: 0.02, alpha: 1)
+        let lamp = SCNSphere(radius: 0.045)
+        lamp.materials = [Studio3D.pbr(jewel, metalness: 0.0, roughness: 0.35, emission: jewelDim)]
         let lampNode = SCNNode(geometry: lamp)
         lampNode.position = SCNVector3(1.52, 1.12, 0.66)
-        let glow = SCNLight()
-        glow.type = .omni
-        glow.color = amber
-        glow.intensity = 55
-        glow.attenuationEndDistance = 1.6
-        lampNode.light = glow
         root.addChildNode(lampNode)
 
         // ---- Cabinet (4x12) ----

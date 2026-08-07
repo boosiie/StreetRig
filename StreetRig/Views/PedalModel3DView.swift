@@ -172,17 +172,11 @@ enum ProceduralPedal {
             kn.addChildNode(pn)
         }
 
-        // ---- Status LED ----
-        let led = SCNSphere(radius: 0.05)
+        // ---- Status LED (small emissive dot; no glow wash) ----
+        let led = SCNSphere(radius: 0.045)
         led.materials = [Studio3D.pbr(spec.led, metalness: 0, roughness: 0.3, emission: spec.led)]
         let ledNode = SCNNode(geometry: led)
         ledNode.position = SCNVector3(0, 0.44, 0.08)
-        let glow = SCNLight()
-        glow.type = .omni
-        glow.color = spec.led
-        glow.intensity = 22
-        glow.attenuationEndDistance = 0.9
-        ledNode.light = glow
         group.addChildNode(ledNode)
 
         // ---- Footswitch (front, chrome) ----
