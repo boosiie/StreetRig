@@ -131,10 +131,12 @@ enum Studio3D {
         let size = CGSize(width: 256, height: 256)
         return UIGraphicsImageRenderer(size: size).image { ctx in
             let center = CGPoint(x: 128, y: 128)
-            let colors = [UIColor(white: 0, alpha: 0.55).cgColor,
+            // Darker, denser core with a soft falloff so models read as grounded.
+            let colors = [UIColor(white: 0, alpha: 0.88).cgColor,
+                          UIColor(white: 0, alpha: 0.48).cgColor,
                           UIColor(white: 0, alpha: 0.0).cgColor] as CFArray
             guard let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                                        colors: colors, locations: [0, 1]) else { return }
+                                        colors: colors, locations: [0, 0.55, 1]) else { return }
             ctx.cgContext.drawRadialGradient(grad, startCenter: center, startRadius: 0,
                                              endCenter: center, endRadius: 128, options: [])
         }

@@ -11,6 +11,7 @@ import SwiftUI
 
 struct CollectionTabView: View {
     @EnvironmentObject var store: RigStore
+    @EnvironmentObject var drag: RigDragController
     @State private var isDropTargeted = false
 
     /// Amps, cabinets, combos — the guitar is fixed so it's not listed.
@@ -53,6 +54,7 @@ struct CollectionTabView: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 20)
             }
+            .scrollDisabled(drag.isDragging)   // don't scroll the rail mid-drag
         }
         .frame(width: 150)
         .background(RigTheme.background.opacity(0.55))
@@ -92,6 +94,7 @@ struct CollectionTabView: View {
 #Preview {
     CollectionTabView()
         .environmentObject(RigStore.preview)
+        .environmentObject(RigDragController())
         .frame(height: 640)
         .background(RigTheme.background)
         .preferredColorScheme(.dark)

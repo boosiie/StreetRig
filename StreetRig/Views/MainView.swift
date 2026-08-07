@@ -59,7 +59,14 @@ struct MainView: View {
                 .transition(.scale(scale: 0.82).combined(with: .opacity))
                 .zIndex(1)
             }
+
+            // The dragged card's "ghost", following the finger above everything.
+            // Isolated in its own view so only it re-renders as the drag moves.
+            DragGhostView().zIndex(2)
         }
+        // Shared coordinate space so the rail's drag, the ghost, and the rig
+        // stage all measure the finger position against the same origin.
+        .coordinateSpace(.named("appRoot"))
     }
 
     // MARK: - Top navigation (arrows + current page title)
@@ -95,8 +102,36 @@ struct MainView: View {
     }
 }
 
+/// The floating preview of the card being dragged, tracking the finger in the
+/// shared "appRoot" space. Observes only the drag controller, so the rest of the
+/// shell doesn't re-render while the finger moves.
+private struct DragGhostView: View {
+    @EnvironmentObject private var drag: RigDragController
+
+    var body: some View {
+        if let item = drag.item {
+            GearArtView(item: item)
+                .frame(width: 44, height: 56)
+                .padding(8)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(RigTheme.backgroundLift)
+                        .shadow(color: .black.opacity(0.55), radius: 12, y: 5)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(RigTheme.amber.opacity(0.85), lineWidth: 1.5)
+                )
+                .scaleEffect(1.12)
+                .position(drag.location)
+                .allowsHitTesting(false)
+        }
+    }
+}
+
 #Preview {
     MainView()
         .environmentObject(RigStore.preview)
+        .environmentObject(RigDragController())
         .preferredColorScheme(.dark)
 }

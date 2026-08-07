@@ -45,4 +45,5 @@ struct ContentView: View {
 #Preview {
     ContentView()
         .environmentObject(RigStore.preview)
+        .environmentObject(RigDragController())
 }

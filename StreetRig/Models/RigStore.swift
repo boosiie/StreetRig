@@ -114,6 +114,24 @@ final class RigStore: ObservableObject {
         rig.pedalIds.removeAll { $0 == id }
     }
 
+    /// Replace the pedal currently occupying `slotId`'s spot with `dropped`,
+    /// keeping the board in signal-chain order and never leaving a duplicate id.
+    /// Used by the rig stage's drag-to-replace: drop a pedal onto a specific
+    /// pedal to swap that one. Falls back to a plain add for a non-pedal.
+    func replacePedal(_ slotId: UUID, with dropped: GearItem) {
+        guard dropped.category.isPedal else { apply(dropped); return }
+        var ids = rig.pedalIds
+        // Drop any existing copy of the incoming pedal so the chain stays unique.
+        ids.removeAll { $0 == dropped.id }
+        if let idx = ids.firstIndex(of: slotId) {
+            ids[idx] = dropped.id            // swap the hovered pedal in place
+        } else if !ids.contains(dropped.id) {
+            ids.append(dropped.id)           // slot was the incoming pedal itself (self-drop)
+        }
+        ids.sort { chainOrder(of: $0) < chainOrder(of: $1) }
+        rig.pedalIds = ids
+    }
+
     func movePedal(fromOffsets: IndexSet, toOffset: Int) {
         rig.pedalIds.move(fromOffsets: fromOffsets, toOffset: toOffset)
     }
