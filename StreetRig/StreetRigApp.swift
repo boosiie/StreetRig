@@ -10,6 +10,7 @@ import SwiftUI
 @main
 struct StreetRigApp: App {
     @StateObject private var store = RigStore()
+    @StateObject private var dragController = RigDragController()
 
     init() {
         #if DEBUG
@@ -25,6 +26,7 @@ struct StreetRigApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(store)
+                .environmentObject(dragController)
         }
     }
 }

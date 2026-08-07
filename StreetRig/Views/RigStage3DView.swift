@@ -22,6 +22,14 @@ import SwiftUI
 import SceneKit
 import UIKit
 
+/// What a dragged gear card would replace on the 3D stage, resolved by what the
+/// finger is hovering over. `nil` means "no specific piece" → the caller falls
+/// back to a category-based apply (amp/cab replace the stack, a pedal is added).
+enum RigDropTarget: Equatable {
+    case ampStack
+    case pedal(UUID)
+}
+
 struct RigStage3DView: UIViewRepresentable {
     var amp: GearItem?
     var pedals: [GearItem]
@@ -30,6 +38,13 @@ struct RigStage3DView: UIViewRepresentable {
     var focused: RigComponent?
     /// Fired after stage 1 lands, so the stage can open the zoom overlay (stage 2).
     var onFocus: ((RigComponent) -> Void)? = nil
+    /// Fired when a gear card is dropped on the stage. `target` is the specific
+    /// piece under the finger (highlighted during the drag), or nil for a
+    /// drop that didn't land on a compatible piece.
+    var onDrop: ((RigDropTarget?, GearItem) -> Void)? = nil
+    /// The custom drag controller. This view wires it to the live scene so the
+    /// rail's drag can hit-test and highlight the 3D models under the finger.
+    var controller: RigDragController
 
     func makeCoordinator() -> Coordinator { Coordinator(onFocus: onFocus) }
 
@@ -42,9 +57,10 @@ struct RigStage3DView: UIViewRepresentable {
         view.autoenablesDefaultLighting = false
 
         // One camera controller orbits the whole diorama around its center.
+        // Inertia off so releasing hands straight over to the gentle spring-back.
         view.allowsCameraControl = true
         view.defaultCameraController.interactionMode = .orbitTurntable
-        view.defaultCameraController.inertiaEnabled = true
+        view.defaultCameraController.inertiaEnabled = false
         view.defaultCameraController.target = RigDiorama.lookTarget
         view.defaultCameraController.minimumVerticalAngle = -6      // don't dip under the floor
         view.defaultCameraController.maximumVerticalAngle = 80
@@ -56,12 +72,37 @@ struct RigStage3DView: UIViewRepresentable {
                                          action: #selector(Coordinator.handleTap(_:)))
         tap.delegate = context.coordinator
         view.addGestureRecognizer(tap)
+
+        // Watch the orbit gesture (alongside the built-in camera control) so we can
+        // gently spring the view back to the centered pose when the user lets go.
+        let orbit = UIPanGestureRecognizer(target: context.coordinator,
+                                           action: #selector(Coordinator.handleOrbitPan(_:)))
+        orbit.delegate = context.coordinator
+        view.addGestureRecognizer(orbit)
+
+        // Wire the custom drag controller into this live scene. As the rail's
+        // drag moves, `onMove` hit-tests the models under the finger and glows the
+        // piece it would replace; `onDrop` swaps it. Points arrive in this view's
+        // coordinate space (the controller subtracts the stage's frame origin).
+        let coord = context.coordinator
+        controller.onMove = { [weak coord] point, item in
+            coord?.highlightForDrag(at: point, item: item)
+        }
+        controller.onClear = { [weak coord] in
+            coord?.setHighlight(nil)
+            coord?.currentTarget = nil
+        }
+        controller.onDrop = { [weak coord] item in
+            guard let coord else { return }
+            coord.dropHandler?(coord.currentTarget, item)
+        }
         return view
     }
 
     func updateUIView(_ view: SCNView, context: Context) {
         let coord = context.coordinator
         coord.onFocus = onFocus
+        coord.dropHandler = onDrop
 
         let sig = RigDiorama.signature(amp: amp, pedals: pedals, guitar: guitar)
         if coord.signature != sig {
@@ -78,6 +119,7 @@ struct RigStage3DView: UIViewRepresentable {
 
     /// Rebuild the scene but keep the user's current camera orientation.
     private func rebuild(_ view: SCNView, context: Context) {
+        context.coordinator.clearHighlight()      // old nodes are about to be replaced
         let scene = RigDiorama.make(amp: amp, pedals: pedals, guitar: guitar)
         view.scene = scene
         view.pointOfView = scene.rootNode.childNode(withName: "camera", recursively: false)
@@ -91,6 +133,7 @@ struct RigStage3DView: UIViewRepresentable {
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var onFocus: ((RigComponent) -> Void)?
+        var dropHandler: ((RigDropTarget?, GearItem) -> Void)?
         weak var view: SCNView?
         var signature = ""
 
@@ -101,6 +144,12 @@ struct RigStage3DView: UIViewRepresentable {
         var animatingForward = false
 
         private var knobs: [String: SCNNode] = [:]
+
+        // Drag-to-replace state (driven by RigDragController).
+        var currentTarget: RigDropTarget?             // what a drop right now would replace
+        private var highlightedNode: SCNNode?
+        // Each affected material saved ONCE (deduped) so shared materials restore cleanly.
+        private var savedMultiply: [(material: SCNMaterial, contents: Any?, intensity: CGFloat)] = []
 
         init(onFocus: ((RigComponent) -> Void)?) { self.onFocus = onFocus }
 
@@ -121,22 +170,35 @@ struct RigStage3DView: UIViewRepresentable {
 
         @objc func handleTap(_ g: UITapGestureRecognizer) {
             guard let view, focusedNow == nil else { return }        // ignore taps while focused
-            let hits = view.hitTest(g.location(in: view),
-                                    options: [.searchMode: SCNHitTestSearchMode.all.rawValue])
+            guard let (component, node) = componentUnderPoint(g.location(in: view)) else { return }
+            switch component {
+            case .pedal:                     focus(on: node, component: component)
+            case .amp, .cabinet, .combo:     focus(on: node, component: .amp)
+            case .guitar:                    break     // no controls to adjust
+            }
+        }
+
+        /// Hit-test the scene at `point` and walk up to the nearest named gear
+        /// group, returning which component it is and that group node. Shared by
+        /// tap-to-focus and drag-to-replace.
+        func componentUnderPoint(_ point: CGPoint) -> (RigComponent, SCNNode)? {
+            guard let view else { return nil }
+            let hits = view.hitTest(point, options: [.searchMode: SCNHitTestSearchMode.all.rawValue])
             for hit in hits {
                 var node: SCNNode? = hit.node
-                while let n = node {                       // walk up to a named group
+                while let n = node {
                     if let name = n.name {
                         if name.hasPrefix("pedal_"),
                            let id = UUID(uuidString: String(name.dropFirst("pedal_".count))) {
-                            focus(on: n, component: .pedal(id)); return
+                            return (.pedal(id), n)
                         }
-                        if name == "ampRoot" { focus(on: n, component: .amp); return }
-                        // Guitar is intentionally not focusable — no controls to adjust.
+                        if name == "ampRoot"    { return (.amp, n) }
+                        if name == "guitarRoot" { return (.guitar, n) }
                     }
                     node = n.parent
                 }
             }
+            return nil
         }
 
         /// Stage 1: fly the camera in to center `node` and view its control face
@@ -175,6 +237,44 @@ struct RigStage3DView: UIViewRepresentable {
             }
             cam.position = RigDiorama.cameraPosition
             cam.eulerAngles = SCNVector3(RigDiorama.cameraPitch, 0, 0)
+            SCNTransaction.commit()
+        }
+
+        // MARK: Orbit → gentle spring back to center
+
+        @objc func handleOrbitPan(_ g: UIPanGestureRecognizer) {
+            guard focusedNow == nil, let cam = view?.pointOfView else { return }
+            switch g.state {
+            case .began:
+                // Catch the camera mid-return (if any) so this orbit resumes from
+                // there without a jump.
+                cam.position = cam.presentation.position
+                cam.orientation = cam.presentation.orientation
+                cam.removeAllAnimations()
+            case .ended, .cancelled, .failed:
+                springBackToCenter()
+            default:
+                break
+            }
+        }
+
+        /// Gently ease the camera back to the centered pose when the user lets go.
+        /// The orientation animates as a quaternion (shortest arc — it never unwraps
+        /// the long way around) alongside the position, so the rig eases smoothly
+        /// back into frame instead of swinging out and snapping back.
+        private func springBackToCenter() {
+            guard focusedNow == nil, let cam = view?.pointOfView else { return }
+            let aim = SCNNode()
+            aim.position = RigDiorama.cameraPosition
+            aim.look(at: RigDiorama.lookTarget)          // orientation that frames the rig
+            SCNTransaction.begin()
+            SCNTransaction.animationDuration = 0.55
+            SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeOut)
+            SCNTransaction.completionBlock = { [weak view] in
+                view?.defaultCameraController.target = RigDiorama.lookTarget
+            }
+            cam.position = RigDiorama.cameraPosition
+            cam.orientation = aim.orientation
             SCNTransaction.commit()
         }
 
@@ -218,6 +318,87 @@ struct RigStage3DView: UIViewRepresentable {
         // Let taps coexist with the camera controller's orbit gesture.
         func gestureRecognizer(_ g: UIGestureRecognizer,
                                shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+        // MARK: Drag-to-replace (driven by RigDragController)
+
+        /// Given a finger point in this view's coordinate space and the card being
+        /// dragged, hit-test the models, remember what a drop would replace, and
+        /// glow that piece. Called continuously as the drag moves.
+        /// Called continuously as a card is dragged over the stage. The finger is
+        /// already known to be within the stage area (the controller only forwards
+        /// in-stage points), so we pick a target by the dragged item's category —
+        /// no pixel-precise hover needed — and glow that piece.
+        func highlightForDrag(at point: CGPoint, item: GearItem) {
+            let target = dragTarget(for: item, at: point)
+            currentTarget = target
+            setHighlight(node(for: target))
+        }
+
+        /// The piece a drop would replace, given the dragged item and finger point.
+        /// Amp/cab/combo always target the one amp stack; a pedal targets whichever
+        /// pedal is nearest the finger; the guitar isn't swappable.
+        private func dragTarget(for item: GearItem, at point: CGPoint) -> RigDropTarget? {
+            switch item.category {
+            case .guitar:                   return nil
+            case .amp, .cabinet, .comboAmp: return .ampStack
+            default:                        return nearestPedalId(to: point).map(RigDropTarget.pedal)
+            }
+        }
+
+        /// The named group node for a target (the amp stack, or a specific pedal).
+        private func node(for target: RigDropTarget?) -> SCNNode? {
+            guard let root = view?.scene?.rootNode else { return nil }
+            switch target {
+            case .ampStack:      return root.childNode(withName: "ampRoot", recursively: true)
+            case .pedal(let id): return root.childNode(withName: "pedal_\(id.uuidString)", recursively: true)
+            case nil:            return nil
+            }
+        }
+
+        /// The id of the pedal whose on-screen position is closest to `point`.
+        private func nearestPedalId(to point: CGPoint) -> UUID? {
+            guard let view, let root = view.scene?.rootNode else { return nil }
+            var best: (id: UUID, dist: CGFloat)?
+            root.enumerateChildNodes { node, _ in
+                guard let name = node.name, name.hasPrefix("pedal_"),
+                      let id = UUID(uuidString: String(name.dropFirst("pedal_".count))) else { return }
+                let screen = view.projectPoint(node.worldPosition)
+                let dist = hypot(CGFloat(screen.x) - point.x, CGFloat(screen.y) - point.y)
+                if best == nil || dist < best!.dist { best = (id, dist) }
+            }
+            return best?.id
+        }
+
+        /// Highlight `node` with a steady, darker tone across its whole hierarchy
+        /// (knobs and small parts included), restoring any previously highlighted
+        /// node first. Uses the `multiply` channel so it dims the real colors
+        /// rather than recoloring — dark, but deliberately kept above black.
+        func setHighlight(_ node: SCNNode?) {
+            if node === highlightedNode { return }
+            clearHighlight()
+            guard let node else { return }
+            highlightedNode = node
+
+            let darken = UIColor(white: 0.24, alpha: 1)   // clearly darker, but not black
+            var seen = Set<ObjectIdentifier>()
+            node.enumerateHierarchy { child, _ in
+                guard let materials = child.geometry?.materials else { return }
+                for m in materials where seen.insert(ObjectIdentifier(m)).inserted {
+                    savedMultiply.append((m, m.multiply.contents, m.multiply.intensity))
+                    m.multiply.contents = darken
+                    m.multiply.intensity = 1.0
+                }
+            }
+        }
+
+        func clearHighlight() {
+            for saved in savedMultiply {
+                saved.material.multiply.contents = saved.contents
+                saved.material.multiply.intensity = saved.intensity
+            }
+            savedMultiply.removeAll()
+            highlightedNode = nil
+        }
     }
 }
 
@@ -281,11 +462,11 @@ enum RigDiorama {
 
         // ---- Lighting + grounding shadows + camera.
         Studio3D.addLighting(to: scene)
-        Studio3D.addContactShadow(to: scene.rootNode, width: 2.8, height: 2.0, at: SCNVector3(-0.1, 0.02, -0.85))
+        Studio3D.addContactShadow(to: scene.rootNode, width: 3.4, height: 2.5, at: SCNVector3(-0.1, 0.02, -0.85))
         if !pedals.isEmpty {
-            Studio3D.addContactShadow(to: scene.rootNode, width: 3.0, height: 1.2, at: SCNVector3(-0.1, 0.02, 0.35))
+            Studio3D.addContactShadow(to: scene.rootNode, width: 3.6, height: 1.6, at: SCNVector3(-0.1, 0.02, 0.4))
         }
-        Studio3D.addContactShadow(to: scene.rootNode, width: 1.3, height: 1.1, at: SCNVector3(1.8, 0.02, -0.2))
+        Studio3D.addContactShadow(to: scene.rootNode, width: 1.7, height: 1.4, at: SCNVector3(1.8, 0.02, -0.2))
 
         // Natural 3/4 "living-room" view, pulled back a touch so the full amp
         // (head included) fits. Horizontal projection makes the fov span the
@@ -304,7 +485,8 @@ enum RigDiorama {
                  GearItem(name: "Carbon Copy", category: .delay),
                  GearItem(name: "Boss RV-6", category: .reverb)],
         guitar: GearItem(name: "Les Paul Standard", category: .guitar),
-        focused: nil
+        focused: nil,
+        controller: RigDragController()
     )
     .frame(height: 460)
     .background(RigTheme.background)

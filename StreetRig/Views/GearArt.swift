@@ -16,16 +16,25 @@ struct GearArtView: View {
     let item: GearItem?
 
     var body: some View {
-        let category = item?.category ?? .overdrive
-        switch category {
-        case .guitar:   GuitarBodyArt()
-        case .amp:      AmpHeadArt()
-        case .cabinet:  CabinetArt()
-        case .comboAmp: ComboArt()
-        case .wah:      WahArt()
-        default:
-            let s = Self.spec(name: (item?.name ?? "").lowercased(), category: category)
-            PedalArt(tint: s.tint, knobs: s.knobs, label: s.label, treadle: s.treadle, light: s.light)
+        // Custom-icon seam: if a designer dropped a named asset into
+        // Assets.xcassets for this piece (see GearIconLoader), it overrides the
+        // procedural art everywhere. Otherwise fall through to the built-in art.
+        if let custom = GearIconLoader.image(for: item) {
+            custom
+                .resizable()
+                .aspectRatio(contentMode: .fit)   // fit the per-category frame; never distort
+        } else {
+            let category = item?.category ?? .overdrive
+            switch category {
+            case .guitar:   GuitarBodyArt()
+            case .amp:      AmpHeadArt()
+            case .cabinet:  CabinetArt()
+            case .comboAmp: ComboArt()
+            case .wah:      WahArt()
+            default:
+                let s = Self.spec(name: (item?.name ?? "").lowercased(), category: category)
+                PedalArt(tint: s.tint, knobs: s.knobs, label: s.label, treadle: s.treadle, light: s.light)
+            }
         }
     }
 
@@ -351,21 +360,42 @@ private extension Color {
 #Preview {
     let names = ["Tube Screamer", "Big Muff", "Dyna Comp", "Phase 90", "Carbon Copy",
                  "Ditto Looper", "Boss TU-3", "CE-2 Chorus", "Boss RV-6", "Cry Baby"]
-    return ScrollView(.horizontal) {
-        HStack(spacing: 12) {
-            ForEach(names, id: \.self) { name in
-                let cat: GearCategory = name == "Cry Baby" ? .wah : .overdrive
+    return VStack(alignment: .leading, spacing: 20) {
+        // Override vs fallback: Tube Screamer ships a custom `tube-screamer`
+        // asset (renders the bespoke image); Big Muff has none (procedural art).
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Custom override  vs.  procedural fallback")
+                .font(.caption2.weight(.bold)).foregroundStyle(RigTheme.textMuted)
+            HStack(spacing: 24) {
                 VStack {
-                    GearArtView(item: GearItem(name: name, category: cat))
+                    GearArtView(item: GearItem(name: "Tube Screamer", category: .overdrive))
                         .frame(width: 40, height: 54)
-                    Text(name).font(.caption2)
+                    Text("Tube Screamer\n(custom)").font(.caption2).multilineTextAlignment(.center)
+                }
+                VStack {
+                    GearArtView(item: GearItem(name: "Big Muff", category: .overdrive))
+                        .frame(width: 40, height: 54)
+                    Text("Big Muff\n(fallback)").font(.caption2).multilineTextAlignment(.center)
                 }
             }
-            GearArtView(item: GearItem(name: "Marshall JCM800", category: .amp)).frame(width: 80, height: 54)
-            GearArtView(item: GearItem(name: "1960A", category: .cabinet)).frame(width: 70, height: 64)
         }
-        .padding()
+        Divider().overlay(Color.white.opacity(0.2))
+        ScrollView(.horizontal) {
+            HStack(spacing: 12) {
+                ForEach(names, id: \.self) { name in
+                    let cat: GearCategory = name == "Cry Baby" ? .wah : .overdrive
+                    VStack {
+                        GearArtView(item: GearItem(name: name, category: cat))
+                            .frame(width: 40, height: 54)
+                        Text(name).font(.caption2)
+                    }
+                }
+                GearArtView(item: GearItem(name: "Marshall JCM800", category: .amp)).frame(width: 80, height: 54)
+                GearArtView(item: GearItem(name: "1960A", category: .cabinet)).frame(width: 70, height: 64)
+            }
+        }
     }
+    .padding()
     .background(RigTheme.background)
     .preferredColorScheme(.dark)
 }

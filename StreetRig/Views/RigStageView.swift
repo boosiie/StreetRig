@@ -20,6 +20,7 @@ enum RigComponent: Hashable {
 
 struct RigStageView: View {
     @EnvironmentObject var store: RigStore
+    @EnvironmentObject var drag: RigDragController
     @Binding var focused: RigComponent?
 
     @State private var tilt: CGSize = .zero
@@ -36,10 +37,25 @@ struct RigStageView: View {
 
             if use3DStage {
                 // The whole rig orbits together as one scene — no SwiftUI warp.
-                RigStage3DView(amp: store.ampItem, pedals: store.pedalItems, guitar: store.guitar,
-                               focused: focused) { component in
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) { focused = component }
-                }
+                // Dragging a card over it glows the exact piece it would replace
+                // (handled inside RigStage3DView) and drops swap that piece.
+                RigStage3DView(
+                    amp: store.ampItem, pedals: store.pedalItems, guitar: store.guitar,
+                    focused: focused,
+                    onFocus: { component in
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) { focused = component }
+                    },
+                    onDrop: { target, item in
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) {
+                            switch target {
+                            case .pedal(let id): store.replacePedal(id, with: item)
+                            case .ampStack, .none: store.apply(item)
+                            }
+                        }
+                    },
+                    controller: drag
+                )
+                .background(stageFrameReader)
                 .padding(.horizontal, 8)
                 .padding(.top, 20)
             } else {
@@ -48,6 +64,8 @@ struct RigStageView: View {
                     .rotation3DEffect(.degrees(Double(-tilt.height)), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
                     .simultaneousGesture(rotateDrag)
                     .padding(.top, 26)
+                    .background(stageFrameReader)
+                    .onAppear { wireVectorDrop() }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -59,11 +77,28 @@ struct RigStageView: View {
                 .opacity(isTargeted ? 0.9 : 0)
                 .animation(.easeInOut(duration: 0.15), value: isTargeted)
         }
-        .dropDestination(for: GearItem.self) { items, _ in
-            guard let first = items.first else { return false }
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) { store.apply(first) }
-            return true
-        } isTargeted: { isTargeted = $0 }
+    }
+
+    /// Reports the stage's frame (in the shared "appRoot" space) to the drag
+    /// controller, so it can map the finger position into the scene for hit-testing.
+    private var stageFrameReader: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear { drag.stageFrame = proxy.frame(in: .named("appRoot")) }
+                .onChange(of: proxy.frame(in: .named("appRoot"))) { _, frame in
+                    drag.stageFrame = frame
+                }
+        }
+    }
+
+    /// The flat vector fallback has no per-piece hit-testing, so a drop anywhere
+    /// on it just applies the item by category (amp/cab replace, a pedal is added).
+    private func wireVectorDrop() {
+        drag.onMove = { _, _ in isTargeted = true }
+        drag.onClear = { isTargeted = false }
+        drag.onDrop = { item in
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) { store.apply(item) }
+        }
     }
 
     // MARK: - Vector fallback (flag off, or a combo amp)
@@ -168,5 +203,6 @@ struct RigStageView: View {
 #Preview {
     RigStageView(focused: .constant(nil))
         .environmentObject(RigStore.preview)
+        .environmentObject(RigDragController())
         .preferredColorScheme(.dark)
 }

@@ -15,6 +15,16 @@ struct ComponentDetailView: View {
     let component: RigComponent
     var onClose: () -> Void
 
+    /// The value currently being typed into the keypad (nil = keypad closed).
+    @State private var editing: KeypadEdit?
+
+    /// Which parameter's number the keypad is editing.
+    struct KeypadEdit: Identifiable {
+        let itemId: UUID
+        let param: GearParameter
+        var id: String { param.name }
+    }
+
     private var item: GearItem? {
         switch component {
         case .guitar: return store.guitar
@@ -54,7 +64,24 @@ struct ComponentDetailView: View {
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 16)
+
+            // Tap a number → this keypad slides in to set it exactly.
+            if let edit = editing {
+                NumberKeypad(
+                    title: edit.param.name,
+                    initial: store.item(edit.itemId)?.values[edit.param.name] ?? 0,
+                    range: edit.param.min...edit.param.max,
+                    onCancel: { editing = nil },
+                    onCommit: { newValue in
+                        store.binding(itemId: edit.itemId, param: edit.param.name).wrappedValue = newValue
+                        editing = nil
+                    }
+                )
+                .transition(.opacity)
+                .zIndex(1)
+            }
         }
+        .animation(.easeInOut(duration: 0.15), value: editing?.id)
     }
 
     // MARK: - Header
@@ -143,10 +170,23 @@ struct ComponentDetailView: View {
                         Slider(value: store.binding(itemId: id, param: param.name),
                                in: param.min...param.max)
                             .tint(RigTheme.amber)
-                        Text(String(format: "%.1f", store.item(id)?.values[param.name] ?? 0))
-                            .font(.footnote.monospacedDigit())
-                            .foregroundStyle(RigTheme.textMuted)
-                            .frame(width: 34, alignment: .trailing)
+                        // Tap the number to type an exact value on the keypad.
+                        Button {
+                            editing = KeypadEdit(itemId: id, param: param)
+                        } label: {
+                            Text(String(format: "%.1f", store.item(id)?.values[param.name] ?? 0))
+                                .font(.footnote.monospacedDigit().weight(.semibold))
+                                .foregroundStyle(RigTheme.amber)
+                                .frame(width: 42, alignment: .trailing)
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 7)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .fill(RigTheme.amber.opacity(0.14))
+                                )
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -196,6 +236,104 @@ struct InteractiveKnob: View {
                     .onEnded { _ in startValue = nil }
             )
         }
+    }
+}
+
+/// A compact numeric keypad for typing an exact parameter value (0–10 knobs).
+struct NumberKeypad: View {
+    let title: String
+    let initial: Double
+    let range: ClosedRange<Double>
+    var onCancel: () -> Void
+    var onCommit: (Double) -> Void
+
+    @State private var text: String = ""
+
+    private let rows: [[String]] = [["1", "2", "3"], ["4", "5", "6"],
+                                    ["7", "8", "9"], [".", "0", "⌫"]]
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.55)
+                .ignoresSafeArea()
+                .onTapGesture(perform: onCancel)
+
+            VStack(spacing: 14) {
+                Text(title.uppercased())
+                    .font(.caption.weight(.bold)).tracking(1.5)
+                    .foregroundStyle(RigTheme.textMuted)
+
+                Text(text.isEmpty ? "0" : text)
+                    .font(.system(size: 40, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(RigTheme.textPrimary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.black.opacity(0.3)))
+
+                Text("Range \(fmt(range.lowerBound))–\(fmt(range.upperBound))")
+                    .font(.caption2).foregroundStyle(RigTheme.textMuted)
+
+                VStack(spacing: 10) {
+                    ForEach(rows, id: \.self) { row in
+                        HStack(spacing: 10) {
+                            ForEach(row, id: \.self) { key in keyButton(key) }
+                        }
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    action("Cancel", tint: RigTheme.textMuted, action: onCancel)
+                    action("Set", tint: RigTheme.amber, filled: true, action: commit)
+                }
+            }
+            .padding(20)
+            .frame(width: 300)
+            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(RigTheme.backgroundLift))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
+        }
+        .onAppear { if text.isEmpty { text = fmt(initial) } }
+    }
+
+    private func keyButton(_ key: String) -> some View {
+        Button { tap(key) } label: {
+            Text(key)
+                .font(.title2.weight(.medium))
+                .foregroundStyle(RigTheme.textPrimary)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func action(_ label: String, tint: Color, filled: Bool = false,
+                        action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label).font(.body.weight(.semibold))
+                .foregroundStyle(filled ? .black : tint)
+                .frame(maxWidth: .infinity, minHeight: 46)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(filled ? tint : Color.white.opacity(0.06)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func tap(_ key: String) {
+        switch key {
+        case "⌫": if !text.isEmpty { text.removeLast() }
+        case ".": if !text.contains(".") { text = text.isEmpty ? "0." : text + "." }
+        default:  if text.replacingOccurrences(of: ".", with: "").count < 4 { text += key }
+        }
+    }
+
+    private func commit() {
+        let value = Double(text) ?? initial
+        onCommit(min(range.upperBound, max(range.lowerBound, value)))
+    }
+
+    private func fmt(_ d: Double) -> String {
+        d == d.rounded() ? String(format: "%.0f", d) : String(format: "%.1f", d)
     }
 }
 
