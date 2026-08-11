@@ -142,6 +142,10 @@ struct RigStage3DView: UIViewRepresentable {
         /// True while stage 1 (the fly-in) is animating, so the return handler
         /// in updateUIView doesn't misfire before stage 2 has even opened.
         var animatingForward = false
+        /// The diorama zoom radius (distance from lookTarget) captured the instant
+        /// the user tapped into focus, so closing the overlay restores THEIR zoom
+        /// rather than the fixed far default. nil until the first focus.
+        var preFocusDistance: Float?
 
         private var knobs: [String: SCNNode] = [:]
 
@@ -207,6 +211,11 @@ struct RigStage3DView: UIViewRepresentable {
             guard let view, let cam = view.pointOfView else { return }
             focusedNow = component
             animatingForward = true
+            // Remember the diorama zoom before we take over the camera, so closing the
+            // overlay (resetCamera) returns to the distance the user chose instead of
+            // the far default. Read the on-screen (presentation) distance so it's right
+            // even if a spring-back was still easing when they tapped.
+            preFocusDistance = RigDiorama.distance(from: cam.presentation.position, to: RigDiorama.lookTarget)
             view.allowsCameraControl = false                 // take over the camera
 
             let (pos, ori) = focusPose(for: node, component: component)
@@ -224,9 +233,16 @@ struct RigStage3DView: UIViewRepresentable {
         }
 
         /// Fly the camera back to the diorama and hand control back to the user.
+        /// Gently recenters the viewing ANGLE to the home framing while restoring the
+        /// user's pre-focus zoom (the distance captured in `focus(on:)`), so closing
+        /// the overlay no longer shoves the camera out to the fixed far pose. The
+        /// orientation eases as a quaternion via `framedPose` (shortest arc) rather
+        /// than `eulerAngles`, which could unwrap the long way around.
         func resetCamera() {
             focusedNow = nil
             guard let view, let cam = view.pointOfView else { return }
+            let (pos, ori) = RigDiorama.framedPose(
+                atDistanceFromTarget: preFocusDistance ?? RigDiorama.defaultCameraDistance)
             SCNTransaction.begin()
             SCNTransaction.animationDuration = 0.5
             SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -235,22 +251,25 @@ struct RigStage3DView: UIViewRepresentable {
                 view.defaultCameraController.target = RigDiorama.lookTarget
                 view.allowsCameraControl = true
             }
-            cam.position = RigDiorama.cameraPosition
-            cam.eulerAngles = SCNVector3(RigDiorama.cameraPitch, 0, 0)
+            cam.position = pos
+            cam.orientation = ori
             SCNTransaction.commit()
         }
 
         // MARK: Orbit → gentle spring back to center
 
         @objc func handleOrbitPan(_ g: UIPanGestureRecognizer) {
-            guard focusedNow == nil, let cam = view?.pointOfView else { return }
+            guard focusedNow == nil, let view, let cam = view.pointOfView else { return }
             switch g.state {
             case .began:
-                // Catch the camera mid-return (if any) so this orbit resumes from
-                // there without a jump.
+                // Catch the camera mid-return (if any) so this orbit resumes from there
+                // without a jump, and make sure control is back on in case the snap had
+                // taken it offline.
                 cam.position = cam.presentation.position
                 cam.orientation = cam.presentation.orientation
                 cam.removeAllAnimations()
+                cam.removeAllActions()          // stop the snapback glide, if any
+                view.allowsCameraControl = true
             case .ended, .cancelled, .failed:
                 springBackToCenter()
             default:
@@ -258,23 +277,38 @@ struct RigStage3DView: UIViewRepresentable {
             }
         }
 
-        /// Gently ease the camera back to the centered pose when the user lets go.
-        /// The orientation animates as a quaternion (shortest arc — it never unwraps
-        /// the long way around) alongside the position, so the rig eases smoothly
-        /// back into frame instead of swinging out and snapping back.
+        /// Snap the camera back to the framed home view when the user lets go — keeping
+        /// their zoom (distance) and easing straight to the home ANGLE, ending square.
+        ///
+        /// This mirrors the fly-IN exactly: take the camera offline
+        /// (`allowsCameraControl = false`, handed back on landing) and let a single
+        /// SCNTransaction ease both position and orientation to the exact home pose.
+        /// SCNTransaction is Core-Animation driven, so it always advances and settles
+        /// precisely on the final values — no frozen frames, no partial move, no end
+        /// teleport. (Hand-driving it per frame with an SCNAction stalled against the
+        /// render loop, which is what left the camera on a weird angle until the final
+        /// set snapped it straight.) Offline also stops the camera controller fighting it.
         private func springBackToCenter() {
-            guard focusedNow == nil, let cam = view?.pointOfView else { return }
-            let aim = SCNNode()
-            aim.position = RigDiorama.cameraPosition
-            aim.look(at: RigDiorama.lookTarget)          // orientation that frames the rig
+            guard focusedNow == nil, let view, let cam = view.pointOfView else { return }
+            let distance = RigDiorama.distance(from: cam.presentation.position, to: RigDiorama.lookTarget)
+            let (end, endOrientation) = RigDiorama.framedPose(atDistanceFromTarget: distance)
+
+            view.allowsCameraControl = false               // take over so nothing fights the ease
+            cam.position = cam.presentation.position        // start from the live pose so it eases,
+            cam.orientation = cam.presentation.orientation  // rather than jumping, from where they let go
+            cam.removeAllAnimations()
+            cam.removeAllActions()
+
             SCNTransaction.begin()
             SCNTransaction.animationDuration = 0.55
-            SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeOut)
+            SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             SCNTransaction.completionBlock = { [weak view] in
-                view?.defaultCameraController.target = RigDiorama.lookTarget
+                guard let view else { return }
+                view.defaultCameraController.target = RigDiorama.lookTarget
+                view.allowsCameraControl = true            // hand control back to the user
             }
-            cam.position = RigDiorama.cameraPosition
-            cam.orientation = aim.orientation
+            cam.position = end                             // straight to the home pose…
+            cam.orientation = endOrientation               // …ending square on the home angle
             SCNTransaction.commit()
         }
 
@@ -413,6 +447,63 @@ enum RigDiorama {
     static let cameraPosition = SCNVector3(0.5, 3.1, 6.9)
     static let cameraPitch: Float = -0.31
     static let cameraFOV: CGFloat = 42
+
+    // MARK: Gentle-recenter framing (orbit release + overlay close)
+    // Both return paths ease the camera's viewing ANGLE back to this canonical home
+    // view while KEEPING the user's chosen zoom (their distance from lookTarget), so
+    // the camera is never shoved back out to the far default. See `framedPose(_:)`.
+
+    /// The default framing distance — ‖cameraPosition − lookTarget‖ ≈ 7.24. The
+    /// distance the diorama was designed around; also the farthest a recenter pulls
+    /// back to (see `maxCameraDistance`) and the fallback when no zoom was captured.
+    static let defaultCameraDistance = distance(from: cameraPosition, to: lookTarget)
+
+    /// Unit vector from lookTarget out to the default camera. A recenter places the
+    /// camera along this direction at the *preserved* distance, so recentering
+    /// changes only the viewing angle and pitch — never the user's zoom.
+    static let homeDirection: SCNVector3 = {
+        let d = defaultCameraDistance
+        guard d > 1e-5 else { return SCNVector3(0, 0, 1) }
+        return SCNVector3((cameraPosition.x - lookTarget.x) / d,
+                          (cameraPosition.y - lookTarget.y) / d,
+                          (cameraPosition.z - lookTarget.z) / d)
+    }()
+
+    /// Bounds the preserved distance is clamped into before easing, so no gear can
+    /// leave the frame at any allowed zoom. `max` = the default framing (never push
+    /// past the pose the diorama was designed around). `min` keeps the widest gear —
+    /// the guitar + stand at world-x ≈ 2.2 — fully inside the 42° horizontal FOV
+    /// (its right edge clips at d ≈ 4.0, so 4.5 leaves a small margin). First-pass
+    /// values, fine to tune on-device.
+    static let maxCameraDistance = defaultCameraDistance
+    static let minCameraDistance: Float = 4.5
+
+    /// Straight-line distance between two points (the camera↔lookTarget zoom radius).
+    static func distance(from p: SCNVector3, to q: SCNVector3) -> Float {
+        let dx = p.x - q.x, dy = p.y - q.y, dz = p.z - q.z
+        return sqrt(dx * dx + dy * dy + dz * dz)
+    }
+
+    /// A centered, home-facing camera pose at a given distance from `lookTarget`.
+    ///
+    /// The position sits along `homeDirection`, so the rig stays centered and the
+    /// pitch matches the designed 3/4 view; only the RADIUS comes from the caller.
+    /// That's how both return paths preserve the user's pinch-zoom instead of
+    /// snapping back to the fixed far `cameraPosition`. The distance is clamped into
+    /// [minCameraDistance, maxCameraDistance] *here* so both paths bound it
+    /// identically and no gear leaves the frame. Orientation comes from `look(at:)`
+    /// → a quaternion, so callers animate the shortest arc back to level.
+    static func framedPose(atDistanceFromTarget rawDistance: Float)
+        -> (position: SCNVector3, orientation: SCNQuaternion) {
+        let d = min(max(rawDistance, minCameraDistance), maxCameraDistance)
+        let position = SCNVector3(lookTarget.x + homeDirection.x * d,
+                                  lookTarget.y + homeDirection.y * d,
+                                  lookTarget.z + homeDirection.z * d)
+        let aim = SCNNode()
+        aim.position = position
+        aim.look(at: lookTarget)          // frames the rig; quaternion → shortest arc
+        return (position, aim.orientation)
+    }
 
     static func signature(amp: GearItem?, pedals: [GearItem], guitar: GearItem?) -> String {
         "\(amp?.id.uuidString ?? "-")|\(guitar?.id.uuidString ?? "-")|"
