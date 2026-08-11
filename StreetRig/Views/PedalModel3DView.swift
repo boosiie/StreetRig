@@ -108,7 +108,8 @@ enum PedalboardScene {
         // Pedals stand on top of the board, in a centered row.
         let startX = -Float(count - 1) * spacing / 2
         for (i, pedal) in pedals.enumerated() {
-            let node = ProceduralPedal.build(for: pedal)
+            // Custom <slug>.usdz for this pedal, else the procedural stompbox.
+            let node = GearModelLoader.modelNode(for: pedal) ?? ProceduralPedal.build(for: pedal)
             node.name = "pedal_\(pedal.id.uuidString)"
             node.position = SCNVector3(startX + Float(i) * spacing, 0, 0.02)
             root.addChildNode(node)

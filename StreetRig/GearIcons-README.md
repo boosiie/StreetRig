@@ -49,8 +49,8 @@ Regex form: replace `[^a-z0-9]+` with `-`, then trim `-`.
 ## Add a custom icon (step by step)
 
 1. **Slug the name.** e.g. `Big Muff` -> `big-muff`.
-2. **Create the imageset folder** on disk:
-   `StreetRig/Assets.xcassets/big-muff.imageset/`
+2. **Create the imageset folder** on disk, in the `GearIcons` group:
+   `StreetRig/Assets.xcassets/GearIcons/big-muff.imageset/`
 3. **Add your image** into that folder — either a PNG or a vector PDF.
 4. **Add `Contents.json`** next to it.
 

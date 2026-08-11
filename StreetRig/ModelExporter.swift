@@ -38,6 +38,10 @@ enum ModelExporter {
         written += export(name: "StreetRig_Guitar", into: docs) { root in
             ProceduralGuitar.buildGuitar(into: root)
         }
+        // Guitar stand on its own — bind the refined file as "guitar-stand.usdz"
+        written += export(name: "StreetRig_Stand", into: docs) { root in
+            ProceduralGuitar.buildStand(into: root)
+        }
 
         print("=== StreetRig model export → \(docs.path) ===")
         written.forEach { print("wrote \($0.lastPathComponent)") }

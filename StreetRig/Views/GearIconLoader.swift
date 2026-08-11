@@ -15,10 +15,10 @@
 //    `GearItem.modelName` .usdz seam, but resolved by name instead of a stored
 //    field — so already-saved rigs keep working untouched.
 //
-//  TO ADD A CUSTOM ICON (designer workflow — see GearIcons-README.md):
+//  TO ADD A CUSTOM ICON (designer workflow — see CUSTOMIZING-GEAR.md):
 //    1. Slug the piece's name with the rule below ("Tube Screamer" ->
 //       "tube-screamer").
-//    2. Create `StreetRig/Assets.xcassets/<slug>.imageset/` on disk, drop in a
+//    2. Create `StreetRig/Assets.xcassets/GearIcons/<slug>.imageset/` on disk, drop in a
 //       PNG (or a preserve-vector PDF) and a `Contents.json`. Xcode-16
 //       synchronized file groups pick it up automatically — no project.pbxproj
 //       edit needed.
