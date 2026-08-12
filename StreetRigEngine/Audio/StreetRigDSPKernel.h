@@ -3,9 +3,11 @@
 //  StreetRig
 //
 //  C ABI for the real-time DSP core that sits inside the custom AUAudioUnit
-//  (`StreetRigDSPUnit`). This header is the *seam*: it is included from Swift
-//  (via StreetRig-Bridging-Header.h) and implemented in C++17
-//  (StreetRigDSPKernel.cpp). Prompt 002 (neural amp + cabinet IR) and prompt
+//  (`StreetRigDSPUnit`). This header is the *seam*: it is the public header of
+//  the StreetRigEngine framework's Clang module (umbrella `StreetRigEngine.h`),
+//  so Swift sees the C ABI via `import StreetRigEngine` — no bridging header —
+//  and it is implemented in C++ (StreetRigDSPKernel.cpp). Prompt 002 (neural
+//  amp + cabinet IR) and prompt
 //  003 (pedal chain + tone stack) extend `SRKernelProcess` and the parameter
 //  set below WITHOUT touching the Swift host or the audio-session plumbing.
 //

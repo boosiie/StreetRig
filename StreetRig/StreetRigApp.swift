@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import StreetRigEngine
 
 @main
 struct StreetRigApp: App {

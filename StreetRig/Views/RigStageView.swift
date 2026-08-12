@@ -11,6 +11,7 @@
 //
 
 import SwiftUI
+import StreetRigEngine
 
 /// Which rig part is in focus (for the zoomed-in view).
 enum RigComponent: Hashable {

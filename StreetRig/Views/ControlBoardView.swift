@@ -9,6 +9,7 @@
 //
 
 import SwiftUI
+import StreetRigEngine
 
 struct ControlBoardView: View {
     @EnvironmentObject var store: RigStore

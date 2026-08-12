@@ -9,6 +9,7 @@
 //
 
 import SwiftUI
+import StreetRigEngine
 
 enum AppPage: Int, CaseIterable, Hashable {
     case library = 0, main = 1, ar = 2

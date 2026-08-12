@@ -15,6 +15,7 @@
 //
 
 import SwiftUI
+import StreetRigEngine
 import Combine
 
 @MainActor

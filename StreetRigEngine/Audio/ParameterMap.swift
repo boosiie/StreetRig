@@ -21,7 +21,7 @@
 
 import Foundation
 
-enum ParameterMap {
+public enum ParameterMap {
 
     /// Normalize a 0…10 knob to 0…1 (clamped).
     @inline(__always) static func norm(_ v: Double) -> Float {
@@ -90,14 +90,15 @@ enum ParameterMap {
     /// that still holds its chain position (clean extension point). Mirrors the
     /// C++ `PedalChain::Type` (0 = transparent, 1 = drive).
     static let typeTransparent = 0
-    static let typeDrive = 1
+    public static let typeDrive = 1
     static func pedalType(for category: GearCategory) -> Int {
         category == .overdrive ? typeDrive : typeTransparent
     }
 
     /// Clip character for a drive pedal, chosen by model. Mirrors the C++
     /// `DrivePedal::Character` (0 = soft, 1 = hard, 2 = fuzz).
-    static let charSoft = 0, charHard = 1, charFuzz = 2
+    static let charSoft = 0, charHard = 1
+    public static let charFuzz = 2
     static func pedalCharacter(name: String) -> Int {
         switch name {
         case "ProCo RAT":                 return charHard   // hard, bright distortion

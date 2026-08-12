@@ -1,6 +1,6 @@
 # Linking StreetRig into On-Device DAWs — AUv3 Extension Build Plan
 
-**Status:** decision-ready · **Date:** 2026-08-11 · **Scope:** ship StreetRig's fully
+**Status:** decision-ready (amended 2026-08-11 with Phase 1–3 implementation findings) · **Date:** 2026-08-11 · **Scope:** ship StreetRig's fully
 processed guitar signal (iRig → pedals → neural amp → cab IR) as a **real-time Audio Unit v3
 audio-effect app extension** (`aufx`) that GarageBand / Logic for iPad / AUM / Cubasis /
 apeMatrix load as an insert plugin on a track — on the **same iOS device**. The user drops
@@ -211,7 +211,10 @@ editor is a compact 2D control surface.
 instantiation (fast, no sandbox hop, unchanged standalone behavior). The **host** discovers
 the *extension* through its `Info.plist`; the extension's factory returns the same class. Both
 can coexist; the app should continue to instantiate in-process so it never accidentally loads
-its own `.appex` out-of-process (§8).
+its own `.appex` out-of-process (§8). **Correction (implemented in Phase 2):** on iOS this is not
+optional and `registerIfNeeded()` alone is insufficient — the app must register/instantiate its
+in-process unit under a **dedicated app-private subtype (`srdi`)**, because instantiating the public
+`srds` resolves to the extension out-of-process. See §8.
 
 ---
 
@@ -526,10 +529,18 @@ runs continuously once Phase 2 lands.
   bundle, so the amp-capture JSON + cab WAVs must ship **in the appex** (copy the `Resources/`)
   or be read from the App Group. Duplicating ~a few hundred KB in the appex is simplest;
   loading real, larger captures later may argue for the shared container.
-- **Registration coexistence (minor).** With the appex installed, `AVAudioUnit.instantiate`
-  could resolve either the in-process subclass or the out-of-process appex. Keep the standalone
-  app instantiating **in-process** (via `registerIfNeeded()`) so it never loads its own
-  extension; verify no double-registration warning.
+- **Registration coexistence — CORRECTED (was underestimated).** *Implementation finding
+  (Phase 2):* on **iOS, AUv3 units instantiate out-of-process by default** (`.loadInProcess` is
+  `API_UNAVAILABLE(ios)`). Once the appex is installed, `AVAudioUnit.instantiate(with: <srds>,
+  options: [])` resolves to the **extension**, so the app's `unit.auAudioUnit as? StreetRigDSPUnit`
+  returns `nil` — silently breaking the standalone engine (the offline null test failed
+  deterministically). The originally-proposed fix (`registerIfNeeded()` + in-process) is
+  **insufficient**. **Implemented fix — dual subtype:** the appex keeps the canonical public
+  **`srds`**; the app registers *and* instantiates its in-process unit under an **app-private
+  subtype `srdi`** (`inProcessComponentDescription`), which no extension advertises, so the app
+  always gets its own class in-process. Public plugin identity (`srds`) is unchanged, so
+  hosts/presets/automation are unaffected. This is the concrete realization of "instantiate
+  in-process, never load your own extension."
 - **Real brand names in `RigStore.catalog` (already flagged by the team).** Gear names
   ("Marshall JCM800", "Tube Screamer", …) currently used as data would surface **publicly** in a
   third-party DAW's preset/parameter/plugin browser. This raises the visibility of the existing

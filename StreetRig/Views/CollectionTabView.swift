@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import StreetRigEngine
 
 struct CollectionTabView: View {
     @EnvironmentObject var store: RigStore

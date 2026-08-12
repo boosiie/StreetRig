@@ -31,61 +31,84 @@ import Combine
 /// Plain, value-typed description of the compiled chain (Sendable so it can be
 /// handed to the background reconfigure queue). Produced on the main thread from
 /// `RigStore`; consumed by the (thread-agnostic) kernel C ABI.
-struct RigDSPPlan: Sendable, Equatable {
-    struct PedalSlot: Sendable, Equatable {
-        var type: Int          // PedalChain::Type — 0 transparent, 1 drive
-        var character: Int     // DrivePedal::Character — 0 soft, 1 hard, 2 fuzz
-        var enabled: Bool
-        var drive: Float       // linear pre-gain
-        var toneHz: Float      // post low-pass cutoff (Hz)
-        var level: Float       // linear output gain
+public struct RigDSPPlan: Sendable, Equatable {
+    public struct PedalSlot: Sendable, Equatable {
+        public var type: Int          // PedalChain::Type — 0 transparent, 1 drive
+        public var character: Int     // DrivePedal::Character — 0 soft, 1 hard, 2 fuzz
+        public var enabled: Bool
+        public var drive: Float       // linear pre-gain
+        public var toneHz: Float      // post low-pass cutoff (Hz)
+        public var level: Float       // linear output gain
     }
 
-    var pedals: [PedalSlot] = []      // in signal-chain order
-    var cabSlot: Int = 0
-    var useNeural: Bool = true
-    var ampBypass: Bool = false
-    var cabBypass: Bool = false
+    public var pedals: [PedalSlot] = []      // in signal-chain order
+    public var cabSlot: Int = 0
+    public var useNeural: Bool = true
+    public var ampBypass: Bool = false
+    public var cabBypass: Bool = false
 
     // Amp continuous params.
-    var ampDrive: Float = 3.0
-    var ampMaster: Float = 1.0
-    var ampBassDB: Float = 0
-    var ampMidDB: Float = 0
-    var ampTrebleDB: Float = 0
-    var ampPresenceDB: Float = 0
+    public var ampDrive: Float = 3.0
+    public var ampMaster: Float = 1.0
+    public var ampBassDB: Float = 0
+    public var ampMidDB: Float = 0
+    public var ampTrebleDB: Float = 0
+    public var ampPresenceDB: Float = 0
 
     /// Topology-only fingerprint (NOT knob values). A change here means a
     /// structural rebuild; identical signature + changed values = a continuous
     /// push.
-    var signature: String = ""
+    public var signature: String = ""
 }
 
-enum RigGraphCompiler {
+public enum RigGraphCompiler {
 
     // MARK: - Compile (main thread — reads the @MainActor RigStore)
 
     @MainActor
-    static func compile(store: RigStore) -> RigDSPPlan {
+    public static func compile(store: RigStore) -> RigDSPPlan {
+        // Thin @MainActor wrapper: pull the value-typed rig out of the store and
+        // hand it to the nonisolated core, so there is ONE compile implementation.
+        compile(collection: store.collection, rig: store.rig)
+    }
+
+    /// Nonisolated compile CORE: turn value-typed rig data (collection + wiring)
+    /// into a `RigDSPPlan`, with no dependency on the `@MainActor` `RigStore`. Used
+    /// by the AUv3 plugin, which owns a SERIALIZED rig snapshot (resolved gear +
+    /// `RigConfiguration`) and has no access to the app's live store. `compile(store:)`
+    /// delegates here; the two are behaviourally identical (`store.pedalItems`,
+    /// `store.ampItem`, `store.cabinetItem`, `store.isCombo` are all derived from
+    /// exactly these two inputs).
+    public static func compile(collection: [GearItem], rig: RigConfiguration) -> RigDSPPlan {
+        func item(_ id: UUID) -> GearItem? { collection.first { $0.id == id } }
+
+        // Amp section (head+cab stack, or a single combo) mirrored from RigStore.
+        let ampItem: GearItem?
+        let cabinetItem: GearItem?
+        let isCombo: Bool
+        switch rig.ampSection {
+        case .stack(let ampId, let cabinetId):
+            ampItem = item(ampId); cabinetItem = item(cabinetId); isCombo = false
+        case .combo(let comboId):
+            ampItem = item(comboId); cabinetItem = nil; isCombo = true
+        }
+
         var plan = RigDSPPlan()
 
-        // Pedals in the store's signal-chain order (already sorted by chainOrder),
-        // capped at the kernel's fixed slot pool.
-        for item in store.pedalItems.prefix(Int(SRMaxPedals)) {
-            let type = ParameterMap.pedalType(for: item.category)
-            let character = ParameterMap.pedalCharacter(name: item.name)
+        // Pedals in signal-chain order (rig.pedalIds is kept chain-sorted by the
+        // store; the snapshot preserves that order), capped at the fixed pool.
+        for gear in rig.pedalIds.compactMap(item).prefix(Int(SRMaxPedals)) {
             plan.pedals.append(.init(
-                type: type,
-                character: character,
+                type: ParameterMap.pedalType(for: gear.category),
+                character: ParameterMap.pedalCharacter(name: gear.name),
                 enabled: true,
-                drive: ParameterMap.pedalDrive(item.values["Drive"] ?? 5),
-                toneHz: ParameterMap.pedalToneHz(item.values["Tone"] ?? 5),
-                level: ParameterMap.pedalLevel(item.values["Level"] ?? 5)
+                drive: ParameterMap.pedalDrive(gear.values["Drive"] ?? 5),
+                toneHz: ParameterMap.pedalToneHz(gear.values["Tone"] ?? 5),
+                level: ParameterMap.pedalLevel(gear.values["Level"] ?? 5)
             ))
         }
 
         // Amp section (head or combo — both expose the same 6 knobs).
-        let ampItem = store.ampItem
         let ampName = ampItem?.name ?? ""
         let v: (String) -> Double = { ampItem?.values[$0] ?? 5 }
         plan.ampDrive       = ParameterMap.ampDrive(gainKnob: v("Gain"))
@@ -97,12 +120,12 @@ enum RigGraphCompiler {
         plan.useNeural      = ParameterMap.ampUsesNeural(name: ampName)
 
         // Cabinet: for a stack the paired cab, for a combo the combo's own box.
-        let cabName = store.isCombo ? ampName : (store.cabinetItem?.name ?? "")
+        let cabName = isCombo ? ampName : (cabinetItem?.name ?? "")
         plan.cabSlot = ParameterMap.cabSlot(name: cabName)
 
         // Topology fingerprint.
         let pedalSig = plan.pedals.map { "\($0.type)/\($0.character)/\($0.enabled ? 1 : 0)" }.joined(separator: ",")
-        plan.signature = "P[\(pedalSig)]|amp:\(plan.useNeural ? "n" : "a")|cab:\(plan.cabSlot)|combo:\(store.isCombo)"
+        plan.signature = "P[\(pedalSig)]|amp:\(plan.useNeural ? "n" : "a")|cab:\(plan.cabSlot)|combo:\(isCombo)"
         return plan
     }
 
@@ -142,7 +165,7 @@ enum RigGraphCompiler {
     /// Apply a whole plan with NO barrier. Correct when the render thread is not
     /// running (offline harness before `renderOffline`, or initial setup) — there
     /// is no concurrent render to race. Structural mutation + clean state + values.
-    nonisolated static func applyImmediate(_ plan: RigDSPPlan, to dsp: StreetRigDSPUnit) {
+    nonisolated public static func applyImmediate(_ plan: RigDSPPlan, to dsp: StreetRigDSPUnit) {
         applyStructure(plan, to: dsp)
         dsp.resetChainState()
         pushValues(plan, to: dsp)
@@ -191,7 +214,7 @@ enum RigGraphCompiler {
 /// on the main actor; the only cross-thread work is the background reconfigure
 /// queue used by `applyHotSwap`.
 @MainActor
-final class RigAudioBridge {
+public final class RigAudioBridge {
     private weak var store: RigStore?
     private let dsp: StreetRigDSPUnit
     private let isRenderLive: () -> Bool
@@ -199,7 +222,7 @@ final class RigAudioBridge {
     private var cancellables = Set<AnyCancellable>()
     private var lastSignature = ""
 
-    init(store: RigStore, dsp: StreetRigDSPUnit, isRenderLive: @escaping () -> Bool) {
+    public init(store: RigStore, dsp: StreetRigDSPUnit, isRenderLive: @escaping () -> Bool) {
         self.store = store
         self.dsp = dsp
         self.isRenderLive = isRenderLive
