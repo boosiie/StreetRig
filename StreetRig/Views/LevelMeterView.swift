@@ -34,7 +34,7 @@ struct LevelMeterView: View {
     var isLive: Bool = true
 
     /// dB marks drawn under the bar. -60 is the signal-present floor; 0 is clip.
-    private static let ticks: [Float] = [-60, -40, -20, -12, -6, 0]
+    private static let ticks: [Float] = [-60, -40, -20, -6, 0]
 
     private var level: AudioLevel {
         channel == .input ? monitor.input : monitor.output
@@ -57,26 +57,35 @@ struct LevelMeterView: View {
         HStack(spacing: 6) {
             Circle()
                 .fill(lampColor(level))
-                .frame(width: 7, height: 7)
+                .frame(width: 8, height: 8)
                 .shadow(color: level.hasSignal ? RigTheme.signal : .clear, radius: 3)
             Text(title)
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: 12, weight: .bold))
                 .tracking(1)
                 .foregroundStyle(RigTheme.textMuted)
+                .lineLimit(1)
+                .fixedSize()
             if let subtitle {
+                // Lowest priority in the row: when the column is tight this is
+                // the part that gives way, because the level and the name of the
+                // meter matter more than which port it came from.
                 Text(subtitle)
-                    .font(.system(size: 10))
+                    .font(.system(size: 11))
                     .foregroundStyle(RigTheme.textMuted.opacity(0.75))
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .layoutPriority(-1)
             }
             Spacer(minLength: 4)
             Text(readout(level))
-                .font(.system(size: 10, weight: .medium).monospacedDigit())
+                .font(.system(size: 13, weight: .medium).monospacedDigit())
                 .foregroundStyle(level.hasSignal ? RigTheme.textPrimary : RigTheme.textMuted)
+                .lineLimit(1)
+                .fixedSize()
             Text("CLIP")
-                .font(.system(size: 9, weight: .bold))
+                .font(.system(size: 10, weight: .bold))
                 .tracking(0.5)
+                .fixedSize()
                 .foregroundStyle(level.isClipping ? RigTheme.clip : RigTheme.textMuted.opacity(0.35))
                 .padding(.horizontal, 4)
                 .padding(.vertical, 1)
@@ -144,7 +153,7 @@ struct LevelMeterView: View {
                     .mask { segmentRow { $0 == holdIndex ? Color.white : .clear } }
             }
         }
-        .frame(height: 16)
+        .frame(height: 18)
     }
 
     /// One row of evenly-spaced segments, coloured by index. Drawn three times —
@@ -177,7 +186,7 @@ struct LevelMeterView: View {
                 ForEach(Self.ticks, id: \.self) { db in
                     let x = width * CGFloat(Self.fraction(db))
                     Text(db == 0 ? "0" : "\(Int(db))")
-                        .font(.system(size: 8, weight: .medium).monospacedDigit())
+                        .font(.system(size: 10, weight: .medium).monospacedDigit())
                         .foregroundStyle(RigTheme.textMuted.opacity(0.7))
                         .fixedSize()
                         // Nudge the end labels inboard so they don't clip.
@@ -185,7 +194,7 @@ struct LevelMeterView: View {
                 }
             }
         }
-        .frame(height: 10)
+        .frame(height: 12)
     }
 
     // MARK: - Scale mapping

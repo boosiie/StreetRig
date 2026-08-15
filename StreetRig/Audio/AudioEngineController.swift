@@ -119,6 +119,10 @@ final class AudioEngineController: ObservableObject {
     init() {
         // Inert on purpose: no session, no engine, no notifications until the
         // player engages. Keeps SwiftUI previews and app launch side-effect free.
+        // (Reading two defaults is not a side effect on the audio stack.)
+        let defaults = UserDefaults.standard
+        asksAboutNewDevices = defaults.object(forKey: Self.asksKey) as? Bool ?? true
+        autoAdoptNewDevices = defaults.object(forKey: Self.adoptKey) as? Bool ?? true
     }
 
     deinit {
@@ -310,6 +314,11 @@ final class AudioEngineController: ObservableObject {
     func primeRoutes() {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playAndRecord, mode: .measurement, options: [.allowBluetoothA2DP])
+        // Listen BEFORE engaging: plugging the iRig in is usually the thing you do
+        // just before pressing Proceed, and that is exactly when being asked about
+        // it is useful. The interruption handler this also installs is inert until
+        // there is an engine to pause.
+        registerObservers()
         refreshRoutes()
     }
 
@@ -321,12 +330,132 @@ final class AudioEngineController: ObservableObject {
         availableInputs = (session.availableInputs ?? []).map {
             RouteOption(name: $0.portName, uid: $0.uid)
         }
+        detectNewDevices(session)
     }
 
     func selectInput(_ option: RouteOption) {
         let session = AVAudioSession.sharedInstance()
         guard let port = (session.availableInputs ?? []).first(where: { $0.uid == option.uid }) else { return }
         try? session.setPreferredInput(port)
+        refreshRoutes()
+    }
+
+    // MARK: - New hardware: ask before switching
+
+    /// Hardware that appeared while the app was running and that the player has
+    /// not been asked about yet.
+    struct DeviceOffer: Identifiable, Equatable {
+        enum Kind: Equatable { case input, output }
+        let kind: Kind
+        let name: String
+        let uid: String
+        /// Kind is part of the identity: the same physical port can legitimately
+        /// show up as both an input and an output (a USB interface, a headset).
+        var id: String { "\(kind == .input ? "in" : "out")-\(uid)" }
+    }
+
+    /// The outstanding question, if any. Nil when there is nothing to ask.
+    @Published private(set) var deviceOffer: DeviceOffer?
+
+    /// "Don't ask me this again". Persisted.
+    @Published var asksAboutNewDevices: Bool {
+        didSet { UserDefaults.standard.set(asksAboutNewDevices, forKey: Self.asksKey) }
+    }
+
+    /// What to DO once we've stopped asking. The checkbox remembers the answer
+    /// the player gave, not merely that they want silence: dismissing the prompt
+    /// with "Use it" ticked means later devices are adopted automatically, while
+    /// "Keep current" means they are ignored. Persisted.
+    @Published var autoAdoptNewDevices: Bool {
+        didSet { UserDefaults.standard.set(autoAdoptNewDevices, forKey: Self.adoptKey) }
+    }
+
+    private static let asksKey = "StreetRig.asksAboutNewDevices"
+    private static let adoptKey = "StreetRig.autoAdoptNewDevices"
+
+    /// Device identities already seen. Primed on the FIRST route read so whatever
+    /// is already plugged in when the app opens is never announced back.
+    private var knownDeviceIDs: Set<String> = []
+    private var hasPrimedKnownDevices = false
+
+    /// Diff the current route against what we've seen. Called from
+    /// `refreshRoutes`, which every route change already runs through.
+    private func detectNewDevices(_ session: AVAudioSession) {
+        let candidates =
+            (session.availableInputs ?? []).map {
+                DeviceOffer(kind: .input, name: $0.portName, uid: $0.uid)
+            }
+            + session.currentRoute.outputs.map {
+                DeviceOffer(kind: .output, name: $0.portName, uid: $0.uid)
+            }
+        let ids = Set(candidates.map(\.id))
+
+        guard hasPrimedKnownDevices else {
+            knownDeviceIDs = ids
+            hasPrimedKnownDevices = true
+            return
+        }
+
+        let fresh = candidates.filter { !knownDeviceIDs.contains($0.id) }
+        knownDeviceIDs.formUnion(ids)
+        guard let offer = fresh.first else { return }
+
+        guard asksAboutNewDevices else {
+            // Answer stored: act on it without interrupting.
+            if autoAdoptNewDevices { adopt(offer) }
+            return
+        }
+        // One question at a time — an unanswered offer is never replaced.
+        guard deviceOffer == nil else { return }
+        deviceOffer = offer
+    }
+
+    /// Answer the outstanding offer. `remember` stops the question being asked
+    /// again and stores `adopt` as the standing answer.
+    func resolveDeviceOffer(_ offer: DeviceOffer, adopt useIt: Bool, remember: Bool) {
+        if useIt { adopt(offer) } else { decline(offer) }
+        if remember {
+            autoAdoptNewDevices = useIt
+            asksAboutNewDevices = false
+        }
+        if deviceOffer == offer { deviceOffer = nil }
+    }
+
+    private func adopt(_ offer: DeviceOffer) {
+        let session = AVAudioSession.sharedInstance()
+        switch offer.kind {
+        case .input:
+            if let port = (session.availableInputs ?? []).first(where: { $0.uid == offer.uid }) {
+                try? session.setPreferredInput(port)
+            }
+        case .output:
+            // iOS has ALREADY routed to the new output by the time the
+            // notification lands, so "use it" means clearing any override we put
+            // in place — the session then follows the newest device itself.
+            try? session.overrideOutputAudioPort(.none)
+        }
+        refreshRoutes()
+    }
+
+    #if DEBUG
+    /// Testing affordance in the same spirit as `-RunOfflineRender`: the Simulator
+    /// never gains or loses hardware, so there is otherwise no way to see this
+    /// prompt without a physical device. Launch with `-ShowDeviceOffer`.
+    func seedDebugDeviceOffer() {
+        deviceOffer = DeviceOffer(kind: .input, name: "iRig HD 2", uid: "debug-irig")
+    }
+    #endif
+
+    private func decline(_ offer: DeviceOffer) {
+        switch offer.kind {
+        case .input:
+            break   // keep whatever input is already preferred
+        case .output:
+            // OUTPUT ROUTING BELONGS TO iOS. Since it has already switched,
+            // declining can only mean pushing playback back to the built-in
+            // speaker — the one output override a session is allowed.
+            try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
+        }
         refreshRoutes()
     }
 

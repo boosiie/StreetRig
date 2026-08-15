@@ -35,14 +35,29 @@ struct SignalCheckView: View {
 
     @Environment(\.dismiss) private var dismiss
 
+    /// Collapsed, the level panel folds away and the pedals get the whole screen —
+    /// which is what you want once the signal is confirmed and you're playing.
+    /// The header stays: it is the only way back to the panel, and to Stop.
+    @State private var panelCollapsed = false
+
     var body: some View {
         VStack(spacing: 0) {
-            SignalCheckHeader(audio: audio) { dismiss() }
-            SignalCheckStrip(audio: audio)
+            SignalCheckHeader(audio: audio,
+                              panelCollapsed: $panelCollapsed) { dismiss() }
+            if !panelCollapsed {
+                SignalCheckStrip(audio: audio)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
             Divider().overlay(Color.white.opacity(0.07))
             ARPedalContentView()
         }
         .background(RigTheme.background)
+        .animation(.easeInOut(duration: 0.22), value: panelCollapsed)
+        .overlay {
+            // Asked here rather than as a system alert so the "don't ask again"
+            // choice can sit in the same card as the answer it qualifies.
+            DeviceOfferPrompt(audio: audio)
+        }
     }
 }
 
@@ -50,12 +65,15 @@ struct SignalCheckView: View {
 
 private struct SignalCheckHeader: View {
     @ObservedObject var audio: AudioEngineController
+    @Binding var panelCollapsed: Bool
     let onDone: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
+            collapseButton
+
             Text("SIGNAL CHECK")
-                .font(.system(size: 12, weight: .heavy))
+                .font(.system(size: 14, weight: .heavy))
                 .tracking(2)
                 .foregroundStyle(RigTheme.panel)
 
@@ -64,7 +82,7 @@ private struct SignalCheckHeader: View {
             Spacer(minLength: 8)
 
             Text(audio.latencyLine())
-                .font(.system(size: 9).monospacedDigit())
+                .font(.system(size: 11).monospacedDigit())
                 .foregroundStyle(RigTheme.textMuted)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -73,8 +91,26 @@ private struct SignalCheckHeader: View {
             doneButton
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.vertical, 9)
         .background(RigTheme.backgroundLift)
+    }
+
+    /// Folds the level panel away, leaving the pedals.
+    private var collapseButton: some View {
+        Button {
+            panelCollapsed.toggle()
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(RigTheme.amber)
+                .rotationEffect(.degrees(panelCollapsed ? -90 : 0))
+                .frame(width: 34, height: 30)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(RigTheme.surface)
+                )
+        }
+        .accessibilityLabel(panelCollapsed ? "Show levels" : "Hide levels")
     }
 
     private var statusPill: some View {
@@ -84,12 +120,12 @@ private struct SignalCheckHeader: View {
                 .frame(width: 7, height: 7)
                 .shadow(color: audio.isEngaged ? statusColor : .clear, radius: 4)
             Text(statusLabel)
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: 12, weight: .bold))
                 .tracking(1)
                 .foregroundStyle(statusColor)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
         .background(Capsule().fill(statusColor.opacity(0.14)))
     }
 
@@ -120,10 +156,10 @@ private struct SignalCheckHeader: View {
             else { Task { await audio.engage() } }
         } label: {
             Text(audio.isEngaged ? "Stop" : "Start")
-                .font(.footnote.weight(.bold))
+                .font(.subheadline.weight(.bold))
                 .foregroundStyle(.black)
-                .frame(width: 66)
-                .padding(.vertical, 8)
+                .frame(width: 74)
+                .padding(.vertical, 9)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(audio.isEngaged ? RigTheme.emberSoft : RigTheme.amber)
@@ -135,10 +171,10 @@ private struct SignalCheckHeader: View {
     private var doneButton: some View {
         Button(action: onDone) {
             Text("Done")
-                .font(.footnote.weight(.semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(RigTheme.textPrimary)
-                .frame(width: 62)
-                .padding(.vertical, 8)
+                .frame(width: 70)
+                .padding(.vertical, 9)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(RigTheme.surface)
@@ -154,10 +190,17 @@ private struct SignalCheckStrip: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            HStack(alignment: .top, spacing: 18) {
-                meters
-                routes.frame(width: 190)
-                masterVolume.frame(width: 170)
+            // The meters no longer take whatever is left over: the route pickers
+            // and the master are the controls you actually reach for, and at the
+            // old widths their labels were truncating.
+            // Widths are a three-way compromise on a phone in landscape: the route
+            // pickers need enough room for a real device name, the master needs a
+            // slider worth dragging, and the meters need to fit a title, a level
+            // and a CLIP lamp on one line at the larger type.
+            HStack(alignment: .top, spacing: 20) {
+                meters.frame(maxWidth: .infinity)
+                routes.frame(width: 205)
+                masterVolume.frame(width: 190)
             }
             if case .error(let message) = audio.status {
                 errorBanner(message)
@@ -211,17 +254,17 @@ private struct SignalCheckStrip: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text("MASTER")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .tracking(1)
                     .foregroundStyle(RigTheme.textMuted)
                 Spacer()
                 Text(masterText)
-                    .font(.system(size: 10, weight: .medium).monospacedDigit())
+                    .font(.system(size: 13, weight: .medium).monospacedDigit())
                     .foregroundStyle(RigTheme.textPrimary)
             }
             TapSlider(value: masterBinding, in: 0...2)
             Text("Monitoring level (DSP output stage)")
-                .font(.system(size: 9))
+                .font(.system(size: 11))
                 .foregroundStyle(RigTheme.textMuted.opacity(0.8))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -271,6 +314,103 @@ private struct SignalCheckStrip: View {
     private static let remedy =
         "Check the iRig is seated, pick INPUT above, and confirm the guitar volume is up. "
         + "The Simulator has no audio input, so live monitoring is a physical-device test."
+}
+
+// MARK: - "Something got plugged in" — ask before switching
+
+/// Asked when hardware appears while the app is running. Nothing is switched
+/// until it is answered, EXCEPT that iOS has already moved the output route by
+/// the time we hear about it — so for an output this asks whether to keep what
+/// iOS chose or fall back to the speaker, which is the only override a session
+/// gets. Inputs are ours to set, so nothing changes unless you say so.
+struct DeviceOfferPrompt: View {
+    @ObservedObject var audio: AudioEngineController
+    @State private var remember = false
+
+    var body: some View {
+        if let offer = audio.deviceOffer {
+            ZStack {
+                Color.black.opacity(0.55).ignoresSafeArea()
+                card(offer)
+            }
+            .transition(.opacity)
+        }
+    }
+
+    private func card(_ offer: AudioEngineController.DeviceOffer) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: offer.kind == .input ? "cable.connector" : "headphones")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(RigTheme.amber)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(offer.kind == .input ? "New input detected" : "New output detected")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(RigTheme.textPrimary)
+                    Text(offer.name)
+                        .font(.system(size: 14))
+                        .foregroundStyle(RigTheme.textMuted)
+                        .lineLimit(1)
+                }
+            }
+
+            Text(offer.kind == .input
+                 ? "Switch the guitar input over to it?"
+                 : "Keep listening through it?")
+                .font(.system(size: 14))
+                .foregroundStyle(RigTheme.textPrimary.opacity(0.9))
+
+            Button {
+                remember.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: remember ? "checkmark.square.fill" : "square")
+                        .font(.system(size: 15))
+                        .foregroundStyle(remember ? RigTheme.amber : RigTheme.textMuted)
+                    Text("Don't ask me this again")
+                        .font(.system(size: 13))
+                        .foregroundStyle(RigTheme.textMuted)
+                }
+            }
+            .buttonStyle(.plain)
+
+            HStack(spacing: 10) {
+                choice("Not now", filled: false) {
+                    audio.resolveDeviceOffer(offer, adopt: false, remember: remember)
+                    remember = false
+                }
+                choice(offer.kind == .input ? "Use it" : "Keep it", filled: true) {
+                    audio.resolveDeviceOffer(offer, adopt: true, remember: remember)
+                    remember = false
+                }
+            }
+        }
+        .padding(20)
+        .frame(width: 380)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(RigTheme.backgroundLift)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(RigTheme.hairline, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.6), radius: 24, y: 10)
+    }
+
+    private func choice(_ title: String, filled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(filled ? .black : RigTheme.textPrimary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 11)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(filled ? RigTheme.amber : RigTheme.surface)
+                )
+        }
+    }
 }
 
 // MARK: - Shared dropdown chrome

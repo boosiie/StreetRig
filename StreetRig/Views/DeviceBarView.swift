@@ -50,12 +50,28 @@ struct DeviceBarView: View {
         .onAppear {
             audio.attach(store: store)   // bind the built rig + knobs to the engine
             audio.primeRoutes()
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-ShowDeviceOffer") {
+                audio.seedDebugDeviceOffer()
+            }
+            #endif
         }
         .fullScreenCover(isPresented: $showingSignalCheck) {
             // Dismissing this cover leaves the engine running by design — the
             // player goes back to the rig still hearing themselves.
             SignalCheckView(audio: audio)
                 .environmentObject(store)
+        }
+        // The new-hardware question, for when something is plugged in while the
+        // player is on the rig screen — which is usually WHERE the iRig gets
+        // connected, just before Proceed. Forced nil while the check is up,
+        // because that screen presents its own copy over its own content and two
+        // covers must not race. Presented as a cover rather than an overlay so it
+        // can darken the whole app: this bar is 70pt tall.
+        .fullScreenCover(item: Binding(get: { showingSignalCheck ? nil : audio.deviceOffer },
+                                       set: { _ in })) { _ in
+            DeviceOfferPrompt(audio: audio)
+                .presentationBackground(.clear)
         }
     }
 
