@@ -107,8 +107,16 @@ struct LevelMeterView: View {
     private static let segmentGap: CGFloat = 2
 
     private func bar(_ level: AudioLevel) -> some View {
-        let litThrough = Self.litSegments(level.rmsDB)
-        let holdIndex = min(Self.segmentCount - 1, Self.litSegments(level.holdDB))
+        // FRACTIONAL LEADING SEGMENT. Lighting segments on a hard threshold makes
+        // the meter chop: a level sitting near a boundary pops that segment on and
+        // off, and since each segment is 3 dB, ordinary wobble is enough to do it
+        // several times a second. The leading segment instead fades in proportion
+        // to how far into it the level has come, so the meter travels smoothly and
+        // the segments stay a readable scale rather than a set of switches.
+        let litExact = Self.litSegmentsExact(level.rmsDB)
+        let litThrough = Int(litExact)
+        let partial = Double(litExact - Float(litThrough))
+        let holdIndex = min(Self.segmentCount - 1, Int(Self.litSegmentsExact(level.holdDB)))
         let showHold = level.holdDB > AudioLevel.floorDB + 0.5
 
         return ZStack(alignment: .leading) {
@@ -121,7 +129,13 @@ struct LevelMeterView: View {
             // the lit segments, so a segment's colour always means the same dB no
             // matter how far the meter has moved.
             LinearGradient(gradient: Self.barGradient, startPoint: .leading, endPoint: .trailing)
-                .mask { segmentRow { $0 < litThrough ? Color.white : .clear } }
+                .mask {
+                    segmentRow { index in
+                        if index < litThrough { return Color.white }
+                        if index == litThrough { return Color.white.opacity(partial) }
+                        return .clear
+                    }
+                }
 
             // Peak hold parks as a single detached lit segment, the way a hardware
             // meter leaves its needle sitting at the loudest thing you just played.
@@ -146,11 +160,12 @@ struct LevelMeterView: View {
         }
     }
 
-    /// How many segments a level lights: 0 at the floor, `segmentCount` at full
-    /// scale. Rounding DOWN means a segment only lights once the signal has
-    /// actually reached it.
-    static func litSegments(_ db: Float) -> Int {
-        min(segmentCount, max(0, Int(fraction(db) * Float(segmentCount))))
+    /// How many segments a level lights, WITH its fractional part: 0 at the floor,
+    /// `segmentCount` at full scale. The whole part is how many segments are fully
+    /// lit; the remainder is how far into the next one the level has reached, which
+    /// is what the leading segment fades by.
+    static func litSegmentsExact(_ db: Float) -> Float {
+        min(Float(segmentCount), max(0, fraction(db) * Float(segmentCount)))
     }
 
     // MARK: - Scale

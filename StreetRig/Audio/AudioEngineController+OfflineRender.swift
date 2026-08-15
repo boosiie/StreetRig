@@ -739,11 +739,12 @@ extension AudioEngineController {
             // the RMS body deliberately RAMPS toward it (`Ballistics.rmsAttackTau`;
             // an instant attack is what made the bar strobe at 30 Hz). These checks
             // are about the dBFS MATH, not about arrival time, so sustain the tone
-            // the way a held note does and read the settled value. 60 ticks is ~2 s,
-            // roughly eleven attack time constants — convergence far inside the
-            // 0.05 dB tolerance used below. (`AudioLevelBus.drain` is exercised on
+            // the way a held note does and read the settled value. 200 ticks is
+            // ~6.7 s, comfortably past convergence for any sane attack constant —
+            // deliberately generous so that tuning the meter's feel doesn't quietly
+            // start failing the dBFS math. (`AudioLevelBus.drain` is exercised on
             // every one of those ticks, so this still covers the accumulator.)
-            for _ in 0..<60 {
+            for _ in 0..<200 {
                 samples.withUnsafeBufferPointer { buffer in
                     guard let base = buffer.baseAddress else { return }
                     monitor.inputBus.accumulate(base, frameCount: buffer.count)
@@ -815,7 +816,7 @@ extension AudioEngineController {
         // level has arrived — an accumulator that compounds across drains — not how
         // long the arrival takes.
         var ramp: [Float] = []
-        for _ in 0..<60 { feedWindow(); ramp.append(monitor.input.rmsDB) }
+        for _ in 0..<200 { feedWindow(); ramp.append(monitor.input.rmsDB) }
         var windows: [AudioLevel] = []
         for _ in 0..<3 { feedWindow(); windows.append(monitor.input) }
         let steady = windows.allSatisfy { near($0.peakDB, -6.02) && near($0.rmsDB, -9.03) }

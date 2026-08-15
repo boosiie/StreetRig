@@ -262,9 +262,10 @@ final class AudioLevelMonitor: ObservableObject {
         var holdRemaining: TimeInterval = 0
         var clipRemaining: TimeInterval = 0
 
-        /// Release time constant: ~0.3 s to fall most of the way, which reads as
-        /// a needle rather than a strobe.
-        static let releaseTau: TimeInterval = 0.30
+        /// Release time constant: ~0.55 s to fall most of the way, which reads as
+        /// a needle settling rather than a strobe. Shared by BOTH measurements —
+        /// see the invariant note in `rmsAttackTau`.
+        static let releaseTau: TimeInterval = 0.55
         /// Attack time constant for the RMS BODY only.
         ///
         /// The peak tick keeps an instant attack — catching the transient is its
@@ -273,7 +274,10 @@ final class AudioLevelMonitor: ObservableObject {
         /// snapped the bar to every one of those wobbles before releasing, which
         /// reads as a strobe rather than a level. ~0.18 s integrates roughly five
         /// ticks — slow enough that the bar swells instead of flickering, fast
-        /// enough that it still arrives with the pick attack.
+        /// enough that it still arrives with the pick attack. (0.18 s was a first
+        /// pass and still read as too quick and choppy against a real signal; the
+        /// other half of that fix is the meter's fractional leading segment, which
+        /// stops a 3 dB segment boundary popping on and off.)
         ///
         /// ASYMMETRY IS DELIBERATE AND ONLY SAFE IN THIS DIRECTION. `rmsDB <=
         /// peakDB` holds because the two share ONE release rule and the RMS only
@@ -282,7 +286,7 @@ final class AudioLevelMonitor: ObservableObject {
         /// climbs while the peak falls ends with the RMS no higher than the
         /// measured peak it is chasing. Giving the RMS a slower RELEASE would
         /// break exactly that and let the bars cross again — see the note above.
-        static let rmsAttackTau: TimeInterval = 0.18
+        static let rmsAttackTau: TimeInterval = 0.35
         /// How long the peak tick sits at a new maximum before it starts falling.
         static let holdSeconds: TimeInterval = 1.0
         /// A clip must stay visible long enough to be noticed, not just flicker.
