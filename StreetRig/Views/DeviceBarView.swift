@@ -11,6 +11,11 @@
 //  by design; the DEBUG "render test" affordance runs the offline harness, which
 //  is the Simulator verification path. Live monitoring is a physical-device test.
 //
+//  With `FeatureFlags.signalCheck` on, Proceed ALSO opens the full-screen signal
+//  check (SignalCheckView) — meters, routing and the working stomp slots. It is
+//  presented on every tap, not only on a successful engage: a screen whose job is
+//  explaining why there's no sound has to be visible precisely when there isn't.
+//
 
 import SwiftUI
 import StreetRigEngine
@@ -18,6 +23,7 @@ import StreetRigEngine
 struct DeviceBarView: View {
     @EnvironmentObject var store: RigStore
     @StateObject private var audio = AudioEngineController()
+    @State private var showingSignalCheck = false
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 12) {
@@ -44,6 +50,12 @@ struct DeviceBarView: View {
         .onAppear {
             audio.attach(store: store)   // bind the built rig + knobs to the engine
             audio.primeRoutes()
+        }
+        .fullScreenCover(isPresented: $showingSignalCheck) {
+            // Dismissing this cover leaves the engine running by design — the
+            // player goes back to the rig still hearing themselves.
+            SignalCheckView(audio: audio)
+                .environmentObject(store)
         }
     }
 
@@ -102,8 +114,14 @@ struct DeviceBarView: View {
 
     private var engageButton: some View {
         Button {
-            if audio.isEngaged { audio.disengage() }
-            else { Task { await audio.engage() } }
+            if audio.isEngaged {
+                audio.disengage()
+            } else {
+                // Present FIRST, engage second: the check screen has to be up to
+                // show the failure if `engage()` throws (always, on the Simulator).
+                if FeatureFlags.signalCheck { showingSignalCheck = true }
+                Task { await audio.engage() }
+            }
         } label: {
             Text(audio.isEngaged ? "Stop" : "Proceed")
                 .font(.subheadline.weight(.bold))
@@ -112,7 +130,7 @@ struct DeviceBarView: View {
                 .padding(.vertical, 13)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(audio.isEngaged ? Color(red: 0.9, green: 0.5, blue: 0.3) : RigTheme.amber)
+                        .fill(audio.isEngaged ? RigTheme.emberSoft : RigTheme.amber)
                 )
         }
         .frame(maxWidth: .infinity)
@@ -139,8 +157,9 @@ struct DeviceBarView: View {
     #endif
 }
 
-/// The dropdown look from the original bar, reused for the live pickers.
-private struct DropdownChrome: View {
+/// The dropdown look from the original bar, reused for the live pickers here and
+/// on the signal-check screen, so the two route UIs can't drift apart.
+struct DropdownChrome: View {
     let label: String
     let value: String
 

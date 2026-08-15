@@ -55,6 +55,26 @@ final class AudioEngineController: ObservableObject {
     @Published private(set) var renderLoad: Double = 0
     @Published private(set) var lastBlockSeconds: Double = 0
 
+    /// LIVE SIGNAL LEVELS — input (raw DI, pre-rig) and output (post-rig).
+    ///
+    /// Deliberately a nested ObservableObject held by a plain `let` rather than a
+    /// `@Published` property here: levels publish ~30×/s, and anything observing
+    /// the controller (the device bar, route pickers, the AR slots, the camera
+    /// preview) would re-render at that rate. Only the meter views observe this,
+    /// so a level update redraws a meter and nothing else. The controller still
+    /// owns its lifecycle: it installs the taps that feed it and tears them down.
+    let levels = AudioLevelMonitor()
+
+    /// Monitoring volume — the DSP's existing OUTPUT LEVEL stage (unity = 1.0).
+    /// Kept here (not in a view) so it survives the signal-check screen being
+    /// dismissed and re-opened, and is re-applied on every engage.
+    @Published var masterLevel: Float = 1.0 {
+        didSet {
+            guard masterLevel != oldValue else { return }
+            applyMasterLevel()
+        }
+    }
+
     // Routes for the DeviceBar dropdowns.
     @Published private(set) var currentInputName: String = "—"
     @Published private(set) var currentOutputName: String = "—"
@@ -75,7 +95,13 @@ final class AudioEngineController: ObservableObject {
     private var avAudioUnit: AVAudioUnit?
     private var dspUnit: StreetRigDSPUnit?
     private var meterTimer: DispatchSourceTimer?
+    private var levelTapsInstalled = false
     private var observers: [NSObjectProtocol] = []
+
+    /// Tap buffer size. ~21 ms at 48 kHz — long enough that the tap overhead is
+    /// negligible against the render deadline, short enough that the 30 Hz UI
+    /// tick always has fresh audio to drain.
+    private static let levelTapFrames: AVAudioFrameCount = 1024
 
     // Prompt 003: the live rig↔DSP binding. Set via `attach(store:)`; the bridge
     // is (re)created on engage so knob moves + rig edits drive the audio graph.
@@ -133,12 +159,20 @@ final class AudioEngineController: ObservableObject {
             engine.attach(unit)
             engine.connect(input, to: unit, format: inputFormat)
             engine.connect(unit, to: engine.mainMixerNode, format: inputFormat)
+
             engine.prepare()
             try engine.start()
 
             self.engine = engine
             self.avAudioUnit = unit
             self.dspUnit = unit.auAudioUnit as? StreetRigDSPUnit
+            applyMasterLevel()
+
+            // Meter taps go on once the engine is RUNNING, so both nodes report a
+            // settled stream format (a tap installed against a not-yet-negotiated
+            // format is the other classic AVAudioEngine trap). Input node = raw DI
+            // pre-rig; main mixer = the processed rig post-rig.
+            installLevelTaps(on: engine)
 
             // Compile the current rig into the graph and bind every knob live.
             // The engine is running, so structural edits use the fade/park barrier.
@@ -168,6 +202,9 @@ final class AudioEngineController: ObservableObject {
 
     private func teardown() {
         stopMetering()
+        // Taps come off BEFORE the nodes stop / detach: a tap left on a node that
+        // is being torn down is the classic AVAudioEngine crash.
+        removeLevelTaps()
         rigBridge = nil
         engine?.stop()
         if let unit = avAudioUnit { engine?.detach(unit) }
@@ -180,6 +217,57 @@ final class AudioEngineController: ObservableObject {
     // MARK: - Bypass / parameter conveniences (prompt 003 binds knobs through here)
 
     func setBypassed(_ bypassed: Bool) { dspUnit?.setBypassed(bypassed) }
+
+    /// Push the monitoring volume onto the DSP through the AUParameterTree, so
+    /// the kernel bus AND the unit's serialized state stay in lock-step (the tree
+    /// forwards to `SRKernelSetParameter` in its value observer — a lock-free
+    /// relaxed store the render thread ramps, never a rebuild).
+    private func applyMasterLevel() {
+        dspUnit?.parameterTree?
+            .parameter(withAddress: AUParameterAddress(SRParamOutputLevel.rawValue))?
+            .value = masterLevel
+    }
+
+    // MARK: - Level taps (the only StreetRig code that runs on the audio thread
+    //         outside the kernel — see RealtimeSafety.md)
+
+    /// Install the pre-rig and post-rig meter taps.
+    ///
+    /// Everything the tap block needs is resolved HERE, on the main thread, and
+    /// captured as plain `Int`s: the audio thread never queries a format, never
+    /// allocates, never locks and never hops a queue. The buses are captured once
+    /// (a single retain at install time); each callback just calls through them.
+    private func installLevelTaps(on engine: AVAudioEngine) {
+        // Deinterleaved (the engine's normal case) → one plane per channel.
+        // Interleaved → a single plane holding channelCount samples per frame.
+        // Precomputing both forms keeps the callback free of format lookups.
+        func install(_ node: AVAudioNode, into bus: AudioLevelBus) {
+            let format = node.outputFormat(forBus: 0)
+            guard format.channelCount > 0 else { return }
+            let planes = format.isInterleaved ? 1 : Int(format.channelCount)
+            let samplesPerFrame = format.isInterleaved ? Int(format.channelCount) : 1
+
+            node.installTap(onBus: 0, bufferSize: Self.levelTapFrames, format: format) { buffer, _ in
+                guard let channels = buffer.floatChannelData else { return }
+                let samples = Int(buffer.frameLength) * samplesPerFrame
+                for plane in 0..<planes {
+                    bus.accumulate(channels[plane], frameCount: samples)
+                }
+            }
+        }
+        // Independently, so a mixer whose format hasn't settled can't cost us the
+        // input meter — the one that answers "is the guitar even reaching me?".
+        install(engine.inputNode, into: levels.inputBus)
+        install(engine.mainMixerNode, into: levels.outputBus)
+        levelTapsInstalled = true
+    }
+
+    private func removeLevelTaps() {
+        defer { levelTapsInstalled = false }
+        guard levelTapsInstalled, let engine else { return }
+        engine.inputNode.removeTap(onBus: 0)
+        engine.mainMixerNode.removeTap(onBus: 0)
+    }
 
     // MARK: - Session
 
@@ -310,13 +398,25 @@ final class AudioEngineController: ObservableObject {
 
     // MARK: - Metering
 
+    /// ONE main-thread timer drives both read-outs at their own rates: signal
+    /// levels at ~30 Hz (slower feels disconnected from your picking hand) and
+    /// the render load every 8th tick (~0.27 s, the original cadence). The load
+    /// stays slow on purpose — it is `@Published` on the controller, so every
+    /// observer re-renders when it changes.
     private func startMetering() {
         stopMetering()
+        let interval = AudioLevelMonitor.tickInterval
         let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + 0.25, repeating: 0.25)
+        timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(4))
+        var ticks = 0
         timer.setEventHandler { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, let unit = self.dspUnit else { return }
+                guard let self else { return }
+                self.levels.tick(dt: interval)
+                ticks += 1
+                guard ticks >= 8 else { return }
+                ticks = 0
+                guard let unit = self.dspUnit else { return }
                 self.renderLoad = unit.lastRenderLoad
                 self.lastBlockSeconds = unit.lastBlockSeconds
             }
@@ -328,6 +428,9 @@ final class AudioEngineController: ObservableObject {
     private func stopMetering() {
         meterTimer?.cancel()
         meterTimer = nil
+        // Don't leave the meters frozen mid-swing showing a level nothing is
+        // measuring any more.
+        levels.reset()
     }
 
     // MARK: - Permission / instantiation helpers
