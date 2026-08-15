@@ -37,7 +37,13 @@ enum Studio3D {
         let key = SCNLight()
         key.type = .directional
         key.intensity = keyIntensity
-        key.temperature = 6300                                  // neutral daylight, not warm
+        key.temperature = 5900                                  // a touch warm — amp room, not clinical
+        key.castsShadow = true                                  // real directional contact shadow…
+        key.shadowMode = .forward
+        key.shadowRadius = 8                                    // …softened with PCF so it's a gentle grounding
+        key.shadowSampleCount = 16
+        key.shadowColor = UIColor(white: 0, alpha: 0.42)
+        key.shadowMapSize = CGSize(width: 2048, height: 2048)
         let keyNode = SCNNode()
         keyNode.light = key
         keyNode.eulerAngles = SCNVector3(-0.9, 0.5, 0)          // upper front-left
@@ -78,8 +84,20 @@ enum Studio3D {
         let cam = SCNCamera()
         cam.fieldOfView = fov
         cam.wantsHDR = true
+        cam.wantsExposureAdaptation = false                     // no brightness pumping as the camera moves
         cam.zNear = 0.05
         cam.zFar = 200
+        // Cinematic grade — all built-in SCNCamera post: a gentle bloom so LEDs and
+        // metal highlights glow, a soft vignette to focus the eye on the rig, and a
+        // touch of saturation/contrast for punch. Subtle enough to also flatter the
+        // amp/pedal detail views that share this camera.
+        cam.bloomIntensity = 0.55
+        cam.bloomThreshold = 0.82
+        cam.bloomBlurRadius = 14
+        cam.vignettingIntensity = 0.45
+        cam.vignettingPower = 1.5
+        cam.saturation = 1.08
+        cam.contrast = 0.08
         let node = SCNNode()
         node.camera = cam
         node.name = "camera"
