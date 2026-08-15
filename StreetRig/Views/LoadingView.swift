@@ -9,6 +9,7 @@
 //
 
 import SwiftUI
+import StreetRigEngine
 import Combine
 
 struct LoadingView: View {

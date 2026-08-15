@@ -9,6 +9,7 @@
 //
 
 import SwiftUI
+import StreetRigEngine
 
 struct AmpLogoView: View {
     var size: CGFloat = 120

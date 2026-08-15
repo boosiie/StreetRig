@@ -19,6 +19,7 @@
 import Foundation
 import AVFoundation
 import AudioToolbox
+import CoreAudioKit
 
 public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
 
@@ -319,9 +320,16 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
         _parameterTree.implementorValueObserver = { param, value in
             SRKernelSetParameter(k, param.address, value)
         }
-        _parameterTree.implementorValueProvider = { param in
-            SRKernelGetParameter(k, param.address)
-        }
+        // NO implementorValueProvider (Phase 4): the tree reports its own cached
+        // value — the standard AUv3 pattern when the DSP only RAMPS toward the set
+        // target and never changes a parameter on its own. The Phase-3
+        // `SRKernelGetParameter` readback only tracks the gain atomics (it returns 0
+        // for the amp EQ 8–11 and the pedal range 100+), so routing `.value` through
+        // it would make those parameters read back — and be OBSERVED — as 0, which
+        // breaks host automation display and the two-way editor bridge (host→UI). The
+        // kernel still receives every value via the observer above (audio changes);
+        // this only fixes what the parameter surface REPORTS. `fullState` now also
+        // captures the true EQ/pedal values instead of zeros.
         _parameterTree.implementorStringFromValueCallback = { param, valuePtr in
             let v = valuePtr?.pointee ?? param.value
             return String(format: "%.2f", v)
@@ -617,6 +625,42 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
     /// (after `allocateRenderResources` → `loadToneAssets`); guard the divide.
     public override var latency: TimeInterval {
         renderSampleRate > 0 ? Double(SRKernelCabLatencySamples(kernel)) / renderSampleRate : 0
+    }
+
+    // MARK: - Phase 4: host view configurations (compact + full editor sizes)
+
+    /// The two sizes the plugin editor is designed for: a COMPACT control strip
+    /// (amp knobs + active-pedal row) and the FULL rig editor (amp + every pedal
+    /// card). A host that supports `AUAudioUnitViewConfiguration` may offer either;
+    /// `supportedViewConfigurations` advertises that we render both.
+    public static let compactViewConfiguration = AUAudioUnitViewConfiguration(width: 400, height: 200, hostHasController: false)
+    public static let fullViewConfiguration = AUAudioUnitViewConfiguration(width: 640, height: 420, hostHasController: false)
+
+    /// Below this offered height the editor collapses to the compact strip.
+    static let compactHeightThreshold: CGFloat = 260
+
+    /// Set by the editor view controller; invoked (on the main thread) with
+    /// `isCompact` whenever the host selects a view configuration, so the SwiftUI
+    /// editor can switch layouts live. `Bool` (not the config object) keeps the
+    /// hop trivially `Sendable`.
+    public var viewConfigurationHandler: ((Bool) -> Void)?
+
+    /// The configuration the host most recently `select`ed (nil until then).
+    public private(set) var selectedViewConfiguration: AUAudioUnitViewConfiguration?
+
+    /// Which offered configurations we can render. The editor is responsive, so we
+    /// support every size the host offers (choosing compact vs full by height).
+    public override func supportedViewConfigurations(_ availableViewConfigurations: [AUAudioUnitViewConfiguration]) -> IndexSet {
+        IndexSet(availableViewConfigurations.indices)
+    }
+
+    /// The host picked a size — remember it and tell the editor to relayout.
+    public override func select(_ viewConfiguration: AUAudioUnitViewConfiguration) {
+        selectedViewConfiguration = viewConfiguration
+        let compact = viewConfiguration.height > 0 && viewConfiguration.height < Self.compactHeightThreshold
+        guard let handler = viewConfigurationHandler else { return }
+        if Thread.isMainThread { handler(compact) }
+        else { DispatchQueue.main.async { handler(compact) } }
     }
 
     // MARK: - Phase 3: structural rig apply seam (SETUP THREAD — never audio thread)

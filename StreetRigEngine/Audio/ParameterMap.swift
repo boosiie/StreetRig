@@ -123,4 +123,46 @@ public enum ParameterMap {
     /// when a model is loaded"; per-amp captures drop in later without touching
     /// this. Returns true — the kernel falls back to the analog amp if no model.
     static func ampUsesNeural(name: String) -> Bool { true }
+
+    // MARK: - Inverse maps (bus/DSP value → 0…10 knob) — Phase 4 host→UI bridge
+
+    //  The AUv3 two-way bridge needs to run the forward curves BACKWARDS: when the
+    //  host moves an automatable `AUParameter` (a bus-domain value — linear gain,
+    //  Hz, dB), the on-screen 0…10 knob must follow. These are the exact analytic
+    //  inverses of the forward curves above, clamped to the knob range, so a
+    //  round-trip knob → bus → knob is the identity to within float precision.
+
+    /// Clamp a computed knob back into the 0…10 dial range.
+    @inline(__always) static func clampKnob(_ v: Double) -> Double { min(max(v, 0), 10) }
+
+    /// Inverse of `ampDrive(gainKnob:)`  (bus = 0.6·2^(norm·4.5)).
+    static func invAmpDriveKnob(_ bus: Float) -> Double {
+        clampKnob(log2(Double(max(bus, 1e-6)) / 0.6) / 4.5 * 10.0)
+    }
+
+    /// Inverse of `ampMaster(masterKnob:)`  (bus = 0.2 + norm·1.6).
+    static func invAmpMasterKnob(_ bus: Float) -> Double {
+        clampKnob((Double(bus) - 0.2) / 1.6 * 10.0)
+    }
+
+    /// Inverse of `ampBandDB(_:knob:)`  (dB = ((norm−0.5)·2)·range; ±12, Presence ±9).
+    static func invAmpBandKnob(_ paramName: String, dB: Float) -> Double {
+        let range: Double = paramName == "Presence" ? 9.0 : 12.0
+        return clampKnob((Double(dB) / (2.0 * range) + 0.5) * 10.0)
+    }
+
+    /// Inverse of `pedalDrive(_:)`  (bus = 0.8·2^(norm·5)).
+    static func invPedalDriveKnob(_ bus: Float) -> Double {
+        clampKnob(log2(Double(max(bus, 1e-6)) / 0.8) / 5.0 * 10.0)
+    }
+
+    /// Inverse of `pedalToneHz(_:)`  (hz = 700·2^(norm·3.6)).
+    static func invPedalToneKnob(_ hz: Float) -> Double {
+        clampKnob(log2(Double(max(hz, 1e-6)) / 700.0) / 3.6 * 10.0)
+    }
+
+    /// Inverse of `pedalLevel(_:)`  (bus = 0.1 + norm·1.9).
+    static func invPedalLevelKnob(_ bus: Float) -> Double {
+        clampKnob((Double(bus) - 0.1) / 1.9 * 10.0)
+    }
 }

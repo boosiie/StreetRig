@@ -1,18 +1,25 @@
 //
 //  ControlBoardView.swift
-//  StreetRig
+//  StreetRigEngine
 //
-//  The CONTROLS page: every adjustable component in the current rig (amp/combo
-//  + pedals) laid out as cards of tap-to-set sliders. Each slider is bound to
-//  the same `store.binding(itemId:param:)` as the zoom-view knobs, so the two
-//  stay in sync.
+//  A scrolling stack of control cards: every adjustable component in the current
+//  rig (amp/combo + pedals) laid out as tap-to-set sliders. Each slider binds to
+//  the SAME `store.binding(itemId:param:)` the app's zoom knobs use, so a value
+//  set here is the value everywhere.
+//
+//  RELOCATED to the shared framework (Phase 4) and made `public` so the AUv3
+//  plugin editor reuses it verbatim as its FULL layout — no duplicated knob UI.
+//  DECOUPLED from the app-only `GearArtView` (which reaches the app's asset
+//  catalog via `GearIconLoader`): the card icon is the framework-local
+//  `GearGlyphView`, so this view is self-contained in the extension sandbox.
 //
 
 import SwiftUI
-import StreetRigEngine
 
-struct ControlBoardView: View {
+public struct ControlBoardView: View {
     @EnvironmentObject var store: RigStore
+
+    public init() {}
 
     /// Rig components that actually have adjustable parameters.
     private var components: [GearItem] {
@@ -22,7 +29,7 @@ struct ControlBoardView: View {
         return items
     }
 
-    var body: some View {
+    public var body: some View {
         ScrollView {
             LazyVStack(spacing: 16) {
                 if components.isEmpty {
@@ -42,7 +49,7 @@ struct ControlBoardView: View {
     private func componentCard(_ item: GearItem) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                GearArtView(item: item)
+                GearGlyphView(item: item)
                     .frame(width: 40, height: 46)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.name)

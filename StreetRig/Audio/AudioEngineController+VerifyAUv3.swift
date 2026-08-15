@@ -32,6 +32,9 @@
 
 import Foundation
 import StreetRigEngine
+import UIKit
+import SwiftUI        // `store.binding(...)` Binding (Phase 4 bridge self-test)
+import CoreAudioKit   // AUAudioUnitViewConfiguration (Phase 4 view-config self-test)
 @preconcurrency import AVFoundation
 
 extension AudioEngineController {
@@ -154,9 +157,12 @@ extension AudioEngineController {
         // --- Phase 3: parameters + state + presets (extends this self-test) ---
         let phase3 = await verifyAUv3ParamsAndState()
         log(phase3.text)
-        let combined = report + "\n\n" + phase3.text
+        // --- Phase 4: embedded editor + two-way UI ⇄ AUParameter bridge ---
+        let phase4 = await verifyAUv3EditorAndBridge()
+        log(phase4.text)
+        let combined = report + "\n\n" + phase3.text + "\n\n" + phase4.text
         try? combined.data(using: .utf8)?.write(to: Self.documentsURL("StreetRig_auv3_verify_report.txt"))
-        return AUv3VerifyResult(success: overall && phase3.pass, summary: combined)
+        return AUv3VerifyResult(success: overall && phase3.pass && phase4.pass, summary: combined)
     }
 
     // MARK: - Instantiation helper
@@ -431,6 +437,218 @@ extension AudioEngineController {
         text += "  === END PHASE 3 VERIFICATION ===\n"
         return (text, pass)
     }
+
+    // MARK: - Phase 4: embedded editor + two-way UI ⇄ AUParameter bridge
+
+    /// Proves Phase 4 headlessly (IN-PROCESS `srdi`, the Simulator-provable path):
+    ///   • the appex-hosted editor is constructible and hosts a non-nil SwiftUI
+    ///     editor, and the unit advertises a COMPACT + a FULL view configuration;
+    ///   • the two-way bridge is bit-honest in BOTH directions — a knob turn
+    ///     (`store.binding`) moves the matching host `AUParameter` AND reaches the
+    ///     kernel at the SAME address; host automation of an `AUParameter` moves the
+    ///     on-screen knob; and alternating writes SETTLE (no feedback oscillation).
+    ///
+    /// HONEST LIMIT: the editor's actual on-screen appearance / touch / layout
+    /// inside a real host (GarageBand / AUM) is DEVICE-only (Phase 5) — not asserted.
+    func verifyAUv3EditorAndBridge() async -> (text: String, pass: Bool) {
+        StreetRigDSPUnit.registerIfNeeded()
+        let inProc = StreetRigDSPUnit.inProcessComponentDescription
+        guard let fmt = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1) else {
+            return ("Phase 4: could not create processing format", false)
+        }
+
+        var checks: [(name: String, ok: Bool, detail: String)] = []
+        func check(_ name: String, _ ok: Bool, _ detail: String) { checks.append((name, ok, detail)) }
+        func approx(_ a: Double, _ b: Double, _ tol: Double) -> Bool { abs(a - b) <= tol }
+        func approxF(_ a: Float, _ b: Float, _ tol: Float) -> Bool { abs(a - b) <= tol }
+
+        // --- (A) Editor view controller + view configurations -----------------
+        do {
+            let u = try await instantiate(inProc, options: [])
+            guard let dsp = u.auAudioUnit as? StreetRigDSPUnit else {
+                check("editor: in-process unit is StreetRigDSPUnit", false, "cast failed")
+                throw NSError(domain: "VerifyAUv3P4", code: -1)
+            }
+            let compact = StreetRigDSPUnit.compactViewConfiguration
+            let full = StreetRigDSPUnit.fullViewConfiguration
+            let supported = dsp.supportedViewConfigurations([compact, full])
+            check("supportedViewConfigurations offers compact + full",
+                  supported.count == 2 && compact.height < full.height,
+                  "count \(supported.count); compact \(Int(compact.width))×\(Int(compact.height)) < full \(Int(full.width))×\(Int(full.height))")
+
+            dsp.select(compact)
+            let recCompact = dsp.selectedViewConfiguration?.height == compact.height
+            dsp.select(full)
+            let recFull = dsp.selectedViewConfiguration?.height == full.height
+            check("select(_:) records the chosen size", recCompact && recFull,
+                  "compact→\(recCompact), full→\(recFull)")
+
+            let vc = StreetRigPluginEditorViewController(dsp: dsp)
+            vc.loadViewIfNeeded()
+            check("appex editor hosts a non-nil SwiftUI editor",
+                  vc.editorIsHosted && !vc.children.isEmpty && vc.view.subviews.count > 0,
+                  "hosted \(vc.editorIsHosted), children \(vc.children.count)")
+        } catch {
+            check("editor VC construction", false, "error: \(error.localizedDescription)")
+        }
+
+        // --- (B) Two-way bridge on a LIVE (render-allocated) unit --------------
+        do {
+            let u = try await instantiate(inProc, options: [])
+            guard let dsp = u.auAudioUnit as? StreetRigDSPUnit, let tree = dsp.parameterTree else {
+                throw NSError(domain: "VerifyAUv3P4", code: -2)
+            }
+            // Host the unit in an OFFLINE engine and RENDER between writes. Rendering
+            // is essential: it advances the kernel's de-zipper ramps (so a value
+            // written to the bus reaches the readable target and the audio) AND drains
+            // the `AUParameterTree` observer mailbox (so host→UI callbacks arrive) —
+            // exactly the conditions a live host provides continuously.
+            let engine = AVAudioEngine(); let player = AVAudioPlayerNode()
+            engine.attach(player); engine.attach(u)
+            engine.connect(player, to: u, format: fmt)
+            engine.connect(u, to: engine.mainMixerNode, format: fmt)
+            engine.connect(engine.mainMixerNode, to: engine.outputNode, format: fmt)
+            try engine.enableManualRenderingMode(.offline, format: fmt, maximumFrameCount: 4096)
+            try engine.start()
+            let src = loadDISource(fmt: fmt)
+            player.scheduleBuffer(src, at: nil, options: [.loops], completionHandler: nil)
+            player.play()
+
+            let renderBuf = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: 4096)!
+            @discardableResult
+            func render(_ frames: Int) -> [Float] {
+                var out: [Float] = []; var done = 0
+                while done < frames {
+                    let want = AVAudioFrameCount(min(4096, frames - done))
+                    guard (try? engine.renderOffline(want, to: renderBuf)) == .success else { break }
+                    let n = Int(renderBuf.frameLength); if n == 0 { break }
+                    if let cd = renderBuf.floatChannelData { for i in 0..<n { out.append(cd[0][i]) } }
+                    done += n
+                }
+                return out
+            }
+
+            // The editor's store (seed = JCM800 + TS→delay→reverb) and the bridge.
+            let store = RigStore(persist: false)
+            let bridge = RigAUParameterBridge(store: store, dsp: dsp)
+            render(10_000)                                   // settle the initial hot-swap + ramps
+            try? await Task.sleep(for: .milliseconds(150))   // drain the init observer main-actor hops
+
+            guard let ampId = store.ampItem?.id,
+                  let ts = store.pedalItems.first(where: { $0.category == .overdrive }) else {
+                check("bridge: seed rig has amp + a drive pedal", false, "amp \(store.ampItem?.name ?? "nil")")
+                throw NSError(domain: "VerifyAUv3P4", code: -3)
+            }
+            check("bridge: automatable knobs mapped (amp + drive pedal)",
+                  bridge.automatableCount >= 9,
+                  "count \(bridge.automatableCount); amp \(store.ampItem?.name ?? "nil"), pedals \(store.pedalItems.count)")
+            let bassAddr = AUParameterAddress(SRParamAmpBass.rawValue)                                    // 8
+            let driveAddr = AUParameterAddress(UInt64(SRPedalParamBase)
+                + 0 * UInt64(SRPedalParamStride) + UInt64(SRPedalFieldDrive))                             // 103
+
+            // ---- UI → host: a knob turn moves the matching AUParameter (host records
+            //      automation) AND the AUDIO (it reached the kernel at that address). The
+            //      bridge pushes SYNCHRONOUSLY on the store's willSet, so the AUParameter
+            //      reads back immediately — it now reports its cached value (the Phase-3
+            //      SRKernelGetParameter did not track the EQ/pedal addresses). ----
+            store.binding(itemId: ampId, param: "Bass").wrappedValue = 0     // → −12 dB
+            let p8lo = tree.parameter(withAddress: bassAddr)!.value          // what a host reads
+            let outLo = render(10_000)
+            store.binding(itemId: ampId, param: "Bass").wrappedValue = 10    // → +12 dB
+            let p8hi = tree.parameter(withAddress: bassAddr)!.value
+            let outHi = render(10_000)
+            check("UI→host: amp Bass knob → AUParameter records the move (addr 8)",
+                  approxF(p8lo, -12, 0.05) && approxF(p8hi, 12, 0.05),
+                  "AUParameter knob0→\(fmt2(p8lo)) dB, knob10→\(fmt2(p8hi)) dB (expect −12 / +12)")
+            let bassDiff = Self.rms(Self.difference(outLo, outHi))
+            check("UI→host: amp Bass knob changes the AUDIO (reaches the kernel)",
+                  bassDiff > 1e-3 && Self.peak(outHi) > 1e-4,
+                  "audio diff \(Self.dbfs(bassDiff)) dBFS")
+
+            store.binding(itemId: ts.id, param: "Drive").wrappedValue = 10   // → 25.6 lin
+            let p103hi = tree.parameter(withAddress: driveAddr)!.value
+            let drvHiOut = render(10_000)
+            store.binding(itemId: ts.id, param: "Drive").wrappedValue = 0    // → 0.8 lin
+            let p103lo = tree.parameter(withAddress: driveAddr)!.value
+            let drvLoOut = render(10_000)
+            check("UI→host: slot-0 Drive knob → AUParameter records the move (addr 103 — same address)",
+                  approxF(p103hi, 25.6, 0.05) && approxF(p103lo, 0.8, 0.05),
+                  "AUParameter knob10→\(fmt2(p103hi)), knob0→\(fmt2(p103lo)) (expect 25.6 / 0.8)")
+            let drvDiff = Self.rms(Self.difference(drvHiOut, drvLoOut))
+            check("UI→host: slot-0 Drive knob changes the AUDIO (reaches the kernel)",
+                  drvDiff > 1e-3, "audio diff \(Self.dbfs(drvDiff)) dBFS")
+
+            // ---- host → UI: automation moves the on-screen knob. The observer hops to
+            //      the main actor, so we render (drain the mailbox) THEN await (let the
+            //      main-actor writeback run) before reading the knob. Neutralize via the
+            //      UI first so each host write is a REAL change. ----
+            store.binding(itemId: ampId, param: "Bass").wrappedValue = 5    // UI neutral (0 dB)
+            render(4_000); try? await Task.sleep(for: .milliseconds(80))
+            tree.parameter(withAddress: bassAddr)!.value = 12              // host: +12 dB
+            render(4_000); try? await Task.sleep(for: .milliseconds(120))
+            let knobBassHi = store.item(ampId)?.values["Bass"] ?? -1
+            tree.parameter(withAddress: bassAddr)!.value = -12             // host: −12 dB
+            render(4_000); try? await Task.sleep(for: .milliseconds(120))
+            let knobBassLo = store.item(ampId)?.values["Bass"] ?? -1
+            check("host→UI: automation (addr 8) moves the Bass knob",
+                  approx(knobBassHi, 10, 0.2) && approx(knobBassLo, 0, 0.2),
+                  "+12 dB→knob \(fmt2d(knobBassHi)), −12 dB→knob \(fmt2d(knobBassLo)); observed \(bridge.lastObserved[bassAddr].map(fmt2) ?? "nil") (expect 10 / 0)")
+
+            store.binding(itemId: ts.id, param: "Drive").wrappedValue = 5   // UI neutral (~4.53 lin)
+            render(4_000); try? await Task.sleep(for: .milliseconds(80))
+            tree.parameter(withAddress: driveAddr)!.value = 0.8           // host: min drive
+            render(4_000); try? await Task.sleep(for: .milliseconds(120))
+            let knobDriveLo = store.item(ts.id)?.values["Drive"] ?? -1
+            check("host→UI: automation (addr 103) moves the Drive knob",
+                  approx(knobDriveLo, 0, 0.2), "0.8 lin → knob \(fmt2d(knobDriveLo)) (expect 0)")
+
+            // ---- no feedback oscillation: a host write settles and HOLDS ----
+            tree.parameter(withAddress: bassAddr)!.value = -6             // host → knob 2.5
+            render(4_000); try? await Task.sleep(for: .milliseconds(120))
+            let knobT0 = store.item(ampId)?.values["Bass"] ?? -1
+            let paramT0 = tree.parameter(withAddress: bassAddr)!.value
+            render(4_000); try? await Task.sleep(for: .milliseconds(200))  // idle — a loop would ring
+            let knobT1 = store.item(ampId)?.values["Bass"] ?? -1
+            let paramT1 = tree.parameter(withAddress: bassAddr)!.value
+            check("no feedback oscillation (values settle & hold)",
+                  approx(knobT0, knobT1, 0.02) && approxF(paramT0, paramT1, 0.05) && approx(knobT1, 2.5, 0.2),
+                  "knob \(fmt2d(knobT0))→\(fmt2d(knobT1)), param \(fmt2(paramT0))→\(fmt2(paramT1)) (target knob 2.5 / param −6)")
+
+            check("bridge diagnostics: sink + observer both fired, one structural apply",
+                  bridge.continuousSinkCount > 0 && bridge.observerCallbackCount > 0 && bridge.applyStructuralCount == 1,
+                  "continuousSink \(bridge.continuousSinkCount), observerCallback \(bridge.observerCallbackCount), applyStructural \(bridge.applyStructuralCount)")
+
+            player.stop(); engine.stop()
+            _ = bridge   // keep the bridge alive for the whole exchange
+        } catch {
+            check("two-way bridge", false, "error: \(error.localizedDescription)")
+        }
+
+        let pass = checks.allSatisfy { $0.ok }
+        var text = """
+        === STREETRIG AUv3 VERIFICATION (Phase 4 — editor + two-way bridge) ===
+        Editor : framework PluginEditorView (compact + full) reusing the app's TapSlider /
+                 ControlBoardView; hosted by StreetRigPluginEditorViewController inside the
+                 appex AUViewController (StreetRigAUFactory).
+        Bridge : RigAUParameterBridge — knob (store.binding) ⇄ AUParameter ⇄ kernel, mapped
+                 via ParameterMap; UI→host uses setValue(originator:) + a host→UI guard flag.
+        Path   : IN-PROCESS srdi, render-allocated (Simulator-provable). The editor's on-screen
+                 appearance inside a real host (GarageBand/AUM) is DEVICE-only (Phase 5).
+
+        --- Checks ---
+
+        """
+        for c in checks {
+            let pad = c.name.padding(toLength: 54, withPad: " ", startingAt: 0)
+            text += "  \(pad) \(c.ok ? "PASS" : "FAIL")   (\(c.detail))\n"
+        }
+        text += "\n  PHASE 4 (Simulator gates) : \(pass ? "PASS" : "SOME CHECKS FAILED")\n"
+        text += "  === END PHASE 4 VERIFICATION ===\n"
+        return (text, pass)
+    }
+
+    private func fmt2(_ v: Float) -> String { String(format: "%.2f", v) }
+    private func fmt2d(_ v: Double) -> String { String(format: "%.2f", v) }
 
     // MARK: - Configurable offline render (pre-start rig/state hook + post-start param hook)
 
