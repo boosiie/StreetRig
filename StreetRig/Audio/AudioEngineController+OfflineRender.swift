@@ -452,8 +452,8 @@ extension AudioEngineController {
         checks.append(("remove pedal → fewer harmonics", noDriveB < baseB2,
                        String(format: "hi>2k: base %.1f%% → no-drive %.1f%%", baseB2, noDriveB)))
 
-        // (b) add a FUZZ pedal (Big Muff) — different character, re-sorted into chain.
-        if let muff = store.collection.first(where: { $0.name == "Big Muff" }) { store.apply(muff) }
+        // (b) add a FUZZ pedal (BIG MUFF) — different character, re-sorted into chain.
+        if let muff = store.collection.first(where: { $0.name.lowercased().contains("big muff") }) { store.apply(muff) }
         let planFuzz = RigGraphCompiler.compile(store: store)
         let fuzz = (try? await renderRigPlan(planFuzz, source: dry, fmt: fmt)) ?? PassOutput()
         checks.append(("add fuzz pedal → fuzz slot present",

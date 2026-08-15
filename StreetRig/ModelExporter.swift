@@ -33,11 +33,15 @@ enum ModelExporter {
         }
         // A representative stompbox (3-knob)
         written += export(name: "StreetRig_Pedal", into: docs) { root in
-            root.addChildNode(ProceduralPedal.build(for: GearItem(name: "Tube Screamer", category: .overdrive)))
+            root.addChildNode(ProceduralPedal.build(for: GearItem(name: "Ibonez Tube Screamer", category: .overdrive)))
         }
         // Les Paul-style guitar body (no stand)
         written += export(name: "StreetRig_Guitar", into: docs) { root in
             ProceduralGuitar.buildGuitar(into: root)
+        }
+        // Guitar stand on its own — bind the refined file as "guitar-stand.usdz"
+        written += export(name: "StreetRig_Stand", into: docs) { root in
+            ProceduralGuitar.buildStand(into: root)
         }
 
         print("=== StreetRig model export → \(docs.path) ===")

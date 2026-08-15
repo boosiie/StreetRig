@@ -414,7 +414,7 @@ struct RigStage3DView: UIViewRepresentable {
             guard let node else { return }
             highlightedNode = node
 
-            let darken = UIColor(white: 0.24, alpha: 1)   // clearly darker, but not black
+            let darken = UIColor(white: 0.48, alpha: 1)   // a gentle dim — reads as the target, not a heavy shadow
             var seen = Set<ObjectIdentifier>()
             node.enumerateHierarchy { child, _ in
                 guard let materials = child.geometry?.materials else { return }
@@ -519,7 +519,7 @@ enum RigDiorama {
         // ---- Amp: center, slightly back. Bottom (local y ≈ −2.15) sits on the floor.
         let ampRoot = SCNNode()
         ampRoot.name = "ampRoot"
-        if let name = amp?.modelName, let loaded = AmpScene.load(usdzNamed: name) {
+        if let loaded = GearModelLoader.modelNode(for: amp) {   // custom .usdz: modelName / <slug> / category
             ampRoot.addChildNode(loaded)
         } else {
             ProceduralAmp.build(into: ampRoot)
@@ -542,8 +542,16 @@ enum RigDiorama {
         // ---- Guitar: to the right of the amp, angled toward center.
         let guitarRoot = SCNNode()
         guitarRoot.name = "guitarRoot"
-        ProceduralGuitar.buildGuitar(into: guitarRoot)
-        ProceduralGuitar.buildStand(into: guitarRoot)
+        if let loaded = GearModelLoader.modelNode(for: guitar) {   // custom <slug>.usdz for the guitar body
+            guitarRoot.addChildNode(loaded)
+        } else {
+            ProceduralGuitar.buildGuitar(into: guitarRoot)
+        }
+        if let stand = GearModelLoader.namedModel("guitar-stand") { // swappable stand file, independent of the guitar
+            guitarRoot.addChildNode(stand)
+        } else {
+            ProceduralGuitar.buildStand(into: guitarRoot)
+        }
         let gScale: Float = 0.34
         guitarRoot.scale = SCNVector3(gScale, gScale, gScale)
         guitarRoot.position = SCNVector3(1.8, 2.1 * gScale, -0.3)   // in closer to the amp
@@ -573,9 +581,9 @@ enum RigDiorama {
     RigStage3DView(
         amp: GearItem(name: "Marshall JCM800", category: .amp,
                       values: ["Gain": 8, "Bass": 6, "Mid": 4, "Treble": 7, "Presence": 5, "Master": 6]),
-        pedals: [GearItem(name: "Tube Screamer", category: .overdrive),
-                 GearItem(name: "Carbon Copy", category: .delay),
-                 GearItem(name: "Boss RV-6", category: .reverb)],
+        pedals: [GearItem(name: "Ibonez Tube Screamer", category: .overdrive),
+                 GearItem(name: "VOSS Digital Delay", category: .delay),
+                 GearItem(name: "VOSS Reverb", category: .reverb)],
         guitar: GearItem(name: "Les Paul Standard", category: .guitar),
         focused: nil,
         controller: RigDragController()

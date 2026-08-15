@@ -78,8 +78,8 @@ struct GearCardView: View {
 #Preview {
     HStack {
         GearCardView(item: GearItem(name: "Marshall JCM800", category: .amp))
-        GearCardView(item: GearItem(name: "Tube Screamer", category: .overdrive))
-        GearCardView(item: GearItem(name: "Cry Baby", category: .wah))
+        GearCardView(item: GearItem(name: "Ibonez Tube Screamer", category: .overdrive))
+        GearCardView(item: GearItem(name: "DUNLAP CRY BABY", category: .wah))
     }
     .frame(width: 460)
     .padding()

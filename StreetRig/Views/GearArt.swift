@@ -359,24 +359,25 @@ private extension Color {
 }
 
 #Preview {
-    let names = ["Tube Screamer", "Big Muff", "Dyna Comp", "Phase 90", "Carbon Copy",
-                 "Ditto Looper", "Boss TU-3", "CE-2 Chorus", "Boss RV-6", "Cry Baby"]
+    let names = ["Ibonez Tube Screamer", "electro-harmonium BIG MUFF π", "MXP dyna comp",
+                 "MXP phase 90", "VOSS Digital Delay", "VOSS Loop Station",
+                 "VOSS Chromatic Tuner", "VOSS Chorus", "VOSS Reverb", "DUNLAP CRY BABY"]
     return VStack(alignment: .leading, spacing: 20) {
-        // Override vs fallback: Tube Screamer ships a custom `tube-screamer`
-        // asset (renders the bespoke image); Big Muff has none (procedural art).
+        // Override vs fallback: every shipped pedal has a bespoke asset, so it
+        // renders the supplied image; an unknown name has none (procedural art).
         VStack(alignment: .leading, spacing: 6) {
             Text("Custom override  vs.  procedural fallback")
                 .font(.caption2.weight(.bold)).foregroundStyle(RigTheme.textMuted)
             HStack(spacing: 24) {
                 VStack {
-                    GearArtView(item: GearItem(name: "Tube Screamer", category: .overdrive))
+                    GearArtView(item: GearItem(name: "Ibonez Tube Screamer", category: .overdrive))
                         .frame(width: 40, height: 54)
                     Text("Tube Screamer\n(custom)").font(.caption2).multilineTextAlignment(.center)
                 }
                 VStack {
-                    GearArtView(item: GearItem(name: "Big Muff", category: .overdrive))
+                    GearArtView(item: GearItem(name: "Unshipped Drive", category: .overdrive))
                         .frame(width: 40, height: 54)
-                    Text("Big Muff\n(fallback)").font(.caption2).multilineTextAlignment(.center)
+                    Text("Unshipped Drive\n(fallback)").font(.caption2).multilineTextAlignment(.center)
                 }
             }
         }
@@ -384,7 +385,7 @@ private extension Color {
         ScrollView(.horizontal) {
             HStack(spacing: 12) {
                 ForEach(names, id: \.self) { name in
-                    let cat: GearCategory = name == "Cry Baby" ? .wah : .overdrive
+                    let cat: GearCategory = name == "DUNLAP CRY BABY" ? .wah : .overdrive
                     VStack {
                         GearArtView(item: GearItem(name: name, category: cat))
                             .frame(width: 40, height: 54)
