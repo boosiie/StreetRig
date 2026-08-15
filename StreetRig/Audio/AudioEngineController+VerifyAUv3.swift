@@ -86,6 +86,13 @@ extension AudioEngineController {
             sourceForOracle = source
             let unit = try await instantiate(inProcDesc, options: [])
             let isRealUnit = (unit.auAudioUnit is StreetRigDSPUnit)
+            // Host-realistic init: real hosts — and the out-of-process load in (3) below —
+            // bridge the unit's state across the process boundary by round-tripping `fullState`,
+            // which applies the unit's DEFAULT seed rig (including its seed drive pedal). Mirror
+            // that here so the in-process oracle and the out-of-process appex are compared
+            // like-for-like; a BARE oracle would leave the null measuring only the seed pedal the
+            // OOP path applied and the bare oracle did not.
+            unit.auAudioUnit.fullState = unit.auAudioUnit.fullState
             oracleSamples = try renderThroughUnit(unit, source: source, fmt: fmt)
             let nonSilent = Self.peak(oracleSamples) > 1e-4
             inProcPass = isRealUnit && nonSilent
