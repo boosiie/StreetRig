@@ -65,12 +65,27 @@ nonisolated final class StompPoseTracker {
     private var lastFootAt: TimeInterval = 0
     private var lastStomp: TimeInterval = 0
 
+    // Diagnostics only — see ARDiagnostics.swift. `stompVelocity` is the one tunable
+    // here that cannot be reasoned about at all from a desk: it is a number about how
+    // hard a particular person stomps, seen through a particular lens, at a particular
+    // distance. What makes it tunable is knowing the peak the player ACTUALLY produced
+    // on the frames that did not fire — "you peaked at 0.9 against a threshold of 1.6"
+    // is an answer; "it didn't work" is not.
+    private var peakVelocity: CGFloat = 0
+    private var footFrames = 0
+    private var blindFrames = 0
+    private var lastDiagLog: TimeInterval = 0
+    private static let diagLogInterval: TimeInterval = 1.0
+
     /// Drop the motion history — on session restart, or anything else that makes the
     /// previous foot position a statement about a different situation.
     func reset() {
         lastFootY = nil
         lastFootAt = 0
         lastStomp = 0
+        peakVelocity = 0
+        footFrames = 0
+        blindFrames = 0
     }
 
     /// - Parameters:
@@ -108,8 +123,11 @@ nonisolated final class StompPoseTracker {
 
         guard let foot else {
             if now - lastFootAt > Self.footStaleness { lastFootY = nil }
+            blindFrames += 1
+            diagLogIfDue(now: now)
             return nil
         }
+        footFrames += 1
 
         let previous = lastFootY
         let stale = now - lastFootAt > Self.footStaleness
@@ -119,11 +137,35 @@ nonisolated final class StompPoseTracker {
 
         // Downward, as a fraction of the viewport per second.
         let velocity = (foot.y - previous) / geometry.size.height / CGFloat(elapsed)
-        guard velocity > Self.stompVelocity, now - lastStomp > Self.debounce else { return nil }
+        if velocity > peakVelocity { peakVelocity = velocity }
+        guard velocity > Self.stompVelocity, now - lastStomp > Self.debounce else {
+            diagLogIfDue(now: now)
+            return nil
+        }
         lastStomp = now
 
-        return Stomp(slot: slot(forViewX: foot.x, width: geometry.size.width, centers: slotCentersX),
-                     normalizedX: min(1, max(0, foot.x / geometry.size.width)))
+        let stomp = Stomp(slot: slot(forViewX: foot.x, width: geometry.size.width, centers: slotCentersX),
+                          normalizedX: min(1, max(0, foot.x / geometry.size.width)))
+        let centres = slotCentersX.map {
+            "[\(ARDiagnostics.f($0.0, 0)) \(ARDiagnostics.f($0.1, 0)) \(ARDiagnostics.f($0.2, 0))]"
+        } ?? "thirds"
+        ARDiagnostics.log("STOMP slot=\(stomp.slot) v=\(ARDiagnostics.f(velocity)) "
+                        + "footX=\(ARDiagnostics.f(foot.x, 0)) centres=\(centres)")
+        return stomp
+    }
+
+    /// Once a second: is Vision finding an ankle at all, and how close did the hardest
+    /// downward motion in that second come to firing. Two numbers that separate the
+    /// three ways this can be silent — no body detected, foot detected but too slow, or
+    /// firing correctly and the failure is downstream.
+    private func diagLogIfDue(now: TimeInterval) {
+        guard ARDiagnostics.enabled, now - lastDiagLog >= Self.diagLogInterval else { return }
+        lastDiagLog = now
+        ARDiagnostics.log("pose foot=\(footFrames)/\(footFrames + blindFrames) frames "
+                        + "peakV=\(ARDiagnostics.f(peakVelocity))/\(Self.stompVelocity)")
+        peakVelocity = 0
+        footFrames = 0
+        blindFrames = 0
     }
 
     /// Vision's answer, in the viewport's points.

@@ -278,6 +278,13 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
     private var lastPublishedSlots: (CGPoint, CGPoint, CGPoint)?
     private var lastSlotPublish: TimeInterval = 0
 
+    /// Diagnostics throttle. The readiness gates are evaluated 60 times a second and
+    /// the interesting thing about them is the trend, not the frame — at 60 Hz the
+    /// console scrolls faster than it can be read and the console pipe becomes the
+    /// bottleneck. Once a second is enough to watch a floor being found.
+    private var lastGateLog: TimeInterval = 0
+    private static let gateLogInterval: TimeInterval = 1.0
+
     // MARK: Lifecycle, driven from the detector
 
     /// Seed the machine when the session (re)starts.
@@ -306,6 +313,10 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
         self.lockPose = simd_mul(simd_inverse(anchorTransform), cameraTransform)
         self.degradedSince = nil
         self.interrupted = false
+        let origin = anchorTransform.columns.3.xyz
+        ARDiagnostics.log("LOCK at world(\(ARDiagnostics.f(origin.x)), \(ARDiagnostics.f(origin.y)), "
+                        + "\(ARDiagnostics.f(origin.z))) camY=\(ARDiagnostics.f(cameraTransform.columns.3.y)) "
+                        + "drop=\(ARDiagnostics.f(cameraTransform.columns.3.y - origin.y))m")
         set(.locked)
     }
 
@@ -377,14 +388,14 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
             } else if anchor.identifier == anchorID {
                 // ARKit dropped the thing the layout was pinned to. Whatever is on
                 // screen is now decoration, so stop pretending it is a footswitch.
-                unlock(now: CACurrentMediaTime())
+                unlock(now: CACurrentMediaTime(), reason: .anchorRemoved)
             }
         }
     }
 
     func sessionWasInterrupted(_ session: ARSession) {
         interrupted = true
-        if case .locked = state { unlock(now: CACurrentMediaTime()) }
+        if case .locked = state { unlock(now: CACurrentMediaTime(), reason: .interrupted) }
     }
 
     func sessionInterruptionEnded(_ session: ARSession) {
@@ -440,14 +451,48 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
 
         var usable = false
         var sawSurface = false
+        // Diagnostics only — see ARDiagnostics.swift. Tallied INSIDE the decision loop
+        // rather than in a second pass so the numbers describe the same frame the
+        // decision was actually made from; a re-walk would be a different instant and
+        // would occasionally explain a rejection that never happened.
+        var tooSmall = 0, tooHigh = 0, outOfView = 0
+        var biggest: (w: Float, h: Float, dy: Float)?
         for plane in planes.values {
-            guard plane.width >= Self.minPlaneExtent, plane.height >= Self.minPlaneExtent else { continue }
+            if ARDiagnostics.enabled {
+                let dy = plane.worldCenter.y - cameraY
+                if biggest == nil || min(plane.width, plane.height) > min(biggest!.w, biggest!.h) {
+                    biggest = (plane.width, plane.height, dy)
+                }
+            }
+            guard plane.width >= Self.minPlaneExtent, plane.height >= Self.minPlaneExtent else {
+                tooSmall += 1
+                continue
+            }
             sawSurface = true
             // Below the lens, or it is a desk / chair / shelf the player cannot stomp.
-            guard plane.worldCenter.y < cameraY - Self.minCameraLift else { continue }
-            guard inView(plane.worldCenter, camera: camera, geometry: geometry, margin: margin) else { continue }
+            guard plane.worldCenter.y < cameraY - Self.minCameraLift else {
+                tooHigh += 1
+                continue
+            }
+            guard inView(plane.worldCenter, camera: camera, geometry: geometry, margin: margin) else {
+                outOfView += 1
+                continue
+            }
             usable = true
             break
+        }
+
+        if ARDiagnostics.enabled, now - lastGateLog >= Self.gateLogInterval {
+            lastGateLog = now
+            let held = readySince.map { now - $0 } ?? 0
+            let best = biggest.map { "\(ARDiagnostics.f($0.w))x\(ARDiagnostics.f($0.h))m dy=\(ARDiagnostics.f($0.dy))" }
+                ?? "none"
+            ARDiagnostics.log("""
+                gate track=\(camera.trackingState.diagName) planes=\(planes.count) \
+                best=\(best) reject[small=\(tooSmall) high=\(tooHigh) offscreen=\(outOfView)] \
+                usable=\(usable) held=\(ARDiagnostics.f(CGFloat(held)))s/\(Self.readyDebounce)s \
+                camY=\(ARDiagnostics.f(cameraY))
+                """)
         }
 
         if usable && trackingNormal {
@@ -510,14 +555,19 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
     // MARK: - Holding, and losing, the lock
 
     private func evaluateLock(camera: ARCamera, now: TimeInterval, geometry: ViewGeometry) {
-        guard !interrupted else { return unlock(now: now) }
-        guard let anchorTransform, let slotOffsets, slotOffsets.count == 3 else { return unlock(now: now) }
+        guard !interrupted else { return unlock(now: now, reason: .interrupted) }
+        guard let anchorTransform, let slotOffsets, slotOffsets.count == 3 else {
+            return unlock(now: now, reason: .anchorMissing)
+        }
 
         if case .normal = camera.trackingState {
             degradedSince = nil
         } else {
             if degradedSince == nil { degradedSince = now }
-            guard now - (degradedSince ?? now) <= Self.trackingGrace else { return unlock(now: now) }
+            guard now - (degradedSince ?? now) <= Self.trackingGrace else {
+                return unlock(now: now, reason: .trackingLost,
+                              detail: camera.trackingState.diagName)
+            }
         }
 
         // Did the phone move? Asked in the ANCHOR's frame — see `lockPose`.
@@ -525,18 +575,24 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
             let cameraInAnchor = simd_mul(simd_inverse(anchorTransform), camera.transform)
             let moved = simd_distance(cameraInAnchor.columns.3.xyz, lockPose.columns.3.xyz)
             let turned = abs(simd_mul(lockPose.rotation.inverse, cameraInAnchor.rotation).angle)
-            guard moved <= Self.maxLockDrift, turned <= Self.maxLockRotation else { return unlock(now: now) }
+            guard moved <= Self.maxLockDrift, turned <= Self.maxLockRotation else {
+                return unlock(now: now, reason: .phoneMoved,
+                              detail: "moved=\(ARDiagnostics.f(moved))m/\(Self.maxLockDrift) "
+                                    + "turned=\(ARDiagnostics.f(turned * 180 / .pi, 1))°/15")
+            }
         }
 
         let worldCentre = simd_mul(anchorTransform, slotOffsets[1]).xyz
         let local = simd_mul(simd_inverse(camera.transform), simd_float4(worldCentre, 1))
         // The floor has gone behind the lens — the phone is face-down or tipped over.
-        guard local.z < -0.05 else { return unlock(now: now) }
+        guard local.z < -0.05 else { return unlock(now: now, reason: .floorBehind) }
 
         let p0 = project(slotOffsets[0], anchor: anchorTransform, camera: camera, geometry: geometry)
         let p1 = project(slotOffsets[1], anchor: anchorTransform, camera: camera, geometry: geometry)
         let p2 = project(slotOffsets[2], anchor: anchorTransform, camera: camera, geometry: geometry)
-        guard p0.x.isFinite, p1.x.isFinite, p2.x.isFinite else { return unlock(now: now) }
+        guard p0.x.isFinite, p1.x.isFinite, p2.x.isFinite else {
+            return unlock(now: now, reason: .badProjection)
+        }
 
         // Binning reads this on the frame path; publishing to SwiftUI is throttled.
         slotCentersX = (p0.x, p1.x, p2.x)
@@ -565,7 +621,23 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
         emitSlots([points.0, points.1, points.2])
     }
 
-    private func unlock(now: TimeInterval) {
+    /// Why a lock was dropped. Recorded rather than inferred: "the layout unlocked" with
+    /// no cause is the same species of silent failure this file exists to prevent, seen
+    /// from the other side — and the three thresholds that can trigger it
+    /// (`trackingGrace`, `maxLockDrift`, `maxLockRotation`) cannot be tuned without
+    /// knowing which of them actually fired.
+    enum UnlockReason: String {
+        case anchorRemoved = "anchor removed by ARKit"
+        case interrupted   = "session interrupted"
+        case anchorMissing = "anchor or offsets missing"
+        case trackingLost  = "tracking degraded past grace"
+        case phoneMoved    = "phone moved"
+        case floorBehind   = "floor went behind the lens"
+        case badProjection = "slot projection not finite"
+    }
+
+    private func unlock(now: TimeInterval, reason: UnlockReason, detail: String = "") {
+        ARDiagnostics.log("UNLOCK — \(reason.rawValue)\(detail.isEmpty ? "" : " (\(detail))")")
         clearLock()
         degradedSince = nil
         readySince = nil
@@ -577,6 +649,7 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
 
     private func set(_ new: ARPlacementState) {
         guard new != state else { return }
+        ARDiagnostics.log("state \(state.diagName) -> \(new.diagName)")
         state = new
         emitState(new)
     }
@@ -625,7 +698,17 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
                                        orientation: geometry.orientation, viewportSize: geometry.size)
         let right = camera.projectPoint(origin + lateral * Self.slotSpacing,
                                         orientation: geometry.orientation, viewportSize: geometry.size)
-        if right.x < left.x { lateral = -lateral }
+        let flipped = right.x < left.x
+        if flipped { lateral = -lateral }
+        // The mirror check, made visible. If this ever reports `flip=true` in
+        // `.landscapeRight` (or false in `.landscapeLeft`), the rotation feeding
+        // `lateral` disagrees with what the projector draws — which is precisely the
+        // "every stomp toggles the wrong end of the board" bug, caught on the ground
+        // instead of on stage.
+        ARDiagnostics.log("layout orientation=\(geometry.orientation.rawValue) theta=\(Int(theta * 180 / .pi))° "
+                        + "leftX=\(ARDiagnostics.f(left.x, 0)) rightX=\(ARDiagnostics.f(right.x, 0)) "
+                        + "flip=\(flipped) viewport=\(ARDiagnostics.f(geometry.size.width, 0))x"
+                        + "\(ARDiagnostics.f(geometry.size.height, 0))")
 
         let inverse = simd_inverse(anchorTransform)
         return [-Self.slotSpacing, 0, Self.slotSpacing].map { distance in

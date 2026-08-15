@@ -179,6 +179,8 @@ final class CameraStompDetector: ObservableObject {
         // take several seconds and can quietly resolve to a slightly different place;
         // re-tapping costs half a second and is right by construction. For a thing
         // that is going to be stomped on mid-song, "ask again" beats "probably".
+        ARDiagnostics.log("session.run \(type(of: configuration)) placement=\(FeatureFlags.arPlacement) "
+                        + "initial=\(initial.diagName)")
         session.run(configuration, options: [])
         running = true
     }
@@ -247,9 +249,19 @@ final class CameraStompDetector: ObservableObject {
         guard state == .ready,
               let feedView,
               let geometry,
-              let frame = session.currentFrame else { return }
+              let frame = session.currentFrame else {
+            // A tap that does nothing is indistinguishable from a tap that was not
+            // registered, so say which it was.
+            ARDiagnostics.log("tap IGNORED state=\(state.diagName) feedView=\(feedView != nil) "
+                            + "geometry=\(geometry != nil) frame=\(session.currentFrame != nil)")
+            return
+        }
 
-        guard let result = raycast(from: viewPoint, in: feedView) else { return }
+        guard let result = raycast(from: viewPoint, in: feedView) else {
+            ARDiagnostics.log("tap MISSED — no raycast hit at "
+                            + "(\(ARDiagnostics.f(viewPoint.x, 0)), \(ARDiagnostics.f(viewPoint.y, 0)))")
+            return
+        }
 
         // Everything needed is copied out of the frame HERE, as values, so that
         // `frame` dies with this call and never escapes into the hop below. A retained
