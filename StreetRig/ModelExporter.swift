@@ -32,7 +32,7 @@ enum ModelExporter {
         }
         // A representative stompbox (3-knob)
         written += export(name: "StreetRig_Pedal", into: docs) { root in
-            root.addChildNode(ProceduralPedal.build(for: GearItem(name: "Tube Screamer", category: .overdrive)))
+            root.addChildNode(ProceduralPedal.build(for: GearItem(name: "Ibonez Tube Screamer", category: .overdrive)))
         }
         // Les Paul-style guitar body (no stand)
         written += export(name: "StreetRig_Guitar", into: docs) { root in

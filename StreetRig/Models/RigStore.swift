@@ -36,7 +36,8 @@ final class RigStore: ObservableObject {
             rig = seed.rig
             if persist {
                 // Persist the seed immediately so the first launch is durable.
-                Self.write(PersistedState(collection: seed.collection, rig: seed.rig, arSlots: arSlots), to: saveURL)
+                Self.write(PersistedState(collection: seed.collection, rig: seed.rig, arSlots: arSlots,
+                                          catalogVersion: Self.catalogVersion), to: saveURL)
             }
         }
 
@@ -183,15 +184,26 @@ final class RigStore: ObservableObject {
 
     // MARK: - Persistence
 
+    /// Bumped whenever the shipped catalog changes in a way that retires gear a
+    /// saved rig might still be holding. A state file stamped with an older
+    /// version is discarded and re-seeded, so nobody is left owning a pedal the
+    /// app no longer ships (and has no artwork for).
+    ///   1 — original placeholder catalog
+    ///   2 — the 47 licensed-art pedals
+    static let catalogVersion = 2
+
     struct PersistedState: Codable {
         var collection: [GearItem]
         var rig: RigConfiguration
         var arSlots: [ARSlot]?
+        /// Absent in files written before versioning existed → treated as 1.
+        var catalogVersion: Int?
     }
 
     func save() {
         guard persist else { return }
-        Self.write(PersistedState(collection: collection, rig: rig, arSlots: arSlots), to: saveURL)
+        Self.write(PersistedState(collection: collection, rig: rig, arSlots: arSlots,
+                                  catalogVersion: Self.catalogVersion), to: saveURL)
     }
 
     private static func stateURL() -> URL {
@@ -201,8 +213,12 @@ final class RigStore: ObservableObject {
     }
 
     private static func load(from url: URL) -> PersistedState? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(PersistedState.self, from: data)
+        guard let data = try? Data(contentsOf: url),
+              let state = try? JSONDecoder().decode(PersistedState.self, from: data)
+        else { return nil }
+        // Stale catalog generation → nil, which makes the caller re-seed.
+        guard (state.catalogVersion ?? 1) >= catalogVersion else { return nil }
+        return state
     }
 
     private static func write(_ state: PersistedState, to url: URL) {
@@ -217,16 +233,16 @@ final class RigStore: ObservableObject {
         let amp      = GearItem(name: "Marshall JCM800",   category: .amp, values: ["Gain": 0, "Bass": 2, "Mid": 5, "Treble": 5, "Presence": 8, "Master": 10])
         let cab      = GearItem(name: "Marshall 1960A 4x12", category: .cabinet)
         let combo    = GearItem(name: "Fender Deluxe",     category: .comboAmp)
-        let tuner    = GearItem(name: "Boss TU-3",         category: .tuner)
-        let wah      = GearItem(name: "Cry Baby",          category: .wah)
-        let comp     = GearItem(name: "Dyna Comp",         category: .compressor)
-        let ts       = GearItem(name: "Tube Screamer",     category: .overdrive)
-        let muff     = GearItem(name: "Big Muff",          category: .overdrive)
-        let chorus   = GearItem(name: "CE-2 Chorus",       category: .modulation)
-        let phaser   = GearItem(name: "Phase 90",          category: .modulation)
-        let delay    = GearItem(name: "Carbon Copy",       category: .delay)
-        let reverb   = GearItem(name: "Boss RV-6",         category: .reverb)
-        let looper   = GearItem(name: "Ditto Looper",      category: .looper)
+        let tuner    = GearItem(name: "VOSS Chromatic Tuner", category: .tuner)
+        let wah      = GearItem(name: "DUNLAP CRY BABY",   category: .wah)
+        let comp     = GearItem(name: "MXP dyna comp",     category: .compressor)
+        let ts       = GearItem(name: "Ibonez Tube Screamer", category: .overdrive)
+        let muff     = GearItem(name: "electro-harmonium BIG MUFF π", category: .overdrive)
+        let chorus   = GearItem(name: "VOSS Chorus",       category: .modulation)
+        let phaser   = GearItem(name: "MXP phase 90",      category: .modulation)
+        let delay    = GearItem(name: "VOSS Digital Delay", category: .delay)
+        let reverb   = GearItem(name: "VOSS Reverb",       category: .reverb)
+        let looper   = GearItem(name: "VOSS Loop Station", category: .looper)
 
         let collection = [guitar, amp, cab, combo, tuner, wah, comp, ts, muff, chorus, phaser, delay, reverb, looper]
         let rig = RigConfiguration(
@@ -251,32 +267,52 @@ final class RigStore: ObservableObject {
             mk("Marshall 1960A 4x12", .cabinet), mk("Marshall 1936 2x12", .cabinet), mk("Fender 1x12", .cabinet),
             // Combo amps
             mk("Fender Deluxe", .comboAmp), mk("Vox AC15", .comboAmp),
+            // ---- Pedals ------------------------------------------------------
+            // The 47 shipped models. Every one has a bespoke icon in
+            // Assets.xcassets keyed off `GearIconLoader.slug(name)`, so these
+            // names are load-bearing: renaming a pedal orphans its artwork.
+            // Within a category the first entry is the one LibraryView shows on
+            // that category's card, so it leads with the best-fitting model.
+
             // Tuner
-            mk("Boss TU-3", .tuner), mk("TC PolyTune", .tuner),
+            mk("VOSS Chromatic Tuner", .tuner),
             // Wah / filter
-            mk("Cry Baby", .wah), mk("Vox V846 Wah", .wah),
+            mk("DUNLAP CRY BABY", .wah), mk("VOLT V847", .wah), mk("MORLEE BAD HORSIE", .wah),
             // Compressor
-            mk("Dyna Comp", .compressor), mk("Keeley Compressor", .compressor),
-            // Overdrive / distortion / fuzz / boost
-            mk("Tube Screamer", .overdrive), mk("Big Muff", .overdrive), mk("ProCo RAT", .overdrive),
-            mk("Klon Centaur", .overdrive), mk("Blues Driver", .overdrive), mk("Fuzz Face", .overdrive),
+            mk("MXP dyna comp", .compressor), mk("VOSS Compression Sustainer", .compressor),
+            mk("Keenly Compressor", .compressor),
+            // Overdrive / distortion / fuzz / boost (one category in the model)
+            mk("VOSS Distortion", .overdrive), mk("Ibonez Tube Screamer", .overdrive),
+            mk("ProCon RAT", .overdrive), mk("VOSS Metal Zone", .overdrive),
+            mk("Chiron CENTAUR", .overdrive), mk("analogue.man KING of TONE", .overdrive),
+            mk("Marswell BLUES BREAKER", .overdrive), mk("Fullstone OCD", .overdrive),
+            mk("electro-harmonium BIG MUFF π", .overdrive),
+            mk("DALLAS ARBITOR FUZZ FACE", .overdrive), mk("Z.HEX FUZZ FACTORY", .overdrive),
+            mk("Exotiq EP booster", .overdrive), mk("strymo IRIDIUM", .overdrive),
             // EQ
-            mk("MXR 10-Band EQ", .eq), mk("Boss GE-7", .eq),
+            mk("VOSS Equalizer", .eq), mk("MXP ten band eq", .eq), mk("EMPRISS ParaEq", .eq),
             // Noise gate
-            mk("Boss NS-2", .noiseGate), mk("ISP Decimator", .noiseGate),
-            // Modulation (chorus / flanger / phaser / tremolo)
-            mk("CE-2 Chorus", .modulation), mk("Phase 90", .modulation),
-            mk("MXR Flanger", .modulation), mk("Boss TR-2 Tremolo", .modulation),
+            mk("VOSS Noise Suppressor", .noiseGate), mk("ITP DECIMATOR II", .noiseGate),
+            mk("FORTIS ZUUL", .noiseGate),
+            // Modulation (chorus / flanger / phaser / tremolo / vibe)
+            mk("VOSS Chorus", .modulation), mk("MXP phase 90", .modulation),
+            mk("MXP flanger", .modulation), mk("VOSS Tremolo", .modulation),
+            mk("electro-harmonium SMALL CLONE", .modulation),
+            mk("electro-harmonium small stone", .modulation),
+            mk("electro-harmonium electric mistress", .modulation),
+            mk("Fullstone Deja'Vibe", .modulation),
             // Pitch / octave
-            mk("DigiTech Whammy", .pitch), mk("EHX POG", .pitch),
+            mk("VOSS Octave", .pitch), mk("VOSS Harmonist", .pitch),
+            mk("electro-harmonium micro POG", .pitch), mk("DigiTek WHAMMY", .pitch),
             // Delay
-            mk("Carbon Copy", .delay), mk("Boss DD-8", .delay), mk("Memory Man", .delay),
+            mk("VOSS Digital Delay", .delay), mk("DUNLAP ECHOPLEX", .delay),
+            mk("electro-harmonium MEMORY MAN", .delay),
             // Reverb
-            mk("Boss RV-6", .reverb), mk("TC Hall of Fame", .reverb),
+            mk("VOSS Reverb", .reverb), mk("electro-harmonium HOLY GRAIL", .reverb),
             // Volume
-            mk("EB Volume", .volume),
-            // Looper
-            mk("Ditto Looper", .looper), mk("Boss RC-5", .looper),
+            mk("VOSS FV-500H", .volume), mk("ERNIE BELL VP JR", .volume),
+            // Looper / sustain
+            mk("VOSS Loop Station", .looper), mk("electro-harmonium FREEZE", .looper),
         ]
     }()
 }
