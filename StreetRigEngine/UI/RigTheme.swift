@@ -45,4 +45,12 @@ public enum RigTheme {
     /// kept distinct from the ember accent so meters read at a glance.
     public static let signal = Color(red: 0.353, green: 0.663, blue: 0.506)         // #5AA981
     public static let clip = Color(red: 0.812, green: 0.290, blue: 0.196)           // #CF4A32
+
+    /// Semantic — "this position works": the AR page's placement-ready outline, and
+    /// nothing else. Deliberately NOT `amber`, which already means "this pedal is
+    /// engaged"; a player standing over their phone has to be able to tell the two
+    /// apart at a glance. Deliberately not `signal` either, which is a meter LED —
+    /// muted enough to read on the espresso panel, and far too quiet to survive being
+    /// drawn as a hairline over a live camera image of a carpet.
+    public static let ready = Color(red: 0.322, green: 0.827, blue: 0.478)          // #52D37A
 }
