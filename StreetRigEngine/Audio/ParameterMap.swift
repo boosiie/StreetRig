@@ -83,37 +83,139 @@ public enum ParameterMap {
         0.1 + norm(v) * 1.9
     }
 
+    // MARK: - Family parameter maps (0…10 knob → DSP unit for each pedal family)
+
+    /// EQ band gain in dB, flat (0) at noon so a centered EQ is transparent. ±12 dB.
+    static func eqBandDB(_ v: Double) -> Float { (norm(v) - 0.5) * 2.0 * 12.0 }
+
+    /// Compressor "Level" → output makeup gain (linear). Unity near noon.
+    static func compMakeup(_ v: Double) -> Float { 0.5 + norm(v) * 1.5 }   // 0.5 … 2.0
+
+    /// Gate "Threshold" → open threshold in dBFS. More knob = gates more (higher
+    /// threshold): knob 0 → −70 dB (never gates), 10 → −20 dB (aggressive).
+    static func gateThreshDB(_ v: Double) -> Float { -70.0 + norm(v) * 50.0 }
+
+    /// Gate "Decay" → release time in seconds (how fast the gate closes).
+    static func gateReleaseSec(_ v: Double) -> Float { 0.02 + norm(v) * 0.58 } // 20…600 ms
+
+    /// Modulation "Rate" → LFO frequency in Hz, exponential: 0.1 → ≈6.4 Hz.
+    static func modRateHz(_ v: Double) -> Float { 0.1 * powf(2.0, norm(v) * 6.0) }
+
     // MARK: - Structural routing (topology, chosen at compile time)
 
-    /// DSP block type for a pedal category. Only overdrive/distortion/fuzz have
-    /// real DSP now (`.drive`); every other category is a transparent pass-through
-    /// that still holds its chain position (clean extension point). Mirrors the
-    /// C++ `PedalChain::Type` (0 = transparent, 1 = drive).
+    /// DSP block type for a pedal category. Mirrors the C++ `PedalChain::Type`.
+    /// Categories without DSP yet (tuner / pitch / delay / reverb / looper) stay
+    /// transparent — they hold their chain position but pass audio through.
     static let typeTransparent = 0
     public static let typeDrive = 1
-    static func pedalType(for category: GearCategory) -> Int {
-        category == .overdrive ? typeDrive : typeTransparent
+    static let typeEq          = 2
+    static let typeCompressor  = 3
+    static let typeGate        = 4
+    static let typeWah         = 5
+    static let typeVolume      = 6
+    static let typeModulation  = 7
+    public static func pedalType(for category: GearCategory) -> Int {
+        switch category {
+        case .overdrive:  return typeDrive
+        case .eq:         return typeEq
+        case .compressor: return typeCompressor
+        case .noiseGate:  return typeGate
+        case .wah:        return typeWah
+        case .volume:     return typeVolume
+        case .modulation: return typeModulation
+        default:          return typeTransparent   // tuner/pitch/delay/reverb/looper (TBD)
+        }
     }
 
-    /// Clip character for a drive pedal, chosen by model. Mirrors the C++
-    /// `DrivePedal::Character` (0 = soft, 1 = hard, 2 = fuzz).
+    /// Slot "voicing" — the flavour within a family. For drive it is the specific
+    /// pedal MODEL; for modulation it is the algorithm. Mirrors the C++
+    /// `DrivePedal::Voicing` / `ModulationPedal::Voicing`.
     static let charSoft = 0, charHard = 1
-    public static let charFuzz = 2
-    /// Matched on a lowercased *substring* of the model name, not the whole
-    /// string: the shipped names are brand-prefixed ("VOSS Distortion",
-    /// "electro-harmonium BIG MUFF π"), so an exact-name switch would silently
-    /// voice every drive pedal as soft clipping.
-    static func pedalCharacter(name: String) -> Int {
+    public static let charFuzz = 2   // generic clip fallbacks (0/1/2)
+    // Per-model drive voicings (mirror DrivePedal::Voicing, 3+).
+    public static let voiceTubeScreamer = 3, voiceBluesbreaker = 4, voiceKlon = 5,
+               voiceKingOfTone = 6, voiceOCD = 7, voiceDS1 = 8, voiceMetalZone = 9,
+               voiceRAT = 10, voiceBigMuff = 11, voiceFuzzFace = 12,
+               voiceFuzzFactory = 13, voiceCleanBoost = 14
+    static let modChorus = 0, modFlanger = 1, modPhaser = 2, modTremolo = 3, modUnivibe = 4
+
+    /// Voicing chosen by model NAME (substring match, so it works for both the old
+    /// seed names and the re-badged catalog — e.g. "electro-harmonium BIG MUFF π"
+    /// still reads as a Big Muff). Each drive model gets its own circuit voicing in
+    /// DrivePedal; modulation picks its algorithm.
+    public static func pedalVoicing(name: String, category: GearCategory) -> Int {
         let n = name.lowercased()
-        // hard, bright distortion
-        if n.contains("procon rat") || n.contains("distortion") || n.contains("metal zone") {
-            return charHard
+        switch category {
+        case .overdrive:
+            // Specific models first, then generic keywords.
+            if n.contains("screamer") || n.contains("ts808") || n.contains("ts9") || n.contains("tube screamer") { return voiceTubeScreamer }
+            if n.contains("centaur") || n.contains("klon")     { return voiceKlon }
+            if n.contains("king")                              { return voiceKingOfTone }
+            if n.contains("ocd")                               { return voiceOCD }
+            if n.contains("blues")                             { return voiceBluesbreaker }  // Bluesbreaker / Blues Driver
+            if n.contains("metal") || n.contains("zone") || n.contains("mt-2") || n.contains("mt2") { return voiceMetalZone }
+            if n.contains("rat")                               { return voiceRAT }
+            if n.contains("ds-1") || n.contains("ds1") || n.contains("distortion") { return voiceDS1 }
+            if n.contains("muff")                              { return voiceBigMuff }
+            if n.contains("factory")                           { return voiceFuzzFactory }
+            if n.contains("fuzz") || n.contains("face")        { return voiceFuzzFace }
+            if n.contains("boost") || n.contains("booster") || n.contains("ep ") { return voiceCleanBoost }
+            return voiceTubeScreamer   // sensible default OD flavour
+        case .modulation:
+            if n.contains("trem")                       { return modTremolo }
+            if n.contains("vibe") || n.contains("univ") { return modUnivibe }
+            if n.contains("flang") || n.contains("mistress") { return modFlanger }
+            if n.contains("phase") || n.contains("stone")    { return modPhaser }   // Small Stone = phaser
+            return modChorus           // chorus / clone / CE-2
+        default:
+            return 0
         }
-        // asymmetric fuzz
-        if n.contains("muff") || n.contains("fuzz") {
-            return charFuzz
+    }
+
+    /// Per-category continuous knob values → the DSP-unit params[] each C++ engine
+    /// expects (Param0…), in order. This is the single table that voices every
+    /// family's knobs; it is deliberately here so ranges can be ear-tuned in one place.
+    public static func pedalParams(category: GearCategory, values: [String: Double]) -> [Float] {
+        // Role extraction: read whichever knob fills each DSP role across the
+        // per-model names — so a Big Muff's "Sustain", a Klon's "Gain" and a RAT's
+        // "Distortion" all drive the gain stage. Keeps the DSP mapping working no
+        // matter what a model's knobs are called (see PedalSpec in Gear.swift).
+        func role(_ keys: [String], _ d: Double = 5) -> Double {
+            for k in keys { if let v = values[k] { return v } }
+            return d
         }
-        return charSoft   // TS / Centaur / King of Tone / OCD / booster
+        switch category {
+        case .overdrive:
+            let gain  = role(["Drive", "Overdrive", "Sustain", "Gain", "Distortion", "Dist", "Fuzz"])
+            let tone  = role(["Tone", "Treble", "Filter"])
+            let level = role(["Level", "Volume", "Output"])
+            return [pedalDrive(gain), pedalToneHz(tone), pedalLevel(level)]
+        case .eq:
+            // 3-band engine — map Low/Mid/High, or representative graphic-EQ bands.
+            let low  = role(["Low", "125", "100", "62", "31"])
+            let mid  = role(["Mid", "500", "800", "1k"])
+            let high = role(["High", "3.2k", "6.4k", "4k", "8k"])
+            return [eqBandDB(low), eqBandDB(mid), eqBandDB(high)]
+        case .compressor:
+            let sustain = role(["Sustain", "Sensitivity"])
+            let level   = role(["Level", "Output"])
+            return [norm(sustain), compMakeup(level)]
+        case .noiseGate:
+            let thr = role(["Threshold"])
+            let dec = role(["Decay", "Release"])
+            return [gateThreshDB(thr), gateReleaseSec(dec)]
+        case .modulation:
+            let rate  = role(["Rate", "Speed", "Manual"])
+            let depth = role(["Depth", "Width", "Intensity", "Range"])
+            let mix   = role(["Mix", "Blend", "Color", "Regen"])
+            return [modRateHz(rate), norm(depth), norm(mix)]
+        case .wah:
+            return [norm(role(["Position"]))]
+        case .volume:
+            return [norm(role(["Position"]))]
+        default:
+            return []   // transparent families carry no params yet
+        }
     }
 
     /// Cab IR slot for a cabinet/combo model. Only two IRs are bundled today —

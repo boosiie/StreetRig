@@ -60,13 +60,19 @@ enum {
     SRMaxPedals        = 8,
     SRPedalParamBase   = 100,
     SRPedalParamStride = 8,
-    // field indices (must match streetrig::PedalChain::Field)
+    // field indices (must match streetrig::PedalChain::Field). Fields 3..7 are
+    // the generic continuous knobs (Param0..Param4) each family reads in its own
+    // DSP units; for a drive pedal Param0/1/2 are Drive/Tone/Level (kept as
+    // aliases for source clarity + back-compat). SRPedalFieldCharacter is the
+    // slot's VOICING (drive: soft/hard/fuzz; modulation: chorus/…/univibe).
     SRPedalFieldEnabled   = 0,
     SRPedalFieldType      = 1,
     SRPedalFieldCharacter = 2,
-    SRPedalFieldDrive     = 3,
-    SRPedalFieldTone      = 4,
-    SRPedalFieldLevel     = 5
+    SRPedalFieldDrive     = 3,   // = Param0
+    SRPedalFieldTone      = 4,   // = Param1
+    SRPedalFieldLevel     = 5,   // = Param2
+    SRPedalFieldParam3    = 6,
+    SRPedalFieldParam4    = 7
 };
 
 // MARK: - Lifecycle (main / setup thread — allocation permitted here)

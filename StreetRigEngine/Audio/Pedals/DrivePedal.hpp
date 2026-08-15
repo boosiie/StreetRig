@@ -2,39 +2,37 @@
 //  DrivePedal.hpp
 //  StreetRig
 //
-//  Prompt 003 — the one pedal category that needs REAL DSP now: overdrive /
-//  distortion / fuzz. It is a gain stage built as
+//  The overdrive / distortion / fuzz gain stage — now PER-MODEL voiced. It is
 //
-//      pre-emphasis (voicing HP + optional mid hump)
-//        → 4× OVERSAMPLED nonlinear clip (soft / hard / asymmetric fuzz)
-//        → DC block → post tone low-pass → output level
+//      pre-emphasis (voicing HP + optional pre-clip mid)
+//        → 4× OVERSAMPLED nonlinear clip (soft / hard / fuzz, per-model asymmetry,
+//          optional 2-stage cascade for Big-Muff-style sustain)
+//        → optional post-clip mid (Muff / Metal-Zone scoop)
+//        → DC block → post tone low-pass → output level × per-model trim
 //
-//  WHY oversample (requirement 1 + 6): a static nonlinearity manufactures
-//  harmonics above Nyquist that fold back as inharmonic aliasing ("digital
-//  fizz"). Running the clip at 4× with a windowed-sinc FIR on the way up and down
-//  band-limits those images before decimation. The linear voicing/tone biquads do
-//  not alias, so only the clip is oversampled. The oversampler reuses the exact
-//  proven polyphase structure from AnalogAmp.
+//  WHY oversample (requirement 1 + 6): a static nonlinearity manufactures harmonics
+//  above Nyquist that fold back as inharmonic aliasing. Running the clip at 4× with
+//  a windowed-sinc FIR up and down band-limits those images before decimation. Only
+//  the clip is oversampled; the linear voicing biquads do not alias.
 //
-//  ONE BLOCK PER OWNED DRIVE PEDAL. `character` (soft/hard/fuzz) is a SETUP-time
-//  property chosen by the chain compiler from the pedal model (Tube Screamer =
-//  soft mid-hump, ProCo RAT = hard/bright, Big Muff / Fuzz Face = asymmetric
-//  fuzz). Drive / tone / level are CONTINUOUS knobs pushed live through the
-//  lock-free bus and de-zippered here.
+//  Each pedal MODEL is a `Voicing` (Tube Screamer, RAT, Big Muff, Klon, …). The
+//  chain compiler picks it from the model name (ParameterMap.pedalVoicing) and it is
+//  applied at SETUP time (configure, under the reconfigure barrier). `Voicing`
+//  chooses the pre/post filters, clip shape, asymmetry, drive scaling, cascade and
+//  output trim — so a Tube Screamer, a RAT and a Big Muff sound like different
+//  circuits, not one waveshaper with three presets. Drive / tone / level stay
+//  CONTINUOUS knobs pushed live and de-zippered here.
 //
-//  EXTENSION POINT: other pedal categories (comp, mod, delay, …) plug into the
-//  same PedalChain as additional block types; only drive needs real DSP for now,
-//  so every non-drive slot is a transparent pass-through (see PedalChain).
-//
-//  REAL-TIME CONTRACT: `prepare()` / `configure()` design filters + allocate
-//  (setup thread). `process()` allocates nothing, locks nothing, does no I/O and
-//  keeps per-channel state so a stereo path never crosstalks. See RealtimeSafety.md.
+//  REAL-TIME CONTRACT: `prepare()` / `configure()` design filters + allocate (setup
+//  thread). `process()` allocates nothing, locks nothing, does no I/O, keeps
+//  per-channel state so a stereo path never crosstalks. See RealtimeSafety.md.
 //
 
 #ifndef STREETRIG_DRIVE_PEDAL_HPP
 #define STREETRIG_DRIVE_PEDAL_HPP
 
 #include <algorithm>
+#include <cmath>
 #include "../AnalogAmp.hpp"   // streetrig::Biquad
 
 namespace streetrig {
@@ -42,77 +40,91 @@ namespace streetrig {
 class DrivePedal {
 public:
     static constexpr int kMaxChannels = 2;
-    static constexpr int kOversample  = 4;            // 4× around the clip.
-    static constexpr int kFirTaps      = 48;          // multiple of kOversample.
+    static constexpr int kOversample  = 4;
+    static constexpr int kFirTaps      = 48;
     static constexpr int kPhaseTaps    = kFirTaps / kOversample;
 
-    /// Clip character. SETUP-time property of a slot (chosen per pedal model).
-    enum Character : int { Soft = 0, Hard = 1, Fuzz = 2 };
+    /// Raw waveshaper families.
+    enum Clip : int { Soft = 0, Hard = 1, Fuzz = 2 };
 
-    /// Design the shared oversampling FIR and allocate. Setup thread.
+    /// Per-model voicings. 0/1/2 stay the generic soft/hard/fuzz fallbacks (back-
+    /// compat); models are 3+. MUST match ParameterMap.voice* (Swift).
+    enum Voicing : int {
+        GenericSoft = 0, GenericHard = 1, GenericFuzz = 2,
+        TubeScreamer = 3, Bluesbreaker = 4, Klon = 5, KingOfTone = 6, OCD = 7,
+        DS1 = 8, MetalZone = 9, RAT = 10, BigMuff = 11, FuzzFace = 12,
+        FuzzFactory = 13, CleanBoost = 14
+    };
+
     void prepare(double sampleRate, int numChannels);
 
-    /// (Re)voice the block for a clip character — designs the pre/mid/DC filters
-    /// for every channel. Setup thread only (called from the reconfigure barrier,
-    /// with the render thread parked). Keeps the running oversampler state.
-    void configure(int character) noexcept;
+    /// (Re)voice the block for a pedal MODEL — designs the pre/mid/post filters for
+    /// every channel and sets the clip/gain profile. Setup thread only (called from
+    /// the reconfigure barrier). Keeps the running oversampler state.
+    void configure(int voicing) noexcept;
 
-    /// Clear all filter / oversampler state. Real-time safe.
     void reset() noexcept;
 
-    /// Process `n` samples in place for `channel`.
-    ///   `drive`     linear pre-gain into the clip (higher = more dirt),
-    ///   `toneCutHz` post low-pass cutoff in Hz (brightness),
-    ///   `level`     linear output gain.
-    /// drive/level are de-zippered here; toneCutHz is turned into a one-pole
-    /// coefficient once per buffer. Real-time safe.
+    /// Process `n` samples in place for `channel`. drive/level de-zippered here;
+    /// toneCutHz → one-pole coefficient once per buffer. Real-time safe.
     void process(float *buffer, int n, int channel,
                  float drive, float toneCutHz, float level) noexcept;
 
 private:
+    /// Per-model constants resolved by `voiceFor`. dB = 0 means "filter disabled".
+    struct Voice {
+        double preHz = 100.0;                            // input tightening high-pass
+        double preMidHz = 0.0, preMidQ = 0.8, preMidDB = 0.0;   // pre-clip mid/treble
+        double postMidHz = 0.0, postMidQ = 0.8, postMidDB = 0.0; // post-clip scoop
+        int    clip = Soft;
+        float  asym = 0.15f;                             // clip bias (even harmonics)
+        float  driveScale = 1.0f;                        // extra gain into the clip
+        float  outTrim = 1.0f;                           // level match across models
+        bool   twoStage = false;                         // Big-Muff cascade
+    };
+    static Voice voiceFor(int voicing) noexcept;
+
     float  fir_[kFirTaps] = {};
     double sampleRate_ = 48000.0;
-    double osRate_ = 192000.0;             // sampleRate_ * kOversample
+    double osRate_ = 192000.0;
     int    numChannels_ = 1;
-    int    character_ = Soft;
+    int    voicing_ = TubeScreamer;
     bool   ready_ = false;
-    float  smoothCoeff_ = 0.0f;            // ~5 ms de-zipper one-pole.
+    float  smoothCoeff_ = 0.0f;
+    Voice  v_;
 
     struct ChannelState {
-        Biquad pre;                         // voicing high-pass (tighten lows)
-        Biquad mid;                         // optional mid emphasis (screamer)
-        float upHist[kPhaseTaps] = {};      // base-rate polyphase-up history
+        Biquad pre;                         // voicing high-pass
+        Biquad preMid;                      // pre-clip mid / treble emphasis
+        Biquad postMid;                     // post-clip mid scoop (Muff / Metal Zone)
+        float upHist[kPhaseTaps] = {};
         int   upPos = 0;
-        float downHist[kFirTaps] = {};      // OS-rate decimation FIR history
+        float downHist[kFirTaps] = {};
         int   downPos = 0;
-        float toneState = 0.0f;             // post one-pole low-pass memory
-        float dcX1 = 0.0f, dcY1 = 0.0f;     // DC blocker memory
+        float toneState = 0.0f;
+        float dcX1 = 0.0f, dcY1 = 0.0f;
         float smDrive = 1.0f, smLevel = 1.0f;
     };
     ChannelState ch_[kMaxChannels];
 
-    /// Waveshaper — selected by `character_`. Bounded output (~±1).
-    static inline float clip(float x, int character) noexcept {
-        switch (character) {
+    /// Waveshaper with per-model asymmetry. Bounded output (~±1); DC from the bias
+    /// is removed by subtracting the shape at x = 0 (plus the downstream DC blocker).
+    static inline float shape(float x, int clip, float asym) noexcept {
+        switch (clip) {
             case Hard: {
-                // Harder knee, a touch brighter/edgier (RAT-ish): fast-approach
-                // tanh then a soft ceiling.
-                float y = std::tanh(1.6f * x);
-                return 0.85f * y + 0.15f * std::max(-1.0f, std::min(1.0f, 1.3f * x));
+                float y   = std::tanh(1.6f * (x + asym)) - std::tanh(1.6f * asym);
+                float lin = std::max(-1.0f, std::min(1.0f, 1.3f * (x + asym)))
+                          - std::max(-1.0f, std::min(1.0f, 1.3f * asym));
+                return 0.85f * y + 0.15f * lin;
             }
             case Fuzz: {
-                // Very asymmetric, near-square with a rounded top (Muff/Fuzz-Face
-                // flavour): strong even + odd harmonics, gated-ish bottom.
-                constexpr float bias = 0.45f;
-                float y = std::tanh(3.0f * x + bias) - std::tanh(bias);
-                return 0.9f * y;
+                float b = 0.45f + asym;
+                return 0.9f * (std::tanh(3.0f * x + b) - std::tanh(b));
             }
             case Soft:
             default: {
-                // Smooth asymmetric soft clip (tube-screamer flavour): the bias
-                // adds even harmonics; subtracting tanh(bias) removes the DC step.
-                constexpr float bias = 0.15f;
-                return std::tanh(x + bias) - std::tanh(bias);
+                float b = 0.15f + asym;
+                return std::tanh(x + b) - std::tanh(b);
             }
         }
     }

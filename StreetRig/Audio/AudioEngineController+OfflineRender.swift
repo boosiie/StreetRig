@@ -189,8 +189,10 @@ extension AudioEngineController {
             let rig = await runRigVerification(dry: dry, fmt: fmt, sr: sr)
             // The deliverable WAV is the actual on-screen rig played through the chain.
             if !rig.wav.isEmpty { try? Self.writeWav(rig.wav, to: outURL, format: fmt) }
-            let combined = report + "\n\n" + rig.text
-            let overall = allPass && rig.pass
+            // --- PEDAL FAMILIES: prove each NEW structural family is audible. ---
+            let fam = await runPedalFamilyVerification(dry: dry, fmt: fmt, sr: sr)
+            let combined = report + "\n\n" + rig.text + "\n\n" + fam.text
+            let overall = allPass && rig.pass && fam.pass
             log(combined)
             return finishOffline(success: overall, summary: combined, wav: outURL.path)
         } catch {
@@ -456,9 +458,9 @@ extension AudioEngineController {
         if let muff = store.collection.first(where: { $0.name.lowercased().contains("big muff") }) { store.apply(muff) }
         let planFuzz = RigGraphCompiler.compile(store: store)
         let fuzz = (try? await renderRigPlan(planFuzz, source: dry, fmt: fmt)) ?? PassOutput()
-        checks.append(("add fuzz pedal → fuzz slot present",
-                       planFuzz.pedals.contains { $0.character == ParameterMap.charFuzz } && Self.peak(fuzz.samples) > 1e-4,
-                       "chars \(planFuzz.pedals.map { $0.character })"))
+        checks.append(("add Big Muff → its voicing present",
+                       planFuzz.pedals.contains { $0.character == ParameterMap.voiceBigMuff } && Self.peak(fuzz.samples) > 1e-4,
+                       "voicings \(planFuzz.pedals.map { $0.character })"))
 
         // (c) swap the whole amp section stack → combo (Fender Deluxe = different cab).
         if let combo = store.collection.first(where: { $0.category == .comboAmp }) { store.apply(combo) }
@@ -567,6 +569,141 @@ extension AudioEngineController {
         return (faded, recovered, maxJump < 0.15, finite, maxJump)
     }
 
+    // MARK: - Pedal-family verification (EQ / comp / gate / wah / volume / modulation)
+
+    /// Isolate each NEW structural family (amp + cab BYPASSED) and prove it audibly
+    /// transforms the DI in the expected direction — the sound-level proof that the
+    /// generalized PedalChain slot actually runs each engine, not just that it builds.
+    private func runPedalFamilyVerification(dry: AVAudioPCMBuffer,
+                                            fmt: AVAudioFormat,
+                                            sr: Double) async -> (text: String, pass: Bool) {
+        func bright(_ s: [Float], _ hz: Double) -> Double { Double(Self.brightness(s, sr: sr, cutoff: hz) * 100) }
+
+        // One pedal per pass, amp + cab bypassed, so we hear ONLY that pedal. Params
+        // come from the SAME ParameterMap the app uses, so this tests the real map.
+        func famPlan(_ category: GearCategory, _ name: String, _ values: [String: Double]) -> RigDSPPlan {
+            var p = RigDSPPlan()
+            p.ampBypass = true; p.cabBypass = true
+            p.pedals = [.init(type: ParameterMap.pedalType(for: category),
+                              character: ParameterMap.pedalVoicing(name: name, category: category),
+                              enabled: true,
+                              params: ParameterMap.pedalParams(category: category, values: values))]
+            p.signature = "fam-\(name)"
+            return p
+        }
+        func render(_ p: RigDSPPlan) async -> [Float] {
+            ((try? await renderRigPlan(p, source: dry, fmt: fmt)) ?? PassOutput()).samples
+        }
+
+        // Reference: empty chain, amp + cab bypassed → ≈ dry. Proves stage-bypass
+        // passes through, so every difference below is the pedal's own doing.
+        var refPlan = RigDSPPlan(); refPlan.ampBypass = true; refPlan.cabBypass = true; refPlan.signature = "fam-ref"
+        let ref = await render(refPlan)
+        let refRMS = Self.rms(ref)
+        let refB3 = bright(ref, 3000)
+
+        // Dedicated LOUD→QUIET bursts (0.5 then 0.02 amplitude) so the dynamics
+        // pedals act on a clear quiet section the plucked DI lacks.
+        func burstSignal(_ loudSec: Double, _ quietSec: Double) -> AVAudioPCMBuffer {
+            let nL = Int(loudSec * sr), nQ = Int(quietSec * sr), n = nL + nQ
+            let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(n))!
+            buf.frameLength = AVAudioFrameCount(n)
+            let ch = buf.floatChannelData![0]
+            for i in 0..<n {
+                let amp: Double = i < nL ? 0.5 : 0.02            // loud (-6 dB) → quiet (-34 dB)
+                ch[i] = Float(amp * sin(2.0 * Double.pi * 220.0 * Double(i) / sr))
+            }
+            return buf
+        }
+        func renderOn(_ p: RigDSPPlan, _ src: AVAudioPCMBuffer) async -> [Float] {
+            ((try? await renderRigPlan(p, source: src, fmt: fmt)) ?? PassOutput()).samples
+        }
+
+        var checks: [(String, Bool, String)] = []
+
+        // EQ — prove it is FREQUENCY-SELECTIVE: a treble-boost setting is brighter
+        // than a bass-boost setting, and the two settings differ materially. (This
+        // is DI-spectrum-independent, unlike an absolute brightness threshold.)
+        let eqTreble = await render(famPlan(.eq, "Graphic EQ", ["Low": 3, "Mid": 5, "High": 10]))
+        let eqBass   = await render(famPlan(.eq, "Graphic EQ", ["Low": 10, "Mid": 5, "High": 3]))
+        checks.append(("EQ is frequency-selective",
+                       bright(eqTreble, 3000) > bright(eqBass, 3000) && Self.rms(Self.difference(eqTreble, eqBass)) > 1e-2,
+                       String(format: "hi>3k: bass-boost %.1f%% < treble-boost %.1f%%",
+                              bright(eqBass, 3000), bright(eqTreble, 3000))))
+
+        // Wah — resonant peak → materially changes the signal.
+        let wah = await render(famPlan(.wah, "Cry Baby", ["Position": 7]))
+        checks.append(("Wah reshapes the signal", Self.rms(Self.difference(wah, ref)) > 1e-3,
+                       "diff RMS \(Self.dbfs(Self.rms(Self.difference(wah, ref)))) dBFS"))
+
+        // Compressor — evens a loud→quiet burst → the loud/quiet ratio shrinks.
+        let cburst = burstSignal(0.5, 0.5)
+        let (brLoud, brQuiet) = Self.halves(await renderOn(refPlan, cburst))
+        let refRatio = brQuiet > 1e-9 ? brLoud / brQuiet : 0
+        let (cLoud, cQuiet) = Self.halves(await renderOn(famPlan(.compressor, "Dyna Comp", ["Sustain": 9, "Level": 5]), cburst))
+        let compRatio = cQuiet > 1e-9 ? cLoud / cQuiet : 0
+        checks.append(("Compressor evens dynamics", compRatio < refRatio * 0.6,
+                       String(format: "loud/quiet ratio: ref %.1f → comp %.1f (loud %@→%@)",
+                              refRatio, compRatio, Self.dbfs(brLoud), Self.dbfs(cLoud))))
+
+        // Gate — a long quiet tail below threshold → muted to near silence.
+        let gburst = burstSignal(0.2, 0.8)
+        let gTailRef  = Self.rms(Self.tail(await renderOn(refPlan, gburst), 0.3))
+        let gTailGate = Self.rms(Self.tail(await renderOn(famPlan(.noiseGate, "Noise Gate", ["Threshold": 9, "Decay": 2]), gburst), 0.3))
+        checks.append(("Gate mutes below-threshold tail", gTailGate < gTailRef * 0.3,
+                       "tail RMS ref \(Self.dbfs(gTailRef)) → gate \(Self.dbfs(gTailGate))"))
+
+        // Volume — low position → strong attenuation.
+        let vol = await render(famPlan(.volume, "Volume", ["Position": 2]))
+        checks.append(("Volume pedal attenuates", Self.rms(vol) < refRMS * 0.5,
+                       "RMS ref \(Self.dbfs(refRMS)) → vol \(Self.dbfs(Self.rms(vol)))"))
+
+        // Tremolo — amplitude LFO → differs from dry and lowers average level.
+        let trem = await render(famPlan(.modulation, "Tremolo", ["Rate": 7, "Depth": 8, "Mix": 5]))
+        checks.append(("Tremolo modulates amplitude",
+                       Self.rms(trem) < refRMS * 0.98 && Self.rms(Self.difference(trem, ref)) > 1e-3,
+                       "RMS ref \(Self.dbfs(refRMS)) → trem \(Self.dbfs(Self.rms(trem)))"))
+
+        // Phaser — sweeping all-pass notches → differs from dry.
+        let phaser = await render(famPlan(.modulation, "Phase 90", ["Rate": 4, "Depth": 7, "Mix": 6]))
+        checks.append(("Phaser alters the signal", Self.rms(Self.difference(phaser, ref)) > 1e-3,
+                       "diff RMS \(Self.dbfs(Self.rms(Self.difference(phaser, ref)))) dBFS"))
+
+        // Chorus — modulated delay → differs from dry.
+        let chorus = await render(famPlan(.modulation, "CE-2 Chorus", ["Rate": 5, "Depth": 6, "Mix": 6]))
+        checks.append(("Chorus alters the signal", Self.rms(Self.difference(chorus, ref)) > 1e-3,
+                       "diff RMS \(Self.dbfs(Self.rms(Self.difference(chorus, ref)))) dBFS"))
+
+        // ---- Per-model DRIVE voicing: SAME knobs, different pedal → different circuit.
+        func crest(_ s: [Float]) -> Float { let r = Self.rms(s); return r > 1e-9 ? Self.peak(s) / r : 0 }
+        func drv(_ name: String) async -> [Float] {
+            await render(famPlan(.overdrive, name, ["Drive": 7, "Tone": 6, "Level": 5]))
+        }
+        func dd(_ a: [Float], _ b: [Float]) -> Float { Self.rms(Self.difference(a, b)) }
+        let ts = await drv("Tube Screamer"), rat = await drv("ProCo RAT")
+        let muff = await drv("Big Muff"), klon = await drv("Klon Centaur")
+        checks.append(("drive models are distinct (TS/RAT/Muff/Klon)",
+                       dd(ts, rat) > 1e-2 && dd(rat, muff) > 1e-2 && dd(muff, klon) > 1e-2 && dd(ts, klon) > 1e-2,
+                       "Δ TS-RAT \(Self.dbfs(dd(ts, rat))), RAT-Muff \(Self.dbfs(dd(rat, muff))), Muff-Klon \(Self.dbfs(dd(muff, klon)))"))
+        checks.append(("RAT brighter than Big Muff (scoop)", bright(rat, 3000) > bright(muff, 3000),
+                       String(format: "hi>3k: RAT %.1f%% vs Muff %.1f%%", bright(rat, 3000), bright(muff, 3000))))
+        checks.append(("Klon more dynamic than RAT (headroom)", crest(klon) > crest(rat),
+                       String(format: "crest: Klon %.2f vs RAT %.2f", crest(klon), crest(rat))))
+
+        let allPass = checks.allSatisfy { $0.1 }
+        var out = """
+        === PEDAL FAMILIES — new structural DSP (EQ / comp / gate / wah / volume / modulation) ===
+        Method        : one pedal per pass, amp + cab BYPASSED, vs a dry reference (same graph).
+
+        """
+        for (name, ok, detail) in checks {
+            let pad = name.padding(toLength: 34, withPad: " ", startingAt: 0)
+            out += "  \(pad) \(ok ? "PASS" : "FAIL")   (\(detail))\n"
+        }
+        out += "PEDAL FAMILIES OVERALL: \(allPass ? "PASS" : "SOME CHECKS FAILED")\n=== END PEDAL FAMILIES ==="
+        return (out, allPass)
+    }
+
     // MARK: - Result plumbing
 
     private func finishOffline(success: Bool, summary: String, wav: String?) -> OfflineRenderResult {
@@ -664,6 +801,19 @@ extension AudioEngineController {
         guard !a.isEmpty else { return 0 }
         let sum = a.reduce(Float(0)) { $0 + $1 * $1 }
         return (sum / Float(a.count)).squareRoot()
+    }
+
+    /// RMS of the first vs second half of a signal — for loud→quiet dynamics tests.
+    static func halves(_ s: [Float]) -> (loud: Float, quiet: Float) {
+        let h = s.count / 2
+        guard h > 0 else { return (0, 0) }
+        return (rms(Array(s[0..<h])), rms(Array(s[h..<s.count])))
+    }
+
+    /// The last `frac` fraction of a signal (for gate-tail / decay measurements).
+    static func tail(_ s: [Float], _ frac: Double) -> [Float] {
+        let k = max(0, min(s.count, Int(Double(s.count) * frac)))
+        return Array(s.suffix(k))
     }
 
     /// Sample-wise difference over the overlapping length (both starting at 0).

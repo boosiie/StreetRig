@@ -707,9 +707,13 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
         for (i, slot) in plan.pedals.enumerated() where i < Int(SRMaxPedals) {
             let base = UInt64(SRPedalParamBase) + UInt64(i) * UInt64(SRPedalParamStride)
             set(base + UInt64(SRPedalFieldEnabled), slot.enabled ? 1 : 0)
-            set(base + UInt64(SRPedalFieldDrive),   slot.drive)
-            set(base + UInt64(SRPedalFieldTone),    slot.toneHz)
-            set(base + UInt64(SRPedalFieldLevel),   slot.level)
+            // Mirror the compiler's generic per-family params (Param0 == SRPedalFieldDrive)
+            // EXACTLY as RigGraphCompiler.pushValues writes them to the kernel bus, so the
+            // tree/fullState stay in lock-step with the kernel across every pedal family.
+            let maxParams = Int(SRPedalParamStride) - Int(SRPedalFieldDrive)
+            for (j, value) in slot.params.enumerated() where j < maxParams {
+                set(base + UInt64(Int(SRPedalFieldDrive) + j), value)
+            }
         }
     }
 
