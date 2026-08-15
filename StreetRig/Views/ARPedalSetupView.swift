@@ -43,18 +43,22 @@ struct ARPedalContentView: View {
             let compact = geo.size.height < 300
 
             ZStack {
-                background(compact: compact)
+                background
 
                 VStack(spacing: 0) {
                     banner
                         .padding(.top, 14)
-                    if compact, detector.status != .running {
-                        Text(fallbackText)
-                            .font(.system(size: 10))
-                            .foregroundStyle(RigTheme.textMuted)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                            .padding(.top, 5)
+                    if detector.status != .running {
+                        if compact {
+                            Text(fallbackText)
+                                .font(.system(size: 10))
+                                .foregroundStyle(RigTheme.textMuted)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                                .padding(.top, 5)
+                        } else {
+                            cameraPlaceholder
+                        }
                     }
                     Spacer(minLength: 0)
                     HStack(alignment: .top, spacing: 16) {
@@ -77,30 +81,34 @@ struct ARPedalContentView: View {
     }
 
     @ViewBuilder
-    private func background(compact: Bool) -> some View {
+    private var background: some View {
         if detector.status == .running {
             CameraPreviewView(session: detector.session)
         } else {
-            ZStack(alignment: .top) {
-                LinearGradient(colors: [Color(white: 0.12), Color(white: 0.04)],
-                               startPoint: .top, endPoint: .bottom)
-                if !compact {
-                    VStack(spacing: 12) {
-                        Image(systemName: detector.status == .denied ? "video.slash" : "camera.viewfinder")
-                            .font(.system(size: 38))
-                            .foregroundStyle(RigTheme.textMuted)
-                        Text(fallbackText)
-                            .font(.caption)
-                            .foregroundStyle(RigTheme.textMuted)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(2)
-                            .frame(maxWidth: 460)
-                    }
-                    .padding(.top, 52)
-                    .padding(.horizontal, 24)
-                }
-            }
+            LinearGradient(colors: [Color(white: 0.12), Color(white: 0.04)],
+                           startPoint: .top, endPoint: .bottom)
         }
+    }
+
+    /// The "no camera here" block. It lives IN the layout flow rather than
+    /// floating over the background: as a top-anchored overlay it landed on the
+    /// slots whenever the available height shifted — a `Spacer` can only absorb
+    /// slack it can see, and it could not see this. Sequencing it above the
+    /// Spacer makes the collision impossible instead of merely unlikely.
+    private var cameraPlaceholder: some View {
+        VStack(spacing: 12) {
+            Image(systemName: detector.status == .denied ? "video.slash" : "camera.viewfinder")
+                .font(.system(size: 38))
+                .foregroundStyle(RigTheme.textMuted)
+            Text(fallbackText)
+                .font(.caption)
+                .foregroundStyle(RigTheme.textMuted)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .frame(maxWidth: 460)
+        }
+        .padding(.top, 24)
+        .padding(.horizontal, 24)
     }
 
     private var fallbackText: String {

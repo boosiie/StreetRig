@@ -42,13 +42,12 @@ struct SignalCheckView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SignalCheckHeader(audio: audio,
-                              panelCollapsed: $panelCollapsed) { dismiss() }
+            SignalCheckHeader(audio: audio) { dismiss() }
             if !panelCollapsed {
                 SignalCheckStrip(audio: audio)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
-            Divider().overlay(Color.white.opacity(0.07))
+            collapseHandle
             ARPedalContentView()
         }
         .background(RigTheme.background)
@@ -59,19 +58,46 @@ struct SignalCheckView: View {
             DeviceOfferPrompt(audio: audio)
         }
     }
+
+    /// The panel's bottom edge, and the grab handle for folding it away. It sits
+    /// OUTSIDE the collapsed content on purpose — it is the only way to get the
+    /// panel back, so it has to survive the collapse. Full width and tappable
+    /// across all of it: this is a control you reach for with a guitar in your
+    /// hands, so it should not demand aim.
+    private var collapseHandle: some View {
+        Button {
+            panelCollapsed.toggle()
+        } label: {
+            ZStack {
+                RigTheme.backgroundLift
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(RigTheme.amber)
+                    // Up = fold the panel away; down = pull it back.
+                    .rotationEffect(.degrees(panelCollapsed ? 180 : 0))
+            }
+            .frame(height: 24)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .top) { hairline }
+        .overlay(alignment: .bottom) { hairline }
+        .accessibilityLabel(panelCollapsed ? "Show levels" : "Hide levels")
+    }
+
+    private var hairline: some View {
+        Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1)
+    }
 }
 
 // MARK: - Header: what the engine is doing, and how to stop it
 
 private struct SignalCheckHeader: View {
     @ObservedObject var audio: AudioEngineController
-    @Binding var panelCollapsed: Bool
     let onDone: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            collapseButton
-
             Text("SIGNAL CHECK")
                 .font(.system(size: 14, weight: .heavy))
                 .tracking(2)
@@ -93,24 +119,6 @@ private struct SignalCheckHeader: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 9)
         .background(RigTheme.backgroundLift)
-    }
-
-    /// Folds the level panel away, leaving the pedals.
-    private var collapseButton: some View {
-        Button {
-            panelCollapsed.toggle()
-        } label: {
-            Image(systemName: "chevron.down")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(RigTheme.amber)
-                .rotationEffect(.degrees(panelCollapsed ? -90 : 0))
-                .frame(width: 34, height: 30)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(RigTheme.surface)
-                )
-        }
-        .accessibilityLabel(panelCollapsed ? "Show levels" : "Hide levels")
     }
 
     private var statusPill: some View {
