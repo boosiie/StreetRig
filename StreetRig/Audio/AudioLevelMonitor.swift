@@ -265,6 +265,24 @@ final class AudioLevelMonitor: ObservableObject {
         /// Release time constant: ~0.3 s to fall most of the way, which reads as
         /// a needle rather than a strobe.
         static let releaseTau: TimeInterval = 0.30
+        /// Attack time constant for the RMS BODY only.
+        ///
+        /// The peak tick keeps an instant attack — catching the transient is its
+        /// entire job. The loudness bar must not: measured over a 33 ms window a
+        /// real signal wobbles several dB tick to tick, and an instant attack
+        /// snapped the bar to every one of those wobbles before releasing, which
+        /// reads as a strobe rather than a level. ~0.18 s integrates roughly five
+        /// ticks — slow enough that the bar swells instead of flickering, fast
+        /// enough that it still arrives with the pick attack.
+        ///
+        /// ASYMMETRY IS DELIBERATE AND ONLY SAFE IN THIS DIRECTION. `rmsDB <=
+        /// peakDB` holds because the two share ONE release rule and the RMS only
+        /// ever rises SLOWER than the peak: when both release they contract at the
+        /// same rate from an already-ordered pair, and a window where the RMS
+        /// climbs while the peak falls ends with the RMS no higher than the
+        /// measured peak it is chasing. Giving the RMS a slower RELEASE would
+        /// break exactly that and let the bars cross again — see the note above.
+        static let rmsAttackTau: TimeInterval = 0.18
         /// How long the peak tick sits at a new maximum before it starts falling.
         static let holdSeconds: TimeInterval = 1.0
         /// A clip must stay visible long enough to be noticed, not just flicker.
@@ -272,20 +290,22 @@ final class AudioLevelMonitor: ObservableObject {
 
         mutating func advance(_ drain: AudioLevelBus.Drain, dt: TimeInterval) -> AudioLevel {
             let coefficient = Float(1 - exp(-dt / Self.releaseTau))
+            let rmsAttack = Float(1 - exp(-dt / Self.rmsAttackTau))
             // BOTH measurements are clamped to the meter's floor BEFORE smoothing.
             // Letting them release toward different targets is what made the two
             // bars cross: a silent window sent the peak diving toward -180 dBFS
             // while the RMS glided down to the -72 floor, and the published meter
             // then showed RMS ABOVE peak — physically impossible, and exactly what
             // a quiet room between notes produces. Clamping first keeps
-            // `measuredRMS <= measuredPeak` true at every step, which (both bars
-            // sharing one attack/release rule) makes `rmsDB <= peakDB` an invariant.
+            // `measuredRMS <= measuredPeak` true at every step, which — combined
+            // with a SHARED release and an RMS attack no faster than the peak's —
+            // makes `rmsDB <= peakDB` an invariant (see `rmsAttackTau`).
             let floor = AudioLevel.floorDB
             let measuredPeak = max(AudioLevelBus.dbfs(drain.peak), floor)
             let measuredRMS = max(AudioLevelBus.dbfs(drain.rms), floor)
 
             peakDB = measuredPeak > peakDB ? measuredPeak : peakDB + (measuredPeak - peakDB) * coefficient
-            rmsDB = measuredRMS > rmsDB ? measuredRMS : rmsDB + (measuredRMS - rmsDB) * coefficient
+            rmsDB += (measuredRMS - rmsDB) * (measuredRMS > rmsDB ? rmsAttack : coefficient)
 
             if peakDB >= holdDB {
                 holdDB = peakDB

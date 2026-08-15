@@ -734,12 +734,22 @@ extension AudioEngineController {
         /// raw drained numbers and the published (smoothed) meter state.
         func measure(_ samples: [Float]) -> (peak: Float, rms: Float, level: AudioLevel) {
             monitor.reset()
-            samples.withUnsafeBufferPointer { buffer in
-                guard let base = buffer.baseAddress else { return }
-                monitor.inputBus.accumulate(base, frameCount: buffer.count)
+            // HOLD THE TONE UNTIL THE DISPLAY CONVERGES. The peak lands on the
+            // measurement in a single tick — its attack is instant by design — but
+            // the RMS body deliberately RAMPS toward it (`Ballistics.rmsAttackTau`;
+            // an instant attack is what made the bar strobe at 30 Hz). These checks
+            // are about the dBFS MATH, not about arrival time, so sustain the tone
+            // the way a held note does and read the settled value. 60 ticks is ~2 s,
+            // roughly eleven attack time constants — convergence far inside the
+            // 0.05 dB tolerance used below. (`AudioLevelBus.drain` is exercised on
+            // every one of those ticks, so this still covers the accumulator.)
+            for _ in 0..<60 {
+                samples.withUnsafeBufferPointer { buffer in
+                    guard let base = buffer.baseAddress else { return }
+                    monitor.inputBus.accumulate(base, frameCount: buffer.count)
+                }
+                monitor.tick()
             }
-            // Fast attack: one tick lands the display exactly on the measurement.
-            monitor.tick()
             return (AudioLevelBus.dbfs(Self.peak(samples)),
                     AudioLevelBus.dbfs(Self.rms(samples)),
                     monitor.input)
@@ -789,8 +799,7 @@ extension AudioEngineController {
         // must read the SAME numbers every window.
         monitor.reset()
         let block = sine(0.5, seconds: 0.02)          // 960 frames = 20 whole cycles
-        var windows: [AudioLevel] = []
-        for _ in 0..<3 {
+        func feedWindow() {
             for _ in 0..<4 {
                 block.withUnsafeBufferPointer { buffer in
                     guard let base = buffer.baseAddress else { return }
@@ -798,12 +807,32 @@ extension AudioEngineController {
                 }
             }
             monitor.tick()
-            windows.append(monitor.input)
         }
+        // SETTLE FIRST. The RMS body deliberately RAMPS toward a new level rather
+        // than snapping to it (see `Ballistics.rmsAttackTau` — an instant attack is
+        // what made the bar strobe at 30 Hz), so the first windows are legitimately
+        // still climbing. What this check hunts is drift BETWEEN windows once the
+        // level has arrived — an accumulator that compounds across drains — not how
+        // long the arrival takes.
+        var ramp: [Float] = []
+        for _ in 0..<60 { feedWindow(); ramp.append(monitor.input.rmsDB) }
+        var windows: [AudioLevel] = []
+        for _ in 0..<3 { feedWindow(); windows.append(monitor.input) }
         let steady = windows.allSatisfy { near($0.peakDB, -6.02) && near($0.rmsDB, -9.03) }
         checks.append(("steady tone reads the same every window", steady,
-                       "3 windows × 4 buffers: "
+                       "3 settled windows × 4 buffers: "
                        + windows.map { String(format: "%.2f/%.2f", $0.peakDB, $0.rmsDB) }.joined(separator: ", ")))
+
+        // THE SMOOTHING ITSELF, measured. A bar that reaches its target in one tick
+        // is the strobe; a bar that climbs monotonically over many ticks is what
+        // reads as a level swelling. Both halves matter — monotonic alone would
+        // pass an instant jump, and slow alone would pass a jittery crawl.
+        let ramped = zip(ramp, ramp.dropFirst()).allSatisfy { $1 >= $0 - 0.01 }
+        let ticksToArrive = ramp.firstIndex { $0 >= -9.03 - 1.0 } ?? ramp.count
+        checks.append(("RMS bar ramps instead of snapping", ramped && ticksToArrive >= 5,
+                       String(format: "monotonic rise, %d ticks (~%.0f ms) to within 1 dB",
+                              ticksToArrive,
+                              Double(ticksToArrive) * AudioLevelMonitor.tickInterval * 1000)))
 
         // DECAY INTO SILENCE — where the two bars first crossed on the real screen.
         // A loud window followed by empty ones (the gap between two picked notes)
