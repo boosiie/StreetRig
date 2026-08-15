@@ -151,13 +151,17 @@ struct GearItem: Identifiable, Codable, Hashable, Transferable {
     /// everything else defaults to vector art. `has3DModel` overrides per item.
     var uses3DModel: Bool { has3DModel ?? (category == .amp) }
 
+    /// The knobs to DISPLAY + persist for this specific item: its real per-model
+    /// control set when known (PedalSpec), else the generic per-category set.
+    var parameters: [GearParameter] { PedalSpec.parameters(forName: name, category: category) }
+
     init(id: UUID = UUID(), name: String, category: GearCategory,
          values: [String: Double]? = nil,
          has3DModel: Bool? = nil, modelName: String? = nil) {
         self.id = id
         self.name = name
         self.category = category
-        self.values = values ?? Dictionary(uniqueKeysWithValues: category.parameters.map { ($0.name, $0.defaultValue) })
+        self.values = values ?? Dictionary(uniqueKeysWithValues: PedalSpec.parameters(forName: name, category: category).map { ($0.name, $0.defaultValue) })
         self.has3DModel = has3DModel
         self.modelName = modelName
     }
@@ -188,5 +192,76 @@ struct ARSlot: Codable, Hashable {
     init(pedalId: UUID? = nil, isOn: Bool = false) {
         self.pedalId = pedalId
         self.isOn = isOn
+    }
+}
+
+/// The REAL control set of each pedal MODEL — so a Big Muff shows Sustain/Tone/
+/// Volume, a Klon shows Gain/Treble/Output, a Metal Zone shows its full semi-
+/// parametric EQ, and so on (see research/pedal-tone-reference.md). Chosen by a
+/// substring match on the model name so it works for the re-badged catalog; falls
+/// back to the generic per-category knobs when the model isn't specially specified.
+///
+/// Which knob drives which DSP role is resolved separately, by ALIAS, in
+/// ParameterMap.pedalParams — so renaming a knob here never breaks the sound.
+enum PedalSpec {
+    static func parameters(forName name: String, category: GearCategory) -> [GearParameter] {
+        let n = name.lowercased()
+        func p(_ names: [String]) -> [GearParameter] { names.map { GearParameter($0) } }
+
+        switch category {
+        case .overdrive:   // overdrive / distortion / fuzz / boost all live here
+            if n.contains("muff")                                  { return p(["Sustain", "Tone", "Volume"]) }
+            if n.contains("klon") || n.contains("centaur")         { return p(["Gain", "Treble", "Output"]) }
+            if n.contains("rat")                                   { return p(["Distortion", "Filter", "Volume"]) }
+            if n.contains("metal") || n.contains("zone")           { return p(["Level", "Dist", "Low", "Mid", "Mid Freq", "High"]) }
+            if n.contains("ds-1") || n.contains("ds1") || n.contains("distortion") { return p(["Tone", "Level", "Dist"]) }
+            if n.contains("ocd")                                   { return p(["Volume", "Drive", "Tone"]) }
+            if n.contains("king")                                  { return p(["Volume", "Tone", "Drive"]) }
+            if n.contains("blues")                                 { return p(["Gain", "Tone", "Volume"]) }
+            if n.contains("factory")                               { return p(["Volume", "Gate", "Comp", "Drive", "Stab"]) }
+            if n.contains("fuzz") || n.contains("face")            { return p(["Volume", "Fuzz"]) }
+            if n.contains("screamer") || n.contains("tube")        { return p(["Overdrive", "Tone", "Level"]) }
+            if n.contains("boost") || n.contains("booster") || n.contains("ep ") { return p(["Gain"]) }
+            return p(["Drive", "Tone", "Level"])
+        case .compressor:
+            if n.contains("dyna")                                  { return p(["Sensitivity", "Output"]) }
+            if n.contains("cs-3") || n.contains("cs3") || n.contains("sustainer") { return p(["Level", "Tone", "Attack", "Sustain"]) }
+            if n.contains("keeley") || n.contains("keenly")        { return p(["Sustain", "Level", "Blend", "Tone"]) }
+            return p(["Sustain", "Level"])
+        case .eq:
+            if n.contains("10") || n.contains("ten")               { return p(["31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k", "Volume"]) }
+            if n.contains("para")                                  { return p(["Low Freq", "Low Gain", "Mid Freq", "Mid Gain", "High Freq", "High Gain"]) }
+            if n.contains("ge-7") || n.contains("ge7") || n.contains("equalizer") { return p(["100", "200", "400", "800", "1.6k", "3.2k", "6.4k", "Level"]) }
+            return p(["Low", "Mid", "High"])
+        case .noiseGate:
+            if n.contains("decimator")                             { return p(["Threshold"]) }
+            if n.contains("zuul")                                  { return p(["Threshold", "Hold", "Release"]) }
+            return p(["Threshold", "Decay"])
+        case .modulation:
+            if n.contains("phase 90") || n.contains("phase90")     { return p(["Speed"]) }
+            if n.contains("stone")                                 { return p(["Rate", "Color"]) }
+            if n.contains("mistress")                              { return p(["Rate", "Range", "Color"]) }
+            if n.contains("flang")                                 { return p(["Manual", "Width", "Speed", "Regen"]) }
+            if n.contains("trem")                                  { return p(["Rate", "Wave", "Depth"]) }
+            if n.contains("vibe")                                  { return p(["Volume", "Intensity", "Speed"]) }
+            if n.contains("clone")                                 { return p(["Rate", "Depth"]) }
+            if n.contains("ce-2") || n.contains("ce2") || n.contains("chorus") { return p(["Rate", "Depth"]) }
+            return p(["Rate", "Depth", "Mix"])
+        case .pitch:
+            if n.contains("pog")                                   { return p(["Dry", "Sub", "Octave Up"]) }
+            if n.contains("oc-5") || n.contains("oc5") || n.contains("octave") { return p(["Direct", "+1 Oct", "-1 Oct", "-2 Oct"]) }
+            if n.contains("harmonist") || n.contains("ps-6")       { return p(["Balance", "Shift", "Key"]) }
+            if n.contains("whammy")                                { return p(["Position"]) }
+            return p(["Shift", "Mix"])
+        case .delay:
+            if n.contains("echoplex") || n.contains("ep-3") || n.contains("ep103") { return p(["Volume", "Sustain", "Delay"]) }
+            if n.contains("memory")                                { return p(["Blend", "Feedback", "Delay", "Depth", "Rate"]) }
+            return p(["Time", "Feedback", "Mix"])
+        case .reverb:
+            if n.contains("holy") || n.contains("grail")           { return p(["Reverb"]) }
+            return p(["Decay", "Tone", "Mix"])
+        case .wah, .volume, .tuner, .looper, .guitar, .cabinet, .amp, .comboAmp:
+            return category.parameters
+        }
     }
 }

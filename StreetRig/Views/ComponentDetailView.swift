@@ -34,7 +34,7 @@ struct ComponentDetailView: View {
         }
     }
 
-    private var params: [GearParameter] { item?.category.parameters ?? [] }
+    private var params: [GearParameter] { item?.parameters ?? [] }
 
     var body: some View {
         ZStack {
