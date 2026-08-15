@@ -572,9 +572,9 @@ enum RigDiorama {
     RigStage3DView(
         amp: GearItem(name: "Marshall JCM800", category: .amp,
                       values: ["Gain": 8, "Bass": 6, "Mid": 4, "Treble": 7, "Presence": 5, "Master": 6]),
-        pedals: [GearItem(name: "Tube Screamer", category: .overdrive),
-                 GearItem(name: "Carbon Copy", category: .delay),
-                 GearItem(name: "Boss RV-6", category: .reverb)],
+        pedals: [GearItem(name: "Ibonez Tube Screamer", category: .overdrive),
+                 GearItem(name: "VOSS Digital Delay", category: .delay),
+                 GearItem(name: "VOSS Reverb", category: .reverb)],
         guitar: GearItem(name: "Les Paul Standard", category: .guitar),
         focused: nil,
         controller: RigDragController()

@@ -35,22 +35,22 @@ Code (`GearIconLoader.slug`) and this doc must agree exactly:
 
 Regex form: replace `[^a-z0-9]+` with `-`, then trim `-`.
 
-| Display name        | Asset name (slug)   |
-| ------------------- | ------------------- |
-| `Tube Screamer`     | `tube-screamer`     |
-| `Big Muff`          | `big-muff`          |
-| `Boss TU-3`         | `boss-tu-3`         |
-| `CE-2 Chorus`       | `ce-2-chorus`       |
-| `Marshall JCM800`   | `marshall-jcm800`   |
-| `1960A`             | `1960a`             |
+| Display name                    | Asset name (slug)              |
+| ------------------------------- | ------------------------------ |
+| `Ibonez Tube Screamer`          | `ibonez-tube-screamer`         |
+| `electro-harmonium BIG MUFF π`  | `electro-harmonium-big-muff`   |
+| `VOSS Chromatic Tuner`          | `voss-chromatic-tuner`         |
+| `Fullstone Deja'Vibe`           | `fullstone-deja-vibe`          |
+| `Marshall JCM800`               | `marshall-jcm800`              |
+| `1960A`                         | `1960a`                        |
 
 ---
 
 ## Add a custom icon (step by step)
 
-1. **Slug the name.** e.g. `Big Muff` -> `big-muff`.
+1. **Slug the name.** e.g. `ProCon RAT` -> `procon-rat`.
 2. **Create the imageset folder** on disk:
-   `StreetRig/Assets.xcassets/big-muff.imageset/`
+   `StreetRig/Assets.xcassets/procon-rat.imageset/`
 3. **Add your image** into that folder — either a PNG or a vector PDF.
 4. **Add `Contents.json`** next to it.
 
@@ -58,7 +58,7 @@ Regex form: replace `[^a-z0-9]+` with `-`, then trim `-`.
    ```json
    {
      "images" : [
-       { "filename" : "big-muff.png", "idiom" : "universal" }
+       { "filename" : "procon-rat.png", "idiom" : "universal" }
      ],
      "info" : { "author" : "xcode", "version" : 1 }
    }
@@ -68,7 +68,7 @@ Regex form: replace `[^a-z0-9]+` with `-`, then trim `-`.
    ```json
    {
      "images" : [
-       { "filename" : "big-muff.pdf", "idiom" : "universal" }
+       { "filename" : "procon-rat.pdf", "idiom" : "universal" }
      ],
      "info" : { "author" : "xcode", "version" : 1 },
      "properties" : { "preserves-vector-representation" : true }
@@ -77,8 +77,9 @@ Regex form: replace `[^a-z0-9]+` with `-`, then trim `-`.
 
 That's it. Rebuild and the icon overrides that piece everywhere.
 
-> The shipped example is `tube-screamer.imageset` (a magenta "TS" tile) — proof the
-> seam is wired end-to-end. Delete it and the Tube Screamer falls back to its green
+> All 47 shipped pedals have a bespoke icon (228x330 PNG, transparent background),
+> so the procedural pedal art is now only the fallback for gear whose name has no
+> matching asset. Delete a pedal's `.imageset` and it falls straight back to that
 > procedural art.
 
 ---

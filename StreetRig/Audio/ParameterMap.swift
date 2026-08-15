@@ -98,12 +98,21 @@ enum ParameterMap {
     /// Clip character for a drive pedal, chosen by model. Mirrors the C++
     /// `DrivePedal::Character` (0 = soft, 1 = hard, 2 = fuzz).
     static let charSoft = 0, charHard = 1, charFuzz = 2
+    /// Matched on a lowercased *substring* of the model name, not the whole
+    /// string: the shipped names are brand-prefixed ("VOSS Distortion",
+    /// "electro-harmonium BIG MUFF π"), so an exact-name switch would silently
+    /// voice every drive pedal as soft clipping.
     static func pedalCharacter(name: String) -> Int {
-        switch name {
-        case "ProCo RAT":                 return charHard   // hard, bright distortion
-        case "Big Muff", "Fuzz Face":     return charFuzz   // asymmetric fuzz
-        default:                          return charSoft   // TS / Klon / Blues Driver / boost
+        let n = name.lowercased()
+        // hard, bright distortion
+        if n.contains("procon rat") || n.contains("distortion") || n.contains("metal zone") {
+            return charHard
         }
+        // asymmetric fuzz
+        if n.contains("muff") || n.contains("fuzz") {
+            return charFuzz
+        }
+        return charSoft   // TS / Centaur / King of Tone / OCD / booster
     }
 
     /// Cab IR slot for a cabinet/combo model. Only two IRs are bundled today —
