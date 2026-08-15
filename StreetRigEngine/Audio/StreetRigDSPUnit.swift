@@ -282,13 +282,20 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
         self.ampPresenceParameter = ampPresence
         self._parameterTree = AUParameterTree.createTree(withChildren: [ampGroup] + pedalGroups)
 
-        // Own the default structural rig (the seed) for serialization; compile it
-        // now, but do NOT flag it for structural application — an untouched unit
-        // stays at the clean no-pedal default (see `structuralApplyPending`).
+        // Own the plugin's default rig for serialization. The plugin boots to a CLEAN
+        // default — the seed amp + cab, but NO pedals — so a freshly-inserted StreetRig in
+        // a host sounds like a bare amp until the user adds pedals. A real host (like the
+        // out-of-process load) round-trips `fullState`, which DOES apply this owned rig, so
+        // "clean" must live in the owned rig itself — not only in the deferred
+        // `structuralApplyPending` flag. `RigStore.seed()` is unchanged, so the STANDALONE
+        // app still starts on the full seed rig; only the plugin's default is cleared here.
+        // The full catalog stays in the snapshot collection so the editor/presets can add gear.
         let seed = RigStore.seed()
-        let seedState = RigStore.PersistedState(collection: seed.collection, rig: seed.rig, arSlots: nil)
+        var defaultRig = seed.rig
+        defaultRig.pedalIds = []
+        let seedState = RigStore.PersistedState(collection: seed.collection, rig: defaultRig, arSlots: nil)
         self.ownedSnapshot = seedState
-        self.ownedPlan = RigGraphCompiler.compile(collection: seed.collection, rig: seed.rig)
+        self.ownedPlan = RigGraphCompiler.compile(collection: seed.collection, rig: defaultRig)
         self.ownedRigData = (try? JSONEncoder().encode(seedState)) ?? Data()
 
         var timebase = mach_timebase_info_data_t()
