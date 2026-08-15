@@ -15,10 +15,10 @@
 //    `GearItem.modelName` .usdz seam, but resolved by name instead of a stored
 //    field — so already-saved rigs keep working untouched.
 //
-//  TO ADD A CUSTOM ICON (designer workflow — see CUSTOMIZING-GEAR.md):
-//    1. Slug the piece's name with the rule below ("Tube Screamer" ->
-//       "tube-screamer").
-//    2. Create `StreetRig/Assets.xcassets/GearIcons/<slug>.imageset/` on disk, drop in a
+//  TO ADD A CUSTOM ICON (designer workflow — see GearIcons-README.md):
+//    1. Slug the piece's name with the rule below ("ProCon RAT" ->
+//       "procon-rat").
+//    2. Create `StreetRig/Assets.xcassets/<slug>.imageset/` on disk, drop in a
 //       PNG (or a preserve-vector PDF) and a `Contents.json`. Xcode-16
 //       synchronized file groups pick it up automatically — no project.pbxproj
 //       edit needed.
@@ -42,9 +42,10 @@ enum GearIconLoader {
     ///   Regex form: replace `[^a-z0-9]+` with `-`, then trim `-`.
     ///
     /// Examples:
-    ///   "Tube Screamer"   -> "tube-screamer"    "Big Muff"    -> "big-muff"
-    ///   "Boss TU-3"       -> "boss-tu-3"         "CE-2 Chorus" -> "ce-2-chorus"
-    ///   "Marshall JCM800" -> "marshall-jcm800"   "1960A"       -> "1960a"
+    ///   "Ibonez Tube Screamer"         -> "ibonez-tube-screamer"
+    ///   "electro-harmonium BIG MUFF π" -> "electro-harmonium-big-muff"
+    ///   "Fullstone Deja'Vibe"          -> "fullstone-deja-vibe"
+    ///   "Marshall JCM800" -> "marshall-jcm800"   "1960A" -> "1960a"
     static func slug(_ name: String) -> String {
         let dashed = name
             .lowercased()

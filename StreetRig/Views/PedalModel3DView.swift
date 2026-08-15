@@ -6,7 +6,7 @@
 //  a slightly-raked board, all in a SINGLE SceneKit view (one renderer for the
 //  whole board, not one per pedal — see research/3d-amp-rendering-options.md).
 //  Enclosure colors, knob counts, and LED colors mirror the vector `PedalArt`
-//  so a Tube Screamer still reads green, a Big Muff gray, a tuner white, etc.
+//  so a Tube Screamer still reads green, a Distortion orange, a tuner white, etc.
 //  Tap a pedal (hit-tested by node name) to open its control overlay. Gated by
 //  `FeatureFlags.amp3D` alongside the 3D amp; every other surface stays vector.
 //
@@ -203,14 +203,17 @@ enum ProceduralPedal {
         let n = pedal.name.lowercased()
 
         if n.contains("tube screamer") { return .init(color: c(0.36, 0.55, 0.20), knobs: 3, led: amber) }
-        if n.contains("big muff")      { return .init(color: c(0.20, 0.20, 0.22), knobs: 3, led: amber) }
+        if n.contains("big muff")      { return .init(color: c(0.85, 0.84, 0.80), knobs: 3, led: amber) }
         if n.contains("dyna")          { return .init(color: c(0.70, 0.16, 0.14), knobs: 2, led: amber) }
         if n.contains("phase")         { return .init(color: c(0.92, 0.46, 0.09), knobs: 1, led: amber) }
-        if n.contains("carbon copy")   { return .init(color: c(0.15, 0.32, 0.24), knobs: 3, led: amber) }
-        if n.contains("ditto")         { return .init(color: c(0.88, 0.88, 0.86), knobs: 1, led: green) }
-        if n.contains("tu-3")          { return .init(color: c(0.62, 0.64, 0.66), knobs: 1, led: green) }
-        if n.contains("ce-2")          { return .init(color: c(0.16, 0.40, 0.70), knobs: 2, led: amber) }
-        if n.contains("rv-6")          { return .init(color: c(0.10, 0.44, 0.48), knobs: 3, led: amber) }
+        if n.contains("distortion")    { return .init(color: c(0.93, 0.50, 0.10), knobs: 3, led: amber) }
+        if n.contains("metal zone")    { return .init(color: c(0.20, 0.20, 0.22), knobs: 4, led: amber) }
+        if n.contains("procon rat")    { return .init(color: c(0.18, 0.18, 0.20), knobs: 3, led: amber) }
+        if n.contains("centaur")       { return .init(color: c(0.62, 0.14, 0.13), knobs: 3, led: amber) }
+        if n.contains("king of tone")  { return .init(color: c(0.62, 0.44, 0.76), knobs: 4, led: amber) }
+        if n.contains("memory man")    { return .init(color: c(0.15, 0.15, 0.17), knobs: 3, led: amber) }
+        if n.contains("loop station")  { return .init(color: c(0.80, 0.13, 0.13), knobs: 1, led: green) }
+        if n.contains("chromatic tuner") { return .init(color: c(0.88, 0.88, 0.86), knobs: 1, led: green) }
 
         switch pedal.category {
         case .delay:      return .init(color: c(0.20, 0.45, 0.30), knobs: 3, led: amber)
@@ -228,9 +231,9 @@ enum ProceduralPedal {
 
 #Preview {
     PedalboardModel3DView(pedals: [
-        GearItem(name: "Tube Screamer", category: .overdrive),
-        GearItem(name: "Carbon Copy", category: .delay),
-        GearItem(name: "Boss RV-6", category: .reverb),
+        GearItem(name: "Ibonez Tube Screamer", category: .overdrive),
+        GearItem(name: "VOSS Digital Delay", category: .delay),
+        GearItem(name: "VOSS Reverb", category: .reverb),
     ])
     .frame(width: 320, height: 150)
     .background(RigTheme.background)
