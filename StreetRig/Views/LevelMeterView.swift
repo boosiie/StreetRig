@@ -2,10 +2,14 @@
 //  LevelMeterView.swift
 //  StreetRig
 //
-//  A horizontal signal meter, drawn the way a hardware one reads: a solid RMS
-//  bar for "how loud this feels", a peak-hold tick riding on top, a dB scale you
-//  can actually aim at, a signal-present lamp and a clip LED that stays lit long
-//  enough to be seen.
+//  A horizontal signal meter, drawn the way a hardware one reads: a row of
+//  SEGMENTS that light up with the RMS ("how loud this feels"), a peak-hold
+//  segment parked above them, a dB scale you can actually aim at, a
+//  signal-present lamp and a clip LED that stays lit long enough to be seen.
+//
+//  Segments rather than a continuous bar because a lit-segment count is
+//  something you can read at a glance from a few feet away — which is the
+//  distance you are standing at with a guitar on.
 //
 //  RE-RENDER ISOLATION: this view is the ONLY observer of `AudioLevelMonitor`.
 //  Levels publish ~30×/s; because the meter (not its parent) holds the
@@ -97,40 +101,56 @@ struct LevelMeterView: View {
 
     // MARK: - The bar
 
+    /// Segment count. 24 across the 72 dB scale is exactly 3 dB per segment, so
+    /// counting lit segments is a real measurement rather than a vibe.
+    private static let segmentCount = 24
+    private static let segmentGap: CGFloat = 2
+
     private func bar(_ level: AudioLevel) -> some View {
-        GeometryReader { geo in
-            let width = geo.size.width
-            let rmsWidth = width * CGFloat(Self.fraction(level.rmsDB))
-            let holdX = width * CGFloat(Self.fraction(level.holdDB))
+        let litThrough = Self.litSegments(level.rmsDB)
+        let holdIndex = min(Self.segmentCount - 1, Self.litSegments(level.holdDB))
+        let showHold = level.holdDB > AudioLevel.floorDB + 0.5
 
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(Color.black.opacity(0.55))
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+        return ZStack(alignment: .leading) {
+            // Unlit track. Every segment is always drawn, so the meter keeps its
+            // shape at silence and the headroom you have left is visible as the
+            // dark run ahead of the signal.
+            segmentRow { _ in RigTheme.hairline.opacity(0.75) }
 
-                // RMS body — green up to -12 dBFS, amber through the last 6 dB of
-                // headroom, red at full scale. The gradient is laid out across the
-                // WHOLE meter and then masked to the current level, so a colour
-                // always means the same dB no matter how far the bar has moved.
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(LinearGradient(gradient: Self.barGradient,
-                                         startPoint: .leading, endPoint: .trailing))
-                    .mask(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .frame(width: max(0, rmsWidth))
-                    }
+            // Lit body. The gradient is laid across the WHOLE meter and masked to
+            // the lit segments, so a segment's colour always means the same dB no
+            // matter how far the meter has moved.
+            LinearGradient(gradient: Self.barGradient, startPoint: .leading, endPoint: .trailing)
+                .mask { segmentRow { $0 < litThrough ? Color.white : .clear } }
 
-                // Peak-hold tick.
-                if level.holdDB > AudioLevel.floorDB + 0.5 {
-                    Rectangle()
-                        .fill(level.isClipping ? RigTheme.clip : RigTheme.panel)
-                        .frame(width: 2)
-                        .offset(x: min(max(0, holdX - 1), width - 2))
-                }
+            // Peak hold parks as a single detached lit segment, the way a hardware
+            // meter leaves its needle sitting at the loudest thing you just played.
+            if showHold {
+                LinearGradient(gradient: Self.barGradient, startPoint: .leading, endPoint: .trailing)
+                    .mask { segmentRow { $0 == holdIndex ? Color.white : .clear } }
             }
         }
-        .frame(height: 14)
+        .frame(height: 16)
+    }
+
+    /// One row of evenly-spaced segments, coloured by index. Drawn three times —
+    /// the unlit track, the lit body's mask and the peak-hold mask — so all three
+    /// share one layout and line up exactly.
+    private func segmentRow(_ color: @escaping (Int) -> Color) -> some View {
+        HStack(spacing: Self.segmentGap) {
+            ForEach(0..<Self.segmentCount, id: \.self) { index in
+                RoundedRectangle(cornerRadius: 1, style: .continuous)
+                    .fill(color(index))
+                    .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    /// How many segments a level lights: 0 at the floor, `segmentCount` at full
+    /// scale. Rounding DOWN means a segment only lights once the signal has
+    /// actually reached it.
+    static func litSegments(_ db: Float) -> Int {
+        min(segmentCount, max(0, Int(fraction(db) * Float(segmentCount))))
     }
 
     // MARK: - Scale
@@ -162,12 +182,17 @@ struct LevelMeterView: View {
         return min(1, max(0, (db - floor) / -floor))
     }
 
-    /// Colour by ABSOLUTE dB position: healthy up to -12, into the headroom band
-    /// at -6, hot at 0.
+    /// Colour by ABSOLUTE dB position, and the warm end starts EARLY on purpose:
+    /// green holds only to -24 dBFS, blends through amber by -10 and is fully red
+    /// by -3. The first version packed every warm colour into the top 17% of the
+    /// scale, so a signal stayed green until it was almost clipping — the meter
+    /// only went orange once it was already too late to do anything about it.
+    /// Warming from -24 gives you most of the meter's length as warning.
     private static let barGradient = Gradient(stops: [
         .init(color: RigTheme.signal, location: 0),
-        .init(color: RigTheme.signal, location: Double(fraction(-12))),
-        .init(color: RigTheme.amber,  location: Double(fraction(-6))),
+        .init(color: RigTheme.signal, location: Double(fraction(-24))),
+        .init(color: RigTheme.amber,  location: Double(fraction(-10))),
+        .init(color: RigTheme.clip,   location: Double(fraction(-3))),
         .init(color: RigTheme.clip,   location: 1),
     ])
 }
