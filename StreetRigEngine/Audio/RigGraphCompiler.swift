@@ -24,6 +24,13 @@
 //  → continuous push. It marshals every value change onto the param bus and never
 //  touches DSP state directly from the main thread.
 //
+//  AR FOOTSWITCHES: `store.$arSlots` is the third input. An AR stomp slot is a
+//  FOOTSWITCH onto a pedal that is already in the chain — stomping it pushes
+//  `SRPedalFieldEnabled` on the continuous bus (a relaxed atomic store the render
+//  thread reads next buffer), never a rebuild. `compile` therefore derives each
+//  slot's `enabled` from the AR slots on EVERY compile, so a structural rebuild
+//  (add / remove / swap a pedal) can't silently re-enable a stomped-off pedal.
+//
 
 import Foundation
 import Combine
@@ -73,7 +80,7 @@ public enum RigGraphCompiler {
     public static func compile(store: RigStore) -> RigDSPPlan {
         // Thin @MainActor wrapper: pull the value-typed rig out of the store and
         // hand it to the nonisolated core, so there is ONE compile implementation.
-        compile(collection: store.collection, rig: store.rig)
+        compile(collection: store.collection, rig: store.rig, arSlots: store.arSlots)
     }
 
     /// Nonisolated compile CORE: turn value-typed rig data (collection + wiring)
@@ -83,8 +90,24 @@ public enum RigGraphCompiler {
     /// delegates here; the two are behaviourally identical (`store.pedalItems`,
     /// `store.ampItem`, `store.cabinetItem`, `store.isCombo` are all derived from
     /// exactly these two inputs).
-    public static func compile(collection: [GearItem], rig: RigConfiguration) -> RigDSPPlan {
+    ///
+    /// `arSlots` are the app's AR stomp footswitches. They default to EMPTY so a
+    /// host-loaded plugin (which has no AR screen — its `PersistedState.arSlots`
+    /// is deliberately `nil`) compiles exactly as before: every pedal enabled.
+    public static func compile(collection: [GearItem],
+                               rig: RigConfiguration,
+                               arSlots: [ARSlot] = []) -> RigDSPPlan {
         func item(_ id: UUID) -> GearItem? { collection.first { $0.id == id } }
+
+        /// THE ENABLED-STATE RULE, in one place. A pedal that no AR slot holds is
+        /// always enabled (it is simply in the chain). A pedal bound to a slot
+        /// follows that slot's `isOn`. Because this is re-derived on every compile,
+        /// a structural rebuild triggered by an unrelated edit cannot resurrect a
+        /// pedal the player stomped off — nor strand an unbound one in bypass.
+        func footswitchEnabled(_ pedalId: UUID) -> Bool {
+            guard let slot = arSlots.first(where: { $0.pedalId == pedalId }) else { return true }
+            return slot.isOn
+        }
 
         // Amp section (head+cab stack, or a single combo) mirrored from RigStore.
         let ampItem: GearItem?
@@ -105,7 +128,7 @@ public enum RigGraphCompiler {
             plan.pedals.append(.init(
                 type: ParameterMap.pedalType(for: gear.category),
                 character: ParameterMap.pedalVoicing(name: gear.name, category: gear.category),
-                enabled: true,
+                enabled: footswitchEnabled(gear.id),
                 params: ParameterMap.pedalParams(category: gear.category, values: gear.values)
             ))
         }
@@ -125,8 +148,11 @@ public enum RigGraphCompiler {
         let cabName = isCombo ? ampName : (cabinetItem?.name ?? "")
         plan.cabSlot = ParameterMap.cabSlot(name: cabName)
 
-        // Topology fingerprint.
-        let pedalSig = plan.pedals.map { "\($0.type)/\($0.character)/\($0.enabled ? 1 : 0)" }.joined(separator: ",")
+        // Topology fingerprint — TYPE + VOICING per slot, NOT `enabled`. Enablement
+        // rides the continuous bus (`SRPedalFieldEnabled`, pushed by `pushValues`),
+        // so a footswitch stomp keeps the signature identical and takes the cheap
+        // lock-free path instead of a fade/park rebuild of the whole chain.
+        let pedalSig = plan.pedals.map { "\($0.type)/\($0.character)" }.joined(separator: ",")
         plan.signature = "P[\(pedalSig)]|amp:\(plan.useNeural ? "n" : "a")|cab:\(plan.cabSlot)|combo:\(isCombo)"
         return plan
     }
@@ -215,9 +241,9 @@ public enum RigGraphCompiler {
 
 /// Subscribes to `RigStore` and keeps the DSP chain in sync with the on-screen
 /// rig. Topology (`$rig`) drives structural hot-swaps; knob values (`$collection`,
-/// written by `store.binding(itemId:param:)`) drive continuous param pushes. Lives
-/// on the main actor; the only cross-thread work is the background reconfigure
-/// queue used by `applyHotSwap`.
+/// written by `store.binding(itemId:param:)`) and AR footswitch stomps
+/// (`$arSlots`) drive continuous param pushes. Lives on the main actor; the only
+/// cross-thread work is the background reconfigure queue used by `applyHotSwap`.
 @MainActor
 public final class RigAudioBridge {
     private weak var store: RigStore?
@@ -226,6 +252,7 @@ public final class RigAudioBridge {
     private let reconfigureQueue = DispatchQueue(label: "streetrig.rig-reconfigure")
     private var cancellables = Set<AnyCancellable>()
     private var lastSignature = ""
+    private var syncScheduled = false
 
     public init(store: RigStore, dsp: StreetRigDSPUnit, isRenderLive: @escaping () -> Bool) {
         self.store = store
@@ -240,15 +267,46 @@ public final class RigAudioBridge {
         // Topology changes → structural hot-swap.
         store.$rig
             .dropFirst()
-            .sink { [weak self] _ in MainActor.assumeIsolated { self?.handleChange() } }
+            .sink { [weak self] _ in MainActor.assumeIsolated { self?.scheduleSync() } }
             .store(in: &cancellables)
 
         // Knob / value changes → continuous push (rebuild only if the signature
         // somehow moved). `store.binding(...).set` writes `collection`, landing here.
         store.$collection
             .dropFirst()
-            .sink { [weak self] _ in MainActor.assumeIsolated { self?.handleChange() } }
+            .sink { [weak self] _ in MainActor.assumeIsolated { self?.scheduleSync() } }
             .store(in: &cancellables)
+
+        // AR stomp slots → the footswitch's enable/bypass push. Same continuous
+        // path as a knob: the compiled signature does not move, so this never
+        // rebuilds the chain. Dropping a pedal that is not yet in the rig also
+        // mutates `$rig` (RigStore adds it), which takes the structural path above.
+        store.$arSlots
+            .dropFirst()
+            .sink { [weak self] _ in MainActor.assumeIsolated { self?.scheduleSync() } }
+            .store(in: &cancellables)
+    }
+
+    /// Coalesce every store change in this main-actor turn into ONE compile, run
+    /// on the NEXT turn.
+    ///
+    /// Why the hop: `@Published` emits from `willSet`, so inside the sink the
+    /// store's property still holds the OLD value — compiling there would apply
+    /// the state before the edit and leave the newest change unheard until the
+    /// next one arrived. Harmless-looking for a slider drag (the following move
+    /// corrects it); fatal for a boolean footswitch, which would then toggle one
+    /// stomp behind. Deferring also collapses the "add pedal to the rig + bind the
+    /// footswitch" pair into a single rebuild.
+    private func scheduleSync() {
+        guard !syncScheduled else { return }
+        syncScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.syncScheduled = false
+                self.handleChange()
+            }
+        }
     }
 
     private func handleChange() {

@@ -156,11 +156,31 @@ public final class RigStore: ObservableObject {
         return item(id)
     }
 
-    /// Assign (or clear) the pedal in an AR slot.
+    /// Assign (or clear) the pedal in an AR slot — i.e. put a FOOTSWITCH on a
+    /// pedal, or take it off again.
+    ///
+    /// Two rules the audio path depends on (see `RigGraphCompiler.compile`):
+    ///  • Binding defaults the slot to **ON**. An unbound pedal is always enabled,
+    ///    so a slot that defaulted to off would instantly bypass a pedal that was
+    ///    audibly working the moment you dropped it on a switch.
+    ///  • A footswitch only makes sense for a pedal that is IN the chain, so a
+    ///    pedal that isn't gets added first. That is a structural rig edit, which
+    ///    `RigAudioBridge` applies through the fade/park barrier.
+    /// Clearing a slot leaves the pedal in the chain and unbound → enabled again;
+    /// it is never stranded in bypass.
     public func setARSlot(_ index: Int, pedalId: UUID?) {
         guard arSlots.indices.contains(index) else { return }
-        arSlots[index].pedalId = pedalId
-        if pedalId == nil { arSlots[index].isOn = false }
+        guard let pedalId else { arSlots[index] = ARSlot(); return }
+
+        if let gear = item(pedalId), gear.category.isPedal, !rig.pedalIds.contains(pedalId) {
+            apply(gear)                                   // structural: into the chain
+        }
+        // One pedal, one footswitch: release any other slot holding it, so the
+        // enabled-state rule has a single unambiguous source.
+        for i in arSlots.indices where i != index && arSlots[i].pedalId == pedalId {
+            arSlots[i] = ARSlot()
+        }
+        arSlots[index] = ARSlot(pedalId: pedalId, isOn: true)
     }
 
     /// Toggle an AR slot's pedal on/off (only if a pedal is assigned).

@@ -55,6 +55,26 @@ final class AudioEngineController: ObservableObject {
     @Published private(set) var renderLoad: Double = 0
     @Published private(set) var lastBlockSeconds: Double = 0
 
+    /// LIVE SIGNAL LEVELS — input (raw DI, pre-rig) and output (post-rig).
+    ///
+    /// Deliberately a nested ObservableObject held by a plain `let` rather than a
+    /// `@Published` property here: levels publish ~30×/s, and anything observing
+    /// the controller (the device bar, route pickers, the AR slots, the camera
+    /// preview) would re-render at that rate. Only the meter views observe this,
+    /// so a level update redraws a meter and nothing else. The controller still
+    /// owns its lifecycle: it installs the taps that feed it and tears them down.
+    let levels = AudioLevelMonitor()
+
+    /// Monitoring volume — the DSP's existing OUTPUT LEVEL stage (unity = 1.0).
+    /// Kept here (not in a view) so it survives the signal-check screen being
+    /// dismissed and re-opened, and is re-applied on every engage.
+    @Published var masterLevel: Float = 1.0 {
+        didSet {
+            guard masterLevel != oldValue else { return }
+            applyMasterLevel()
+        }
+    }
+
     // Routes for the DeviceBar dropdowns.
     @Published private(set) var currentInputName: String = "—"
     @Published private(set) var currentOutputName: String = "—"
@@ -75,7 +95,13 @@ final class AudioEngineController: ObservableObject {
     private var avAudioUnit: AVAudioUnit?
     private var dspUnit: StreetRigDSPUnit?
     private var meterTimer: DispatchSourceTimer?
+    private var levelTapsInstalled = false
     private var observers: [NSObjectProtocol] = []
+
+    /// Tap buffer size. ~21 ms at 48 kHz — long enough that the tap overhead is
+    /// negligible against the render deadline, short enough that the 30 Hz UI
+    /// tick always has fresh audio to drain.
+    private static let levelTapFrames: AVAudioFrameCount = 1024
 
     // Prompt 003: the live rig↔DSP binding. Set via `attach(store:)`; the bridge
     // is (re)created on engage so knob moves + rig edits drive the audio graph.
@@ -93,6 +119,10 @@ final class AudioEngineController: ObservableObject {
     init() {
         // Inert on purpose: no session, no engine, no notifications until the
         // player engages. Keeps SwiftUI previews and app launch side-effect free.
+        // (Reading two defaults is not a side effect on the audio stack.)
+        let defaults = UserDefaults.standard
+        asksAboutNewDevices = defaults.object(forKey: Self.asksKey) as? Bool ?? true
+        autoAdoptNewDevices = defaults.object(forKey: Self.adoptKey) as? Bool ?? true
     }
 
     deinit {
@@ -133,12 +163,20 @@ final class AudioEngineController: ObservableObject {
             engine.attach(unit)
             engine.connect(input, to: unit, format: inputFormat)
             engine.connect(unit, to: engine.mainMixerNode, format: inputFormat)
+
             engine.prepare()
             try engine.start()
 
             self.engine = engine
             self.avAudioUnit = unit
             self.dspUnit = unit.auAudioUnit as? StreetRigDSPUnit
+            applyMasterLevel()
+
+            // Meter taps go on once the engine is RUNNING, so both nodes report a
+            // settled stream format (a tap installed against a not-yet-negotiated
+            // format is the other classic AVAudioEngine trap). Input node = raw DI
+            // pre-rig; main mixer = the processed rig post-rig.
+            installLevelTaps(on: engine)
 
             // Compile the current rig into the graph and bind every knob live.
             // The engine is running, so structural edits use the fade/park barrier.
@@ -168,6 +206,9 @@ final class AudioEngineController: ObservableObject {
 
     private func teardown() {
         stopMetering()
+        // Taps come off BEFORE the nodes stop / detach: a tap left on a node that
+        // is being torn down is the classic AVAudioEngine crash.
+        removeLevelTaps()
         rigBridge = nil
         engine?.stop()
         if let unit = avAudioUnit { engine?.detach(unit) }
@@ -180,6 +221,57 @@ final class AudioEngineController: ObservableObject {
     // MARK: - Bypass / parameter conveniences (prompt 003 binds knobs through here)
 
     func setBypassed(_ bypassed: Bool) { dspUnit?.setBypassed(bypassed) }
+
+    /// Push the monitoring volume onto the DSP through the AUParameterTree, so
+    /// the kernel bus AND the unit's serialized state stay in lock-step (the tree
+    /// forwards to `SRKernelSetParameter` in its value observer — a lock-free
+    /// relaxed store the render thread ramps, never a rebuild).
+    private func applyMasterLevel() {
+        dspUnit?.parameterTree?
+            .parameter(withAddress: AUParameterAddress(SRParamOutputLevel.rawValue))?
+            .value = masterLevel
+    }
+
+    // MARK: - Level taps (the only StreetRig code that runs on the audio thread
+    //         outside the kernel — see RealtimeSafety.md)
+
+    /// Install the pre-rig and post-rig meter taps.
+    ///
+    /// Everything the tap block needs is resolved HERE, on the main thread, and
+    /// captured as plain `Int`s: the audio thread never queries a format, never
+    /// allocates, never locks and never hops a queue. The buses are captured once
+    /// (a single retain at install time); each callback just calls through them.
+    private func installLevelTaps(on engine: AVAudioEngine) {
+        // Deinterleaved (the engine's normal case) → one plane per channel.
+        // Interleaved → a single plane holding channelCount samples per frame.
+        // Precomputing both forms keeps the callback free of format lookups.
+        func install(_ node: AVAudioNode, into bus: AudioLevelBus) {
+            let format = node.outputFormat(forBus: 0)
+            guard format.channelCount > 0 else { return }
+            let planes = format.isInterleaved ? 1 : Int(format.channelCount)
+            let samplesPerFrame = format.isInterleaved ? Int(format.channelCount) : 1
+
+            node.installTap(onBus: 0, bufferSize: Self.levelTapFrames, format: format) { buffer, _ in
+                guard let channels = buffer.floatChannelData else { return }
+                let samples = Int(buffer.frameLength) * samplesPerFrame
+                for plane in 0..<planes {
+                    bus.accumulate(channels[plane], frameCount: samples)
+                }
+            }
+        }
+        // Independently, so a mixer whose format hasn't settled can't cost us the
+        // input meter — the one that answers "is the guitar even reaching me?".
+        install(engine.inputNode, into: levels.inputBus)
+        install(engine.mainMixerNode, into: levels.outputBus)
+        levelTapsInstalled = true
+    }
+
+    private func removeLevelTaps() {
+        defer { levelTapsInstalled = false }
+        guard levelTapsInstalled, let engine else { return }
+        engine.inputNode.removeTap(onBus: 0)
+        engine.mainMixerNode.removeTap(onBus: 0)
+    }
 
     // MARK: - Session
 
@@ -222,6 +314,11 @@ final class AudioEngineController: ObservableObject {
     func primeRoutes() {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playAndRecord, mode: .measurement, options: [.allowBluetoothA2DP])
+        // Listen BEFORE engaging: plugging the iRig in is usually the thing you do
+        // just before pressing Proceed, and that is exactly when being asked about
+        // it is useful. The interruption handler this also installs is inert until
+        // there is an engine to pause.
+        registerObservers()
         refreshRoutes()
     }
 
@@ -233,12 +330,132 @@ final class AudioEngineController: ObservableObject {
         availableInputs = (session.availableInputs ?? []).map {
             RouteOption(name: $0.portName, uid: $0.uid)
         }
+        detectNewDevices(session)
     }
 
     func selectInput(_ option: RouteOption) {
         let session = AVAudioSession.sharedInstance()
         guard let port = (session.availableInputs ?? []).first(where: { $0.uid == option.uid }) else { return }
         try? session.setPreferredInput(port)
+        refreshRoutes()
+    }
+
+    // MARK: - New hardware: ask before switching
+
+    /// Hardware that appeared while the app was running and that the player has
+    /// not been asked about yet.
+    struct DeviceOffer: Identifiable, Equatable {
+        enum Kind: Equatable { case input, output }
+        let kind: Kind
+        let name: String
+        let uid: String
+        /// Kind is part of the identity: the same physical port can legitimately
+        /// show up as both an input and an output (a USB interface, a headset).
+        var id: String { "\(kind == .input ? "in" : "out")-\(uid)" }
+    }
+
+    /// The outstanding question, if any. Nil when there is nothing to ask.
+    @Published private(set) var deviceOffer: DeviceOffer?
+
+    /// "Don't ask me this again". Persisted.
+    @Published var asksAboutNewDevices: Bool {
+        didSet { UserDefaults.standard.set(asksAboutNewDevices, forKey: Self.asksKey) }
+    }
+
+    /// What to DO once we've stopped asking. The checkbox remembers the answer
+    /// the player gave, not merely that they want silence: dismissing the prompt
+    /// with "Use it" ticked means later devices are adopted automatically, while
+    /// "Keep current" means they are ignored. Persisted.
+    @Published var autoAdoptNewDevices: Bool {
+        didSet { UserDefaults.standard.set(autoAdoptNewDevices, forKey: Self.adoptKey) }
+    }
+
+    private static let asksKey = "StreetRig.asksAboutNewDevices"
+    private static let adoptKey = "StreetRig.autoAdoptNewDevices"
+
+    /// Device identities already seen. Primed on the FIRST route read so whatever
+    /// is already plugged in when the app opens is never announced back.
+    private var knownDeviceIDs: Set<String> = []
+    private var hasPrimedKnownDevices = false
+
+    /// Diff the current route against what we've seen. Called from
+    /// `refreshRoutes`, which every route change already runs through.
+    private func detectNewDevices(_ session: AVAudioSession) {
+        let candidates =
+            (session.availableInputs ?? []).map {
+                DeviceOffer(kind: .input, name: $0.portName, uid: $0.uid)
+            }
+            + session.currentRoute.outputs.map {
+                DeviceOffer(kind: .output, name: $0.portName, uid: $0.uid)
+            }
+        let ids = Set(candidates.map(\.id))
+
+        guard hasPrimedKnownDevices else {
+            knownDeviceIDs = ids
+            hasPrimedKnownDevices = true
+            return
+        }
+
+        let fresh = candidates.filter { !knownDeviceIDs.contains($0.id) }
+        knownDeviceIDs.formUnion(ids)
+        guard let offer = fresh.first else { return }
+
+        guard asksAboutNewDevices else {
+            // Answer stored: act on it without interrupting.
+            if autoAdoptNewDevices { adopt(offer) }
+            return
+        }
+        // One question at a time — an unanswered offer is never replaced.
+        guard deviceOffer == nil else { return }
+        deviceOffer = offer
+    }
+
+    /// Answer the outstanding offer. `remember` stops the question being asked
+    /// again and stores `adopt` as the standing answer.
+    func resolveDeviceOffer(_ offer: DeviceOffer, adopt useIt: Bool, remember: Bool) {
+        if useIt { adopt(offer) } else { decline(offer) }
+        if remember {
+            autoAdoptNewDevices = useIt
+            asksAboutNewDevices = false
+        }
+        if deviceOffer == offer { deviceOffer = nil }
+    }
+
+    private func adopt(_ offer: DeviceOffer) {
+        let session = AVAudioSession.sharedInstance()
+        switch offer.kind {
+        case .input:
+            if let port = (session.availableInputs ?? []).first(where: { $0.uid == offer.uid }) {
+                try? session.setPreferredInput(port)
+            }
+        case .output:
+            // iOS has ALREADY routed to the new output by the time the
+            // notification lands, so "use it" means clearing any override we put
+            // in place — the session then follows the newest device itself.
+            try? session.overrideOutputAudioPort(.none)
+        }
+        refreshRoutes()
+    }
+
+    #if DEBUG
+    /// Testing affordance in the same spirit as `-RunOfflineRender`: the Simulator
+    /// never gains or loses hardware, so there is otherwise no way to see this
+    /// prompt without a physical device. Launch with `-ShowDeviceOffer`.
+    func seedDebugDeviceOffer() {
+        deviceOffer = DeviceOffer(kind: .input, name: "iRig HD 2", uid: "debug-irig")
+    }
+    #endif
+
+    private func decline(_ offer: DeviceOffer) {
+        switch offer.kind {
+        case .input:
+            break   // keep whatever input is already preferred
+        case .output:
+            // OUTPUT ROUTING BELONGS TO iOS. Since it has already switched,
+            // declining can only mean pushing playback back to the built-in
+            // speaker — the one output override a session is allowed.
+            try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
+        }
         refreshRoutes()
     }
 
@@ -310,13 +527,25 @@ final class AudioEngineController: ObservableObject {
 
     // MARK: - Metering
 
+    /// ONE main-thread timer drives both read-outs at their own rates: signal
+    /// levels at ~30 Hz (slower feels disconnected from your picking hand) and
+    /// the render load every 8th tick (~0.27 s, the original cadence). The load
+    /// stays slow on purpose — it is `@Published` on the controller, so every
+    /// observer re-renders when it changes.
     private func startMetering() {
         stopMetering()
+        let interval = AudioLevelMonitor.tickInterval
         let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + 0.25, repeating: 0.25)
+        timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(4))
+        var ticks = 0
         timer.setEventHandler { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, let unit = self.dspUnit else { return }
+                guard let self else { return }
+                self.levels.tick(dt: interval)
+                ticks += 1
+                guard ticks >= 8 else { return }
+                ticks = 0
+                guard let unit = self.dspUnit else { return }
                 self.renderLoad = unit.lastRenderLoad
                 self.lastBlockSeconds = unit.lastBlockSeconds
             }
@@ -328,6 +557,9 @@ final class AudioEngineController: ObservableObject {
     private func stopMetering() {
         meterTimer?.cancel()
         meterTimer = nil
+        // Don't leave the meters frozen mid-swing showing a level nothing is
+        // measuring any more.
+        levels.reset()
     }
 
     // MARK: - Permission / instantiation helpers

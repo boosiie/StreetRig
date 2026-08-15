@@ -191,8 +191,12 @@ extension AudioEngineController {
             if !rig.wav.isEmpty { try? Self.writeWav(rig.wav, to: outURL, format: fmt) }
             // --- PEDAL FAMILIES: prove each NEW structural family is audible. ---
             let fam = await runPedalFamilyVerification(dry: dry, fmt: fmt, sr: sr)
-            let combined = report + "\n\n" + rig.text + "\n\n" + fam.text
-            let overall = allPass && rig.pass && fam.pass
+            // --- SIGNAL METERS: prove the dBFS math against known amplitudes. ---
+            let meter = runMeterVerification(sr: sr)
+            // --- AR FOOTSWITCHES: prove a stomp actually bypasses a pedal. ---
+            let foot = await runFootswitchVerification(dry: dry, fmt: fmt, sr: sr)
+            let combined = [report, rig.text, fam.text, meter.text, foot.text].joined(separator: "\n\n")
+            let overall = allPass && rig.pass && fam.pass && meter.pass && foot.pass
             log(combined)
             return finishOffline(success: overall, summary: combined, wav: outURL.path)
         } catch {
@@ -704,6 +708,316 @@ extension AudioEngineController {
         return (out, allPass)
     }
 
+    // MARK: - Signal-meter math verification
+
+    /// Prove the LIVE METER math without a guitar.
+    ///
+    /// The Simulator has no audio input, so the meters can't be validated by
+    /// playing — but they can be validated exactly, because the answers for a
+    /// known-amplitude sine are arithmetic: a full-scale sine peaks at 0 dBFS and
+    /// has an RMS of 1/√2 = -3.01 dBFS; halving the amplitude drops both by
+    /// 6.02 dB; silence falls to the floor. This drives the REAL audio-thread
+    /// routine (`AudioLevelBus.accumulate`), the REAL drain and the REAL
+    /// ballistics (`AudioLevelMonitor.tick`), and cross-checks every number
+    /// against this harness's own `peak` / `rms` over the same samples — so there
+    /// is one implementation of the math, checked two ways.
+    private func runMeterVerification(sr: Double) -> (text: String, pass: Bool) {
+        /// Whole cycles at 1 kHz / 48 kHz = 48 samples per cycle, so the crest
+        /// (k = 12) is sampled exactly and peak == amplitude with no windowing error.
+        func sine(_ amplitude: Float, seconds: Double = 0.25, hz: Double = 1000) -> [Float] {
+            let n = Int(seconds * sr)
+            return (0..<n).map { Float(Double(amplitude) * sin(2 * Double.pi * hz * Double($0) / sr)) }
+        }
+
+        let monitor = AudioLevelMonitor()
+        /// Push one block through the real bus + ballistics and read back both the
+        /// raw drained numbers and the published (smoothed) meter state.
+        func measure(_ samples: [Float]) -> (peak: Float, rms: Float, level: AudioLevel) {
+            monitor.reset()
+            // HOLD THE TONE UNTIL THE DISPLAY CONVERGES. The peak lands on the
+            // measurement in a single tick — its attack is instant by design — but
+            // the RMS body deliberately RAMPS toward it (`Ballistics.rmsAttackTau`;
+            // an instant attack is what made the bar strobe at 30 Hz). These checks
+            // are about the dBFS MATH, not about arrival time, so sustain the tone
+            // the way a held note does and read the settled value. 200 ticks is
+            // ~6.7 s, comfortably past convergence for any sane attack constant —
+            // deliberately generous so that tuning the meter's feel doesn't quietly
+            // start failing the dBFS math. (`AudioLevelBus.drain` is exercised on
+            // every one of those ticks, so this still covers the accumulator.)
+            for _ in 0..<200 {
+                samples.withUnsafeBufferPointer { buffer in
+                    guard let base = buffer.baseAddress else { return }
+                    monitor.inputBus.accumulate(base, frameCount: buffer.count)
+                }
+                monitor.tick()
+            }
+            return (AudioLevelBus.dbfs(Self.peak(samples)),
+                    AudioLevelBus.dbfs(Self.rms(samples)),
+                    monitor.input)
+        }
+
+        let full = measure(sine(1.0))
+        let half = measure(sine(0.5))
+        let quiet = measure(sine(0.005))          // -46 dBFS: quiet playing
+        let noise = measure(sine(0.0005))         // -66 dBFS: below the presence floor
+        let silence = measure([Float](repeating: 0, count: Int(0.25 * sr)))
+
+        func near(_ a: Float, _ b: Float, _ tol: Float = 0.05) -> Bool { abs(a - b) <= tol }
+
+        var checks: [(String, Bool, String)] = []
+        checks.append(("full-scale sine peak = 0 dBFS",
+                       near(full.level.peakDB, 0) && near(full.peak, 0),
+                       String(format: "meter %.2f / harness %.2f dBFS", full.level.peakDB, full.peak)))
+        checks.append(("full-scale sine RMS = -3.01 dBFS",
+                       near(full.level.rmsDB, -3.01) && near(full.rms, -3.01),
+                       String(format: "meter %.2f / harness %.2f dBFS", full.level.rmsDB, full.rms)))
+        checks.append(("amplitude 0.5 peak = -6.02 dBFS",
+                       near(half.level.peakDB, -6.02) && near(half.peak, -6.02),
+                       String(format: "meter %.2f / harness %.2f dBFS", half.level.peakDB, half.peak)))
+        checks.append(("amplitude 0.5 RMS = -9.03 dBFS",
+                       near(half.level.rmsDB, -9.03) && near(half.rms, -9.03),
+                       String(format: "meter %.2f / harness %.2f dBFS", half.level.rmsDB, half.rms)))
+        checks.append(("meter == harness on every signal",
+                       near(full.level.peakDB, full.peak) && near(half.level.peakDB, half.peak)
+                       && near(full.level.rmsDB, full.rms) && near(half.level.rmsDB, half.rms),
+                       "one dBFS implementation, two call sites"))
+        checks.append(("silence sits on the floor",
+                       silence.level.peakDB <= AudioLevel.floorDB + 0.01 && silence.peak < -170,
+                       String(format: "meter %.1f dBFS (scale floor %.0f), raw %.1f dBFS",
+                              silence.level.peakDB, AudioLevel.floorDB, silence.peak)))
+        checks.append(("clip flag latches at full scale",
+                       full.level.isClipping && !half.level.isClipping,
+                       "1.0 → CLIP, 0.5 → clear"))
+        checks.append(("signal-present splits quiet from silent",
+                       quiet.level.hasSignal && !noise.level.hasSignal && !silence.level.hasSignal,
+                       String(format: "-46 dBFS lit, -66 dBFS dark (floor %.0f dBFS)", AudioLevel.signalFloorDB)))
+
+        // MANY BUFFERS OVER MANY WINDOWS. A single-buffer test cannot see an
+        // accumulator that compounds across drains — the failure mode that made a
+        // live meter read RMS *above* peak (impossible) because already-drained
+        // energy was being re-counted against a fresh frame count. Feeding a
+        // steady tone through several buffers per window, for several windows,
+        // must read the SAME numbers every window.
+        monitor.reset()
+        let block = sine(0.5, seconds: 0.02)          // 960 frames = 20 whole cycles
+        func feedWindow() {
+            for _ in 0..<4 {
+                block.withUnsafeBufferPointer { buffer in
+                    guard let base = buffer.baseAddress else { return }
+                    monitor.inputBus.accumulate(base, frameCount: buffer.count)
+                }
+            }
+            monitor.tick()
+        }
+        // SETTLE FIRST. The RMS body deliberately RAMPS toward a new level rather
+        // than snapping to it (see `Ballistics.rmsAttackTau` — an instant attack is
+        // what made the bar strobe at 30 Hz), so the first windows are legitimately
+        // still climbing. What this check hunts is drift BETWEEN windows once the
+        // level has arrived — an accumulator that compounds across drains — not how
+        // long the arrival takes.
+        var ramp: [Float] = []
+        for _ in 0..<200 { feedWindow(); ramp.append(monitor.input.rmsDB) }
+        var windows: [AudioLevel] = []
+        for _ in 0..<3 { feedWindow(); windows.append(monitor.input) }
+        let steady = windows.allSatisfy { near($0.peakDB, -6.02) && near($0.rmsDB, -9.03) }
+        checks.append(("steady tone reads the same every window", steady,
+                       "3 settled windows × 4 buffers: "
+                       + windows.map { String(format: "%.2f/%.2f", $0.peakDB, $0.rmsDB) }.joined(separator: ", ")))
+
+        // THE SMOOTHING ITSELF, measured. A bar that reaches its target in one tick
+        // is the strobe; a bar that climbs monotonically over many ticks is what
+        // reads as a level swelling. Both halves matter — monotonic alone would
+        // pass an instant jump, and slow alone would pass a jittery crawl.
+        let ramped = zip(ramp, ramp.dropFirst()).allSatisfy { $1 >= $0 - 0.01 }
+        let ticksToArrive = ramp.firstIndex { $0 >= -9.03 - 1.0 } ?? ramp.count
+        checks.append(("RMS bar ramps instead of snapping", ramped && ticksToArrive >= 5,
+                       String(format: "monotonic rise, %d ticks (~%.0f ms) to within 1 dB",
+                              ticksToArrive,
+                              Double(ticksToArrive) * AudioLevelMonitor.tickInterval * 1000)))
+
+        // DECAY INTO SILENCE — where the two bars first crossed on the real screen.
+        // A loud window followed by empty ones (the gap between two picked notes)
+        // must fall with peak above RMS the whole way down: they have to release
+        // toward the SAME floor, or the peak dives past the RMS and the meter shows
+        // the impossible.
+        monitor.reset()
+        block.withUnsafeBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            monitor.inputBus.accumulate(base, frameCount: buffer.count)
+        }
+        monitor.tick()
+        var decay: [AudioLevel] = [monitor.input]
+        for _ in 0..<40 {                      // ~1.3 s of dead air
+            monitor.tick()
+            decay.append(monitor.input)
+        }
+        checks.append(("peak stays above RMS decaying into silence",
+                       decay.allSatisfy { $0.rmsDB <= $0.peakDB + 0.01 },
+                       String(format: "after %d silent ticks: peak %.1f, RMS %.1f, hasSignal %@",
+                              decay.count - 1, decay.last!.peakDB, decay.last!.rmsDB,
+                              decay.last!.hasSignal ? "yes" : "no")))
+        checks.append(("silence eventually clears the signal lamp",
+                       !decay.last!.hasSignal && decay.first!.hasSignal,
+                       "lit while playing, dark once the note has gone"))
+
+        // The invariant the live screen violated: RMS can never exceed peak.
+        let everyLevel = windows + decay + [full.level, half.level, quiet.level, noise.level, silence.level]
+        checks.append(("RMS never exceeds peak (physics)",
+                       everyLevel.allSatisfy { $0.rmsDB <= $0.peakDB + 0.01 },
+                       "checked across \(everyLevel.count) published readings"))
+
+        let allPass = checks.allSatisfy { $0.1 }
+        var out = """
+        === SIGNAL METERS — dBFS math (input/output level metering) ===
+        Method        : known-amplitude 1 kHz sines → AudioLevelBus.accumulate (the audio-thread
+                        routine) → drain → AudioLevelMonitor ballistics, cross-checked against the
+                        harness's own peak/RMS. Meter scale floor \(Int(AudioLevel.floorDB)) dBFS,
+                        signal-present floor \(Int(AudioLevel.signalFloorDB)) dBFS.
+
+        """
+        for (name, ok, detail) in checks {
+            let pad = name.padding(toLength: 38, withPad: " ", startingAt: 0)
+            out += "  \(pad) \(ok ? "PASS" : "FAIL")   (\(detail))\n"
+        }
+        out += "SIGNAL METERS OVERALL: \(allPass ? "PASS" : "SOME CHECKS FAILED")\n=== END SIGNAL METERS ==="
+        return (out, allPass)
+    }
+
+    // MARK: - AR footswitch verification
+
+    /// Prove an AR stomp slot is a real FOOTSWITCH, not decoration: binding a
+    /// pedal must not silence it, stomping it off must change the sound, and — the
+    /// regression this exists to prevent — a STRUCTURAL rebuild triggered by an
+    /// unrelated rig edit must not quietly re-enable a pedal the player stomped off.
+    private func runFootswitchVerification(dry: AVAudioPCMBuffer,
+                                           fmt: AVAudioFormat,
+                                           sr: Double) async -> (text: String, pass: Bool) {
+        let store = RigStore(persist: false)
+        func bright(_ s: [Float], _ hz: Double) -> Double { Double(Self.brightness(s, sr: sr, cutoff: hz) * 100) }
+        func setKnob(_ id: UUID, _ p: String, _ v: Double) { store.binding(itemId: id, param: p).wrappedValue = v }
+        func render(_ plan: RigDSPPlan) async -> [Float] {
+            ((try? await renderRigPlan(plan, source: dry, fmt: fmt)) ?? PassOutput()).samples
+        }
+        /// The compiled slot index of a pedal — `rig.pedalIds` order IS plan order,
+        /// and it is re-sorted on every structural edit, so never cache it.
+        func slotIndex(_ id: UUID) -> Int? { store.rig.pedalIds.firstIndex(of: id) }
+        func enabled(_ plan: RigDSPPlan, _ id: UUID) -> Bool? {
+            guard let i = slotIndex(id), plan.pedals.indices.contains(i) else { return nil }
+            return plan.pedals[i].enabled
+        }
+
+        guard let odId = store.pedalItems.first(where: { $0.category == .overdrive })?.id,
+              let ampId = store.ampItem?.id else {
+            return ("AR FOOTSWITCH: seed rig missing an overdrive pedal or amp — cannot verify.", false)
+        }
+        setKnob(odId, "Drive", 9); setKnob(odId, "Tone", 6); setKnob(odId, "Level", 6)
+        for (p, v) in [("Gain", 6.0), ("Bass", 5.0), ("Mid", 5.0), ("Treble", 5.0), ("Presence", 5.0), ("Master", 6.0)] {
+            setKnob(ampId, p, v)
+        }
+        let pedalName = store.item(odId)?.name ?? "drive pedal"
+
+        var checks: [(String, Bool, String)] = []
+        var lines: [String] = []
+
+        // 1. UNBOUND — the pedal is simply in the chain, so it is enabled.
+        let planFree = RigGraphCompiler.compile(store: store)
+        let free = await render(planFree)
+        checks.append(("unbound pedal stays enabled", enabled(planFree, odId) == true,
+                       "no AR slot holds \(pedalName)"))
+
+        // 2. BIND — dropping it on a footswitch must NOT bypass a working pedal.
+        store.setARSlot(0, pedalId: odId)
+        let planBound = RigGraphCompiler.compile(store: store)
+        let bound = await render(planBound)
+        let bindDelta = Self.rms(Self.difference(bound, free))
+        checks.append(("binding defaults the slot ON", store.arSlots[0].isOn && enabled(planBound, odId) == true,
+                       "slot 0 ← \(pedalName), isOn=\(store.arSlots[0].isOn)"))
+        checks.append(("binding is inaudible (no silent bypass)", bindDelta < 1e-6,
+                       "Δ vs unbound \(Self.dbfs(bindDelta)) dBFS"))
+
+        // 3. STOMP OFF — audibly bypassed, and via the CONTINUOUS bus (signature
+        //    unchanged ⇒ RigAudioBridge pushes SRPedalFieldEnabled, no rebuild).
+        store.toggleARSlot(0)
+        let planOff = RigGraphCompiler.compile(store: store)
+        let off = await render(planOff)
+        let stompDelta = Self.rms(Self.difference(off, bound))
+        let onBright = bright(bound, 2000), offBright = bright(off, 2000)
+        checks.append(("stomp sets the slot's enabled flag to 0", enabled(planOff, odId) == false,
+                       "compiled slot \(slotIndex(odId).map(String.init) ?? "?") enabled=false"))
+        checks.append(("stomp is a CONTINUOUS push, not a rebuild", planOff.signature == planBound.signature,
+                       "signature unchanged: \(planOff.signature)"))
+        checks.append(("stomp audibly changes the output", stompDelta > 1e-3,
+                       "Δ on→off \(Self.dbfs(stompDelta)) dBFS"))
+        checks.append(("bypassed drive loses harmonics", offBright < onBright,
+                       String(format: "hi>2k: on %.1f%% → off %.1f%%", onBright, offBright)))
+        lines.append(rigLine("footswitch ON", bound, sr))
+        lines.append(rigLine("footswitch OFF", off, sr))
+
+        // 4. STRUCTURAL REBUILD while stomped off — add another pedal (a genuine
+        //    topology change) and confirm the stomped pedal is STILL bypassed.
+        //    This is the regression the enabled-state rule exists to prevent.
+        if let muff = store.collection.first(where: { $0.name.lowercased().contains("big muff") }) {
+            store.apply(muff)
+        }
+        let planRebuilt = RigGraphCompiler.compile(store: store)
+        let rebuilt = await render(planRebuilt)
+        var planForced = planRebuilt                    // control: same rig, pedal forced back on
+        if let i = slotIndex(odId), planForced.pedals.indices.contains(i) { planForced.pedals[i].enabled = true }
+        let forced = await render(planForced)
+        let stillOffDelta = Self.rms(Self.difference(rebuilt, forced))
+        checks.append(("structural rebuild really happened", planRebuilt.signature != planOff.signature,
+                       "sig \(planOff.signature) → \(planRebuilt.signature)"))
+        checks.append(("rebuild does NOT re-enable a stomped pedal", enabled(planRebuilt, odId) == false,
+                       "still enabled=false after adding a pedal to the chain"))
+        checks.append(("…and it is still audibly bypassed", stillOffDelta > 1e-3,
+                       "Δ vs the same rig with it forced on: \(Self.dbfs(stillOffDelta)) dBFS"))
+        lines.append(rigLine("rebuilt, still off", rebuilt, sr))
+        lines.append(rigLine("rebuilt, forced on", forced, sr))
+
+        // 5. UNBIND — taking the footswitch off must never strand the pedal bypassed.
+        store.setARSlot(0, pedalId: nil)
+        let planUnbound = RigGraphCompiler.compile(store: store)
+        checks.append(("clearing the slot re-enables the pedal", enabled(planUnbound, odId) == true,
+                       "slot released → pedal enabled again"))
+
+        // 6. Dropping a pedal that is NOT in the rig adds it to the chain first.
+        let spare = store.collection.first { $0.category.isPedal && !store.rig.pedalIds.contains($0.id) }
+        var addedOK = false, addedDetail = "no spare pedal in the collection"
+        if let spare {
+            let before = store.rig.pedalIds.count
+            store.setARSlot(1, pedalId: spare.id)
+            let planAdded = RigGraphCompiler.compile(store: store)
+            addedOK = store.rig.pedalIds.contains(spare.id)
+                && store.rig.pedalIds.count == before + 1
+                && enabled(planAdded, spare.id) == true
+            addedDetail = "\(spare.name) added to the chain (\(before) → \(store.rig.pedalIds.count) pedals), enabled"
+        }
+        checks.append(("dropping an unracked pedal adds it to the rig", addedOK, addedDetail))
+
+        let allPass = checks.allSatisfy { $0.1 }
+        var out = """
+        === AR FOOTSWITCHES — stomp slots drive the real chain ===
+        Method        : the SAME store mutations the AR screen performs (setARSlot / toggleARSlot),
+                        compiled by RigGraphCompiler and rendered through the real graph.
+                        Footswitched pedal: \(pedalName), Drive 9.
+        \(lines.joined(separator: "\n"))
+
+        """
+        for (name, ok, detail) in checks {
+            let pad = name.padding(toLength: 42, withPad: " ", startingAt: 0)
+            out += "  \(pad) \(ok ? "PASS" : "FAIL")   (\(detail))\n"
+        }
+        out += """
+        Live path     : slot toggle → store.$arSlots → RigAudioBridge → (signature unchanged) →
+                        pushValues → setPedalParam(SRPedalFieldEnabled) → one relaxed atomic store,
+                        read by the render thread next buffer. Adding a pedal moves the signature and
+                        goes through the fade/park barrier instead.
+        AR FOOTSWITCH OVERALL: \(allPass ? "PASS" : "SOME CHECKS FAILED")
+        === END AR FOOTSWITCHES ===
+        """
+        return (out, allPass)
+    }
+
     // MARK: - Result plumbing
 
     private func finishOffline(success: Bool, summary: String, wav: String?) -> OfflineRenderResult {
@@ -878,9 +1192,10 @@ extension AudioEngineController {
                         nullRMS: nullRMS, bestLag: bestLag)
     }
 
+    /// Formats THE shared dBFS conversion (`AudioLevelBus.dbfs`) — the same one
+    /// the live signal meters use — so the report and the meters can never drift.
     static func dbfs(_ value: Float) -> String {
-        let db = 20.0 * log10(Double(max(value, 1e-9)))
-        return String(format: "%.1f", db)
+        String(format: "%.1f", AudioLevelBus.dbfs(value))
     }
 
     static func documentsURL(_ name: String) -> URL {

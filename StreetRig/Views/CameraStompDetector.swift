@@ -19,6 +19,16 @@ import QuartzCore
 final class CameraStompDetector: NSObject, ObservableObject {
     enum Status: Equatable { case idle, unavailable, denied, running }
 
+    /// ONE detector for the whole app. The AR content is hosted in two places
+    /// (the pager page and the signal-check screen) and iOS hands the camera to a
+    /// single capture session — two would fight over the device. `start()` /
+    /// `stop()` are reference-counted, so whichever copy is on screen keeps the
+    /// session alive and the last one out shuts it down.
+    static let shared = CameraStompDetector()
+
+    /// How many hosted copies of the AR content are currently on screen.
+    private var clients = 0
+
     @Published var status: Status = .idle
     /// Normalized X (0…1) of the last stomp, for optional UI feedback.
     @Published var lastStompX: CGFloat?
@@ -45,6 +55,7 @@ final class CameraStompDetector: NSObject, ObservableObject {
     private let minConfidence: Float = 0.3
 
     func start() {
+        clients += 1
         #if targetEnvironment(simulator)
         status = .unavailable
         #else
@@ -64,6 +75,8 @@ final class CameraStompDetector: NSObject, ObservableObject {
     }
 
     func stop() {
+        clients = max(0, clients - 1)
+        guard clients == 0 else { return }        // another host still needs the feed
         videoQueue.async { [weak self] in
             guard let self, self.session.isRunning else { return }
             self.session.stopRunning()

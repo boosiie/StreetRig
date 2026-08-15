@@ -32,6 +32,9 @@ public enum RigTheme {
     public static let trim = Color(red: 0.788, green: 0.635, blue: 0.294)           // #C9A24B
     /// Burnt-orange ember accent — primary actions, active states, tube glow.
     public static let amber = Color(red: 0.878, green: 0.400, blue: 0.118)          // #E0661E
+    /// Softer ember — the ENGAGED transport state (a lit Stop reads as "running",
+    /// distinct from the amber "go" of Proceed without shouting like `clip`).
+    public static let emberSoft = Color(red: 0.9, green: 0.5, blue: 0.3)            // #E68044
 
     /// Primary text (warm cream).
     public static let textPrimary = Color(red: 0.957, green: 0.925, blue: 0.855)    // #F4ECDA
