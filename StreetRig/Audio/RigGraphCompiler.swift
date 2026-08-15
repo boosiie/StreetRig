@@ -33,12 +33,10 @@ import Combine
 /// `RigStore`; consumed by the (thread-agnostic) kernel C ABI.
 struct RigDSPPlan: Sendable, Equatable {
     struct PedalSlot: Sendable, Equatable {
-        var type: Int          // PedalChain::Type — 0 transparent, 1 drive
-        var character: Int     // DrivePedal::Character — 0 soft, 1 hard, 2 fuzz
+        var type: Int          // PedalChain::Type (0 transparent, 1 drive, 2 eq, 3 comp, …)
+        var character: Int     // slot VOICING (drive: soft/hard/fuzz; mod: chorus/…/univibe)
         var enabled: Bool
-        var drive: Float       // linear pre-gain
-        var toneHz: Float      // post low-pass cutoff (Hz)
-        var level: Float       // linear output gain
+        var params: [Float]    // continuous knobs already in DSP units (Param0…), per family
     }
 
     var pedals: [PedalSlot] = []      // in signal-chain order
@@ -72,15 +70,11 @@ enum RigGraphCompiler {
         // Pedals in the store's signal-chain order (already sorted by chainOrder),
         // capped at the kernel's fixed slot pool.
         for item in store.pedalItems.prefix(Int(SRMaxPedals)) {
-            let type = ParameterMap.pedalType(for: item.category)
-            let character = ParameterMap.pedalCharacter(name: item.name)
             plan.pedals.append(.init(
-                type: type,
-                character: character,
+                type: ParameterMap.pedalType(for: item.category),
+                character: ParameterMap.pedalVoicing(name: item.name, category: item.category),
                 enabled: true,
-                drive: ParameterMap.pedalDrive(item.values["Drive"] ?? 5),
-                toneHz: ParameterMap.pedalToneHz(item.values["Tone"] ?? 5),
-                level: ParameterMap.pedalLevel(item.values["Level"] ?? 5)
+                params: ParameterMap.pedalParams(category: item.category, values: item.values)
             ))
         }
 
@@ -127,9 +121,12 @@ enum RigGraphCompiler {
     nonisolated static func pushValues(_ plan: RigDSPPlan, to dsp: StreetRigDSPUnit) {
         for (i, slot) in plan.pedals.enumerated() {
             dsp.setPedalParam(slot: i, field: Int(SRPedalFieldEnabled), value: slot.enabled ? 1 : 0)
-            dsp.setPedalParam(slot: i, field: Int(SRPedalFieldDrive),   value: slot.drive)
-            dsp.setPedalParam(slot: i, field: Int(SRPedalFieldTone),    value: slot.toneHz)
-            dsp.setPedalParam(slot: i, field: Int(SRPedalFieldLevel),   value: slot.level)
+            // Continuous knobs → generic param fields (Param0 == SRPedalFieldDrive == 3),
+            // capped at the slot's stride so a family with many knobs can't overflow.
+            let maxParams = Int(SRPedalParamStride) - Int(SRPedalFieldDrive)
+            for (j, value) in slot.params.enumerated() where j < maxParams {
+                dsp.setPedalParam(slot: i, field: Int(SRPedalFieldDrive) + j, value: value)
+            }
         }
         dsp.setParameter(SRParamAmpDrive,    value: plan.ampDrive)
         dsp.setParameter(SRParamAmpMakeup,   value: plan.ampMaster)

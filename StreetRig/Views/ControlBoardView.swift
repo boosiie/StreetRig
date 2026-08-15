@@ -16,8 +16,8 @@ struct ControlBoardView: View {
     /// Rig components that actually have adjustable parameters.
     private var components: [GearItem] {
         var items: [GearItem] = []
-        if let amp = store.ampItem, !amp.category.parameters.isEmpty { items.append(amp) }
-        items.append(contentsOf: store.pedalItems.filter { !$0.category.parameters.isEmpty })
+        if let amp = store.ampItem, !amp.parameters.isEmpty { items.append(amp) }
+        items.append(contentsOf: store.pedalItems.filter { !$0.parameters.isEmpty })
         return items
     }
 
@@ -54,7 +54,7 @@ struct ControlBoardView: View {
                 Spacer()
             }
 
-            ForEach(item.category.parameters) { param in
+            ForEach(item.parameters) { param in
                 HStack(spacing: 12) {
                     Text(param.name)
                         .font(.subheadline.weight(.medium))
