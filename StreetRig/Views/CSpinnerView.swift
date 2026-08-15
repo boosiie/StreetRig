@@ -9,6 +9,7 @@
 //
 
 import SwiftUI
+import StreetRigEngine
 
 struct CSpinnerView: View {
     var size: CGFloat = 40

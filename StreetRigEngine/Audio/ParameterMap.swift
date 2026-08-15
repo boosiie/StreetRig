@@ -21,7 +21,7 @@
 
 import Foundation
 
-enum ParameterMap {
+public enum ParameterMap {
 
     /// Normalize a 0…10 knob to 0…1 (clamped).
     @inline(__always) static func norm(_ v: Double) -> Float {
@@ -107,14 +107,14 @@ enum ParameterMap {
     /// Categories without DSP yet (tuner / pitch / delay / reverb / looper) stay
     /// transparent — they hold their chain position but pass audio through.
     static let typeTransparent = 0
-    static let typeDrive       = 1
+    public static let typeDrive = 1
     static let typeEq          = 2
     static let typeCompressor  = 3
     static let typeGate        = 4
     static let typeWah         = 5
     static let typeVolume      = 6
     static let typeModulation  = 7
-    static func pedalType(for category: GearCategory) -> Int {
+    public static func pedalType(for category: GearCategory) -> Int {
         switch category {
         case .overdrive:  return typeDrive
         case .eq:         return typeEq
@@ -130,9 +130,10 @@ enum ParameterMap {
     /// Slot "voicing" — the flavour within a family. For drive it is the specific
     /// pedal MODEL; for modulation it is the algorithm. Mirrors the C++
     /// `DrivePedal::Voicing` / `ModulationPedal::Voicing`.
-    static let charSoft = 0, charHard = 1, charFuzz = 2   // generic clip fallbacks (0/1/2)
+    static let charSoft = 0, charHard = 1
+    public static let charFuzz = 2   // generic clip fallbacks (0/1/2)
     // Per-model drive voicings (mirror DrivePedal::Voicing, 3+).
-    static let voiceTubeScreamer = 3, voiceBluesbreaker = 4, voiceKlon = 5,
+    public static let voiceTubeScreamer = 3, voiceBluesbreaker = 4, voiceKlon = 5,
                voiceKingOfTone = 6, voiceOCD = 7, voiceDS1 = 8, voiceMetalZone = 9,
                voiceRAT = 10, voiceBigMuff = 11, voiceFuzzFace = 12,
                voiceFuzzFactory = 13, voiceCleanBoost = 14
@@ -142,7 +143,7 @@ enum ParameterMap {
     /// seed names and the re-badged catalog — e.g. "electro-harmonium BIG MUFF π"
     /// still reads as a Big Muff). Each drive model gets its own circuit voicing in
     /// DrivePedal; modulation picks its algorithm.
-    static func pedalVoicing(name: String, category: GearCategory) -> Int {
+    public static func pedalVoicing(name: String, category: GearCategory) -> Int {
         let n = name.lowercased()
         switch category {
         case .overdrive:
@@ -174,7 +175,7 @@ enum ParameterMap {
     /// Per-category continuous knob values → the DSP-unit params[] each C++ engine
     /// expects (Param0…), in order. This is the single table that voices every
     /// family's knobs; it is deliberately here so ranges can be ear-tuned in one place.
-    static func pedalParams(category: GearCategory, values: [String: Double]) -> [Float] {
+    public static func pedalParams(category: GearCategory, values: [String: Double]) -> [Float] {
         // Role extraction: read whichever knob fills each DSP role across the
         // per-model names — so a Big Muff's "Sustain", a Klon's "Gain" and a RAT's
         // "Distortion" all drive the gain stage. Keeps the DSP mapping working no
@@ -233,4 +234,46 @@ enum ParameterMap {
     /// when a model is loaded"; per-amp captures drop in later without touching
     /// this. Returns true — the kernel falls back to the analog amp if no model.
     static func ampUsesNeural(name: String) -> Bool { true }
+
+    // MARK: - Inverse maps (bus/DSP value → 0…10 knob) — Phase 4 host→UI bridge
+
+    //  The AUv3 two-way bridge needs to run the forward curves BACKWARDS: when the
+    //  host moves an automatable `AUParameter` (a bus-domain value — linear gain,
+    //  Hz, dB), the on-screen 0…10 knob must follow. These are the exact analytic
+    //  inverses of the forward curves above, clamped to the knob range, so a
+    //  round-trip knob → bus → knob is the identity to within float precision.
+
+    /// Clamp a computed knob back into the 0…10 dial range.
+    @inline(__always) static func clampKnob(_ v: Double) -> Double { min(max(v, 0), 10) }
+
+    /// Inverse of `ampDrive(gainKnob:)`  (bus = 0.6·2^(norm·4.5)).
+    static func invAmpDriveKnob(_ bus: Float) -> Double {
+        clampKnob(log2(Double(max(bus, 1e-6)) / 0.6) / 4.5 * 10.0)
+    }
+
+    /// Inverse of `ampMaster(masterKnob:)`  (bus = 0.2 + norm·1.6).
+    static func invAmpMasterKnob(_ bus: Float) -> Double {
+        clampKnob((Double(bus) - 0.2) / 1.6 * 10.0)
+    }
+
+    /// Inverse of `ampBandDB(_:knob:)`  (dB = ((norm−0.5)·2)·range; ±12, Presence ±9).
+    static func invAmpBandKnob(_ paramName: String, dB: Float) -> Double {
+        let range: Double = paramName == "Presence" ? 9.0 : 12.0
+        return clampKnob((Double(dB) / (2.0 * range) + 0.5) * 10.0)
+    }
+
+    /// Inverse of `pedalDrive(_:)`  (bus = 0.8·2^(norm·5)).
+    static func invPedalDriveKnob(_ bus: Float) -> Double {
+        clampKnob(log2(Double(max(bus, 1e-6)) / 0.8) / 5.0 * 10.0)
+    }
+
+    /// Inverse of `pedalToneHz(_:)`  (hz = 700·2^(norm·3.6)).
+    static func invPedalToneKnob(_ hz: Float) -> Double {
+        clampKnob(log2(Double(max(hz, 1e-6)) / 700.0) / 3.6 * 10.0)
+    }
+
+    /// Inverse of `pedalLevel(_:)`  (bus = 0.1 + norm·1.9).
+    static func invPedalLevelKnob(_ bus: Float) -> Double {
+        clampKnob((Double(bus) - 0.1) / 1.9 * 10.0)
+    }
 }

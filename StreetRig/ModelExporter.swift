@@ -14,6 +14,7 @@
 //
 
 import Foundation
+import StreetRigEngine
 import SceneKit
 import ModelIO
 import SceneKit.ModelIO

@@ -26,6 +26,7 @@
 //
 
 import SwiftUI
+import StreetRigEngine
 import UIKit
 
 /// Resolves a gear piece to a designer-supplied icon, or `nil` when none exists

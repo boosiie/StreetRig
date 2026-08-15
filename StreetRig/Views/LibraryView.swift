@@ -10,6 +10,7 @@
 //
 
 import SwiftUI
+import StreetRigEngine
 
 struct LibraryContentView: View {
     @EnvironmentObject var store: RigStore

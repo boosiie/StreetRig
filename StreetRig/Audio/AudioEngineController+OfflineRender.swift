@@ -23,6 +23,7 @@
 //
 
 import Foundation
+import StreetRigEngine
 import SwiftUI
 @preconcurrency import AVFoundation
 
@@ -715,7 +716,9 @@ extension AudioEngineController {
     // MARK: - Source signals
 
     private func loadBundledDI(targetFormat: AVAudioFormat) -> AVAudioPCMBuffer? {
-        guard let url = Bundle.main.url(forResource: "StreetRig_DI_placeholder", withExtension: "wav"),
+        // The DI placeholder now ships in StreetRigEngine.framework, not the app
+        // bundle — resolve the framework bundle via one of its classes.
+        guard let url = Bundle(for: StreetRigDSPUnit.self).url(forResource: "StreetRig_DI_placeholder", withExtension: "wav"),
               let file = try? AVAudioFile(forReading: url) else { return nil }
         let fileFormat = file.processingFormat
         guard let src = AVAudioPCMBuffer(pcmFormat: fileFormat,

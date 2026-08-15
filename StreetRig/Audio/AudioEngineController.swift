@@ -16,6 +16,7 @@
 //
 
 import Foundation
+import StreetRigEngine
 import AVFoundation
 import Combine
 
@@ -340,7 +341,13 @@ final class AudioEngineController: ObservableObject {
     static func instantiateDSPUnit() async throws -> AVAudioUnit {
         StreetRigDSPUnit.registerIfNeeded()
         return try await withCheckedThrowingContinuation { cont in
-            AVAudioUnit.instantiate(with: StreetRigDSPUnit.componentDescription, options: []) { unit, error in
+            // Instantiate the app-private IN-PROCESS handle (`srdi`), NOT the
+            // public `srds`. With the AUv3 appex installed, `srds` + options []
+            // resolves to the out-of-process extension on iOS (no `.loadInProcess`
+            // on iOS), which would fail the `auAudioUnit as? StreetRigDSPUnit`
+            // cast the standalone graph relies on. See `inProcessComponentDescription`
+            // (§8 registration coexistence).
+            AVAudioUnit.instantiate(with: StreetRigDSPUnit.inProcessComponentDescription, options: []) { unit, error in
                 if let unit { cont.resume(returning: unit) }
                 else { cont.resume(throwing: error ?? NSError(domain: "AudioEngineController", code: -3)) }
             }

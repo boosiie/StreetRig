@@ -13,6 +13,7 @@
 //
 
 import SwiftUI
+import StreetRigEngine
 
 struct DeviceBarView: View {
     @EnvironmentObject var store: RigStore

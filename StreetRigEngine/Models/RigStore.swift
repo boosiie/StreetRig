@@ -11,10 +11,10 @@ import SwiftUI
 import Combine
 
 @MainActor
-final class RigStore: ObservableObject {
-    @Published var collection: [GearItem]
-    @Published var rig: RigConfiguration
-    @Published var arSlots: [ARSlot] = [ARSlot(), ARSlot(), ARSlot()]
+public final class RigStore: ObservableObject {
+    @Published public var collection: [GearItem]
+    @Published public var rig: RigConfiguration
+    @Published public var arSlots: [ARSlot] = [ARSlot(), ARSlot(), ARSlot()]
 
     private let saveURL: URL
     private let persist: Bool
@@ -22,7 +22,7 @@ final class RigStore: ObservableObject {
 
     /// `persist: false` keeps everything in memory (used by SwiftUI previews)
     /// so the preview sandbox never touches the filesystem or the autosave loop.
-    init(persist: Bool = true) {
+    public init(persist: Bool = true) {
         self.persist = persist
         saveURL = Self.stateURL()
 
@@ -52,37 +52,37 @@ final class RigStore: ObservableObject {
     }
 
     /// In-memory store for SwiftUI previews (seeded, no disk I/O).
-    static var preview: RigStore { RigStore(persist: false) }
+    public static var preview: RigStore { RigStore(persist: false) }
 
     // MARK: - Lookups
 
-    func item(_ id: UUID) -> GearItem? { collection.first { $0.id == id } }
+    public func item(_ id: UUID) -> GearItem? { collection.first { $0.id == id } }
 
-    var guitar: GearItem? { item(rig.guitarId) }
+    public var guitar: GearItem? { item(rig.guitarId) }
 
-    var ampItem: GearItem? {
+    public var ampItem: GearItem? {
         switch rig.ampSection {
         case .stack(let ampId, _): return item(ampId)
         case .combo(let comboId): return item(comboId)
         }
     }
 
-    var cabinetItem: GearItem? {
+    public var cabinetItem: GearItem? {
         if case .stack(_, let cabinetId) = rig.ampSection { return item(cabinetId) }
         return nil
     }
 
-    var isCombo: Bool {
+    public var isCombo: Bool {
         if case .combo = rig.ampSection { return true }
         return false
     }
 
-    var pedalItems: [GearItem] { rig.pedalIds.compactMap { item($0) } }
+    public var pedalItems: [GearItem] { rig.pedalIds.compactMap { item($0) } }
 
     // MARK: - Mutations
 
     /// Apply a dropped/selected item to the rig, replacing the matching part.
-    func apply(_ dropped: GearItem) {
+    public func apply(_ dropped: GearItem) {
         switch dropped.category {
         case .guitar:
             return // guitar isn't customizable
@@ -111,7 +111,7 @@ final class RigStore: ObservableObject {
         }
     }
 
-    func removePedal(_ id: UUID) {
+    public func removePedal(_ id: UUID) {
         rig.pedalIds.removeAll { $0 == id }
     }
 
@@ -119,7 +119,7 @@ final class RigStore: ObservableObject {
     /// keeping the board in signal-chain order and never leaving a duplicate id.
     /// Used by the rig stage's drag-to-replace: drop a pedal onto a specific
     /// pedal to swap that one. Falls back to a plain add for a non-pedal.
-    func replacePedal(_ slotId: UUID, with dropped: GearItem) {
+    public func replacePedal(_ slotId: UUID, with dropped: GearItem) {
         guard dropped.category.isPedal else { apply(dropped); return }
         var ids = rig.pedalIds
         // Drop any existing copy of the incoming pedal so the chain stays unique.
@@ -138,12 +138,12 @@ final class RigStore: ObservableObject {
     }
 
     /// Whether the owned collection already contains this gear (matched by model).
-    func isOwned(_ item: GearItem) -> Bool {
+    public func isOwned(_ item: GearItem) -> Bool {
         collection.contains { $0.name == item.name && $0.category == item.category }
     }
 
     /// Add a copy of a catalog item to the owned collection (fresh id + default knobs).
-    func addToCollection(_ item: GearItem) {
+    public func addToCollection(_ item: GearItem) {
         guard !isOwned(item) else { return }
         collection.append(GearItem(name: item.name, category: item.category))
     }
@@ -151,26 +151,26 @@ final class RigStore: ObservableObject {
     // MARK: - AR stomp slots
 
     /// The pedal assigned to an AR slot, if any.
-    func arPedal(_ index: Int) -> GearItem? {
+    public func arPedal(_ index: Int) -> GearItem? {
         guard arSlots.indices.contains(index), let id = arSlots[index].pedalId else { return nil }
         return item(id)
     }
 
     /// Assign (or clear) the pedal in an AR slot.
-    func setARSlot(_ index: Int, pedalId: UUID?) {
+    public func setARSlot(_ index: Int, pedalId: UUID?) {
         guard arSlots.indices.contains(index) else { return }
         arSlots[index].pedalId = pedalId
         if pedalId == nil { arSlots[index].isOn = false }
     }
 
     /// Toggle an AR slot's pedal on/off (only if a pedal is assigned).
-    func toggleARSlot(_ index: Int) {
+    public func toggleARSlot(_ index: Int) {
         guard arSlots.indices.contains(index), arSlots[index].pedalId != nil else { return }
         arSlots[index].isOn.toggle()
     }
 
     /// Two-way binding to one knob of one owned item (used by the zoom sliders).
-    func binding(itemId: UUID, param: String) -> Binding<Double> {
+    public func binding(itemId: UUID, param: String) -> Binding<Double> {
         Binding(
             get: { [weak self] in self?.item(itemId)?.values[param] ?? 0 },
             set: { [weak self] newValue in
@@ -228,7 +228,10 @@ final class RigStore: ObservableObject {
 
     // MARK: - Seed
 
-    static func seed() -> (collection: [GearItem], rig: RigConfiguration) {
+    // `nonisolated` so the `nonisolated` AUv3 unit (StreetRigDSPUnit) can seed its
+    // owned default rig from `init` without a main-actor hop — it only builds value
+    // types (GearItem / RigConfiguration), touching no `@MainActor` state.
+    nonisolated static func seed() -> (collection: [GearItem], rig: RigConfiguration) {
         let guitar   = GearItem(name: "Les Paul Standard", category: .guitar)
         let amp      = GearItem(name: "Marshall JCM800",   category: .amp, values: ["Gain": 0, "Bass": 2, "Mid": 5, "Treble": 5, "Presence": 8, "Master": 10])
         let cab      = GearItem(name: "Marshall 1960A 4x12", category: .cabinet)
@@ -255,7 +258,7 @@ final class RigStore: ObservableObject {
 
     // MARK: - Catalog (the full library to add gear from)
 
-    static let catalog: [GearItem] = {
+    public static let catalog: [GearItem] = {
         func mk(_ name: String, _ category: GearCategory) -> GearItem {
             GearItem(name: name, category: category)
         }

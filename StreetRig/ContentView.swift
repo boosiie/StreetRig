@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import StreetRigEngine
 
 struct ContentView: View {
     /// How long the splash stays up. Temporary timed splash — later this
@@ -38,6 +39,14 @@ struct ContentView: View {
             guard AudioEngineController.shouldRunOfflineRenderAtLaunch else { return }
             let controller = AudioEngineController()
             _ = await controller.runOfflineRender()
+        }
+        .task {
+            // Headless AUv3 packaging self-test (Phase 2): discovery of the
+            // StreetRig AUv3 appex + best-effort out-of-process audio null test.
+            // Gated by -VerifyAUv3 / STREETRIG_VERIFY_AUV3=1.
+            guard AudioEngineController.shouldRunAUv3VerifyAtLaunch else { return }
+            let controller = AudioEngineController()
+            _ = await controller.verifyAUv3()
         }
     }
 }

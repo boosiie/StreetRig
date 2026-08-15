@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import StreetRigEngine
 
 struct GearCardView: View {
     @EnvironmentObject private var drag: RigDragController

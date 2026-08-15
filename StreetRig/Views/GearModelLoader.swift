@@ -19,6 +19,7 @@
 //
 
 import SceneKit
+import StreetRigEngine
 
 enum GearModelLoader {
 

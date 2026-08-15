@@ -10,6 +10,7 @@
 //
 
 import SwiftUI
+import StreetRigEngine
 
 struct ARPedalSetupView: View {
     @EnvironmentObject var store: RigStore

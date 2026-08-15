@@ -1,6 +1,6 @@
 //
 //  TapSlider.swift
-//  StreetRig
+//  StreetRigEngine
 //
 //  A slider you set by tapping anywhere on the track — the knob jumps straight
 //  to the touch, no dragging required. Uses DragGesture(minimumDistance: 0),
@@ -8,10 +8,13 @@
 //  value; continued dragging then tracks 1:1. (SwiftUI's built-in Slider only
 //  moves when you grab the thumb.)
 //
+//  RELOCATED to the shared framework (Phase 4): this is the ONE knob primitive
+//  the standalone app AND the AUv3 plugin editor both bind to `store.binding(...)`.
+//
 
 import SwiftUI
 
-struct TapSlider: View {
+public struct TapSlider: View {
     @Binding var value: Double
     var range: ClosedRange<Double>
     var tint: Color = RigTheme.amber
@@ -19,13 +22,13 @@ struct TapSlider: View {
     private let knob: CGFloat = 22
     private let track: CGFloat = 6
 
-    init(value: Binding<Double>, in range: ClosedRange<Double>, tint: Color = RigTheme.amber) {
+    public init(value: Binding<Double>, in range: ClosedRange<Double>, tint: Color = RigTheme.amber) {
         self._value = value
         self.range = range
         self.tint = tint
     }
 
-    var body: some View {
+    public var body: some View {
         GeometryReader { geo in
             let width = geo.size.width
             let usable = max(1, width - knob)

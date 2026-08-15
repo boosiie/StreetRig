@@ -12,6 +12,7 @@
 //
 
 import SwiftUI
+import StreetRigEngine
 import SceneKit
 import UIKit
 

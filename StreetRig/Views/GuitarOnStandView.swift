@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import StreetRigEngine
 
 /// A single guitar on an A-frame stand.
 struct GuitarOnStandView: View {
