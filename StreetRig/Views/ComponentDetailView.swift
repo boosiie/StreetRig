@@ -4,8 +4,12 @@
 //
 //  The zoomed-in view a component locks into when tapped. The component fills
 //  the top as a large control panel focused on its row of knobs — the knobs
-//  are turnable (vertical drag) — and a dock of sliders stays at the bottom.
-//  Knobs and sliders are bound to the same values, so either one moves both.
+//  are turnable (vertical drag) — and a dock of `TapSlider`s stays at the bottom,
+//  each set by touching the track where you want the value, no thumb-hunting.
+//  The knobs stay drag-only on purpose: mapping a tap onto a rotary angle would
+//  slam a touch near the knob's edge to an extreme. Knobs and sliders are bound
+//  to the same values, so either one moves both, and the amber number beside a
+//  slider opens a keypad for an exact figure.
 //
 
 import SwiftUI
@@ -168,9 +172,8 @@ struct ComponentDetailView: View {
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(RigTheme.textPrimary)
                             .frame(width: 92, alignment: .leading)
-                        Slider(value: store.binding(itemId: id, param: param.name),
-                               in: param.min...param.max)
-                            .tint(RigTheme.amber)
+                        TapSlider(value: store.binding(itemId: id, param: param.name),
+                                  in: param.min...param.max)
                         // Tap the number to type an exact value on the keypad.
                         Button {
                             editing = KeypadEdit(itemId: id, param: param)
