@@ -18,7 +18,7 @@
 //  the distortion (harmonics up) and cab band-limiting (highs down) are visible in
 //  numbers, plus the measured render-block cost and the neural per-sample cost.
 //
-//  Triggered by a DEBUG DeviceBar affordance and by `-RunOfflineRender` /
+//  Triggered by a DEBUG control-panel affordance and by `-RunOfflineRender` /
 //  STREETRIG_OFFLINE_RENDER=1 for headless simctl runs. See `shouldRunOfflineRenderAtLaunch`.
 //
 
