@@ -33,6 +33,9 @@ struct MainView: View {
     @EnvironmentObject var drag: RigDragController
     @State private var focused: RigComponent?
     @State private var page: AppPage = .main
+    /// Where the library should open when something sends the player there — the
+    /// no-amp warning, so far. Consumed by LibraryContentView.
+    @State private var libraryDestination: LibraryContentView.Drill?
 
     var body: some View {
         ZStack {
@@ -43,9 +46,9 @@ struct MainView: View {
                 HStack(spacing: 0) {
                     CollectionTabView()
                     TabView(selection: $page) {
-                        LibraryContentView()
+                        LibraryContentView(openAt: $libraryDestination)
                             .tag(AppPage.library)
-                        RigStageView(focused: $focused)
+                        RigStageView(focused: $focused, onFindAmp: showAmpLibrary)
                             .tag(AppPage.main)
                         ARPedalSetupView()
                             .tag(AppPage.ar)
@@ -89,6 +92,14 @@ struct MainView: View {
         // stage. Measured HERE, on the appRoot view itself, because that is the
         // only place the answer can't be wrong (see RigDragController.appRootOrigin).
         .background(appRootOriginReader)
+    }
+
+    /// The no-amp warning's destination: the amp models, not merely the library's
+    /// front page. Someone who has just been told they have no amp should land on
+    /// the list of amps, not on a menu that asks them to find it.
+    private func showAmpLibrary() {
+        libraryDestination = .ampStack
+        withAnimation(.easeInOut(duration: 0.28)) { page = .library }
     }
 
     private var appRootOriginReader: some View {

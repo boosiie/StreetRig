@@ -29,6 +29,9 @@ struct RigStageView: View {
     @EnvironmentObject var store: RigStore
     @EnvironmentObject var drag: RigDragController
     @Binding var focused: RigComponent?
+    /// Tapping the no-amp warning goes and fixes it. The shell owns which page is
+    /// showing, so the stage can only ask.
+    var onFindAmp: () -> Void = {}
 
     @State private var tilt: CGSize = .zero
     @State private var isTargeted = false
@@ -49,14 +52,16 @@ struct RigStageView: View {
                 RigStage3DView(
                     amp: store.ampItem, pedals: store.pedalItems, guitar: store.guitar,
                     focused: focused,
+                    pedalInFlight: drag.item?.category.isPedal == true,
                     onFocus: { component in
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) { focused = component }
                     },
                     onDrop: { target, item in
                         withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) {
                             switch target {
-                            case .pedal(let id): store.replacePedal(id, with: item)
-                            case .ampStack, .none: store.apply(item)
+                            case .pedal(let id):       store.replacePedal(id, with: item)
+                            case .addPedal:            store.apply(item)      // append, don't swap
+                            case .ampStack, .none:     store.apply(item)
                             }
                         }
                     },
@@ -98,6 +103,14 @@ struct RigStageView: View {
     /// it is derived, not a flag someone has to remember to clear. States the
     /// problem AND the fix; the hard stop is the device bar's Proceed error.
     private var noAmpWarning: some View {
+        Button(action: onFindAmp) { noAmpWarningFace }
+            .buttonStyle(.plain)
+            .padding(.top, 10)
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .accessibilityLabel("No amp in your rig. Add one from the Gear Library.")
+    }
+
+    private var noAmpWarningFace: some View {
         HStack(spacing: 7) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 11, weight: .semibold))
@@ -107,6 +120,9 @@ struct RigStageView: View {
             Text("· add one from the Gear Library")
                 .font(.system(size: 11))
                 .foregroundStyle(RigTheme.textPrimary.opacity(0.9))
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(RigTheme.textPrimary.opacity(0.55))
         }
         .foregroundStyle(RigTheme.clip)
         .lineLimit(1)
@@ -118,9 +134,10 @@ struct RigStageView: View {
         )
         .overlay(Capsule().strokeBorder(RigTheme.clip.opacity(0.65), lineWidth: 1))
         .shadow(color: .black.opacity(0.5), radius: 8, y: 3)
-        .padding(.top, 10)
-        .transition(.move(edge: .top).combined(with: .opacity))
-        .allowsHitTesting(false)      // never in the way of the stage's gestures
+        // Only the capsule itself takes the tap. It used to disable hit-testing
+        // outright to stay out of the stage's gestures; now that it is the way to
+        // fix the problem it states, it takes exactly its own shape and no more.
+        .contentShape(Capsule())
     }
 
     /// Reports the stage's frame (in the shared "appRoot" space) to the drag

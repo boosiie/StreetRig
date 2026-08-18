@@ -29,6 +29,10 @@ import UIKit
 enum RigDropTarget: Equatable {
     case ampStack
     case pedal(UUID)
+    /// The marker beside the board: ADD this pedal rather than swap it for one
+    /// already down there. Without it a board with pedals on it can only ever be
+    /// replaced into, never grown.
+    case addPedal
 }
 
 struct RigStage3DView: UIViewRepresentable {
@@ -37,6 +41,11 @@ struct RigStage3DView: UIViewRepresentable {
     var guitar: GearItem?
     /// The stage's current focus. When it returns to nil the camera flies back.
     var focused: RigComponent?
+    /// True while a PEDAL is in the air anywhere — the add-slot marker shows for
+    /// exactly that long. Driven from the drag rather than from the hover so the
+    /// place to drop appears as the card leaves the rail, which is when the player
+    /// is deciding where to go, not after they have already guessed.
+    var pedalInFlight: Bool = false
     /// Fired after stage 1 lands, so the stage can open the zoom overlay (stage 2).
     var onFocus: ((RigComponent) -> Void)? = nil
     /// Fired when a gear card is dropped on the stage. `target` is the specific
@@ -109,6 +118,7 @@ struct RigStage3DView: UIViewRepresentable {
         }
         controller.onClear = { [weak coord] in
             coord?.setHighlight(nil)
+            coord?.setAddSlotHot(false)
             coord?.currentTarget = nil
         }
         controller.onDrop = { [weak coord] item in
@@ -128,6 +138,7 @@ struct RigStage3DView: UIViewRepresentable {
         coord.stagePedals = pedals
         coord.stageGuitar = guitar
         coord.stageAmp = amp
+        coord.setAddSlot(visible: pedalInFlight)
 
         let sig = RigDiorama.signature(amp: amp, pedals: pedals, guitar: guitar)
         if coord.signature != sig {
@@ -536,7 +547,10 @@ struct RigStage3DView: UIViewRepresentable {
         func highlightForDrag(at point: CGPoint, item: GearItem) {
             let target = dragTarget(for: item, at: point)
             currentTarget = target
-            setHighlight(node(for: target))
+            // The marker is unlit, so the `multiply` highlight the real models use
+            // would only make it dimmer. It gets its own swell instead.
+            setAddSlotHot(target == .addPedal)
+            setHighlight(target == .addPedal ? nil : node(for: target))
         }
 
         /// The piece a drop would replace, given the dragged item and finger point.
@@ -546,7 +560,7 @@ struct RigStage3DView: UIViewRepresentable {
             switch item.category {
             case .guitar:                   return nil
             case .amp, .cabinet, .comboAmp: return .ampStack
-            default:                        return nearestPedalId(to: point).map(RigDropTarget.pedal)
+            default:                        return nearestPedalTarget(to: point)
             }
         }
 
@@ -556,22 +570,55 @@ struct RigStage3DView: UIViewRepresentable {
             switch target {
             case .ampStack:      return root.childNode(withName: "ampRoot", recursively: true)
             case .pedal(let id): return root.childNode(withName: "pedal_\(id.uuidString)", recursively: true)
+            case .addPedal:      return root.childNode(withName: PedalboardScene.addSlotName, recursively: true)
             case nil:            return nil
             }
         }
 
-        /// The id of the pedal whose on-screen position is closest to `point`.
-        private func nearestPedalId(to point: CGPoint) -> UUID? {
+        /// Show or hide the add-pedal marker.
+        func setAddSlot(visible: Bool) {
+            guard let node = view?.scene?.rootNode.childNode(withName: PedalboardScene.addSlotName,
+                                                             recursively: true),
+                  node.isHidden == visible else { return }
+            node.isHidden = !visible
+            if !visible { setAddSlotHot(false) }
+        }
+
+        /// Swell the marker while the finger is on it, so "let go now" is legible
+        /// under a ghost card that covers most of it.
+        func setAddSlotHot(_ hot: Bool) {
+            guard let face = view?.scene?.rootNode.childNode(withName: PedalboardScene.addSlotFaceName,
+                                                             recursively: true) else { return }
+            let s: Float = hot ? 1.28 : 1
+            guard face.scale.x != s else { return }
+            SCNTransaction.begin()
+            SCNTransaction.animationDuration = 0.12
+            face.scale = SCNVector3(s, s, s)
+            SCNTransaction.commit()
+        }
+
+        /// Whichever is nearest the finger on screen: a pedal already on the board
+        /// (swap it) or the add marker beside it (append). One comparison rather
+        /// than two rules, so the marker competes for the finger on exactly the
+        /// same terms as the pedals and there is no dead band between them.
+        private func nearestPedalTarget(to point: CGPoint) -> RigDropTarget? {
             guard let view, let root = view.scene?.rootNode else { return nil }
-            var best: (id: UUID, dist: CGFloat)?
-            root.enumerateChildNodes { node, _ in
-                guard let name = node.name, name.hasPrefix("pedal_"),
-                      let id = UUID(uuidString: String(name.dropFirst("pedal_".count))) else { return }
+            var best: (target: RigDropTarget, dist: CGFloat)?
+            func consider(_ target: RigDropTarget, _ node: SCNNode) {
                 let screen = view.projectPoint(node.worldPosition)
                 let dist = hypot(CGFloat(screen.x) - point.x, CGFloat(screen.y) - point.y)
-                if best == nil || dist < best!.dist { best = (id, dist) }
+                if best == nil || dist < best!.dist { best = (target, dist) }
             }
-            return best?.id
+            root.enumerateChildNodes { node, _ in
+                guard let name = node.name, !node.isHidden else { return }
+                if name.hasPrefix("pedal_"),
+                   let id = UUID(uuidString: String(name.dropFirst("pedal_".count))) {
+                    consider(.pedal(id), node)
+                } else if name == PedalboardScene.addSlotName {
+                    consider(.addPedal, node)
+                }
+            }
+            return best?.target
         }
 
         /// Highlight `node` with a steady, darker tone across its whole hierarchy
@@ -708,12 +755,24 @@ enum RigDiorama {
         // ---- Pedalboard: in front of the amp (toward the camera).
         if !pedals.isEmpty {
             let board = PedalboardScene.boardNode(pedals: pedals)
-            let bScale: Float = 0.44                     // slightly smaller board
+            let bScale: Float = 0.44                     // slightly smaller board (matches the add marker)
             board.scale = SCNVector3(bScale, bScale, bScale)
             board.position = SCNVector3(-0.1, 0.16 * bScale, 0.4)   // close in front of the amp
             board.eulerAngles.x = -0.12                 // slight rake toward the camera
             world.addChildNode(board)
         }
+
+        // ---- The add-pedal marker, one slot past the last pedal. Built even with
+        // an empty board (which draws no board at all), so the answer to "where do
+        // pedals go?" is in the same place whether you have none or five. Hidden
+        // until a pedal is actually in the air — see RigStage3DView.setAddSlot.
+        let bScale: Float = 0.44
+        let addSlot = PedalboardScene.addSlotNode()
+        addSlot.scale = SCNVector3(bScale, bScale, bScale)
+        addSlot.position = SCNVector3(-0.1 + bScale * PedalboardScene.nextSlotX(pedalCount: pedals.count),
+                                      0.42, 0.4)
+        addSlot.isHidden = true
+        world.addChildNode(addSlot)
 
         // ---- Guitar: to the right of the amp, angled toward center.
         let guitarRoot = SCNNode()

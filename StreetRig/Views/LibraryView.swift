@@ -19,6 +19,11 @@ struct LibraryContentView: View {
     enum Section: Hashable { case amp, pedal }
     enum Drill: Hashable { case ampStack, ampCombo, pedal(GearCategory) }
 
+    /// An external request to open at a particular place — the rig's no-amp warning
+    /// sending the player straight to the amps. Cleared the moment it is honoured,
+    /// so the same request can be made again after they wander off.
+    var openAt: Binding<Drill?> = .constant(nil)
+
     @State private var section: Section = .amp
     @State private var drill: Drill?
     @State private var query = ""
@@ -34,6 +39,25 @@ struct LibraryContentView: View {
     private let columns = [GridItem(.adaptive(minimum: 150, maximum: 210), spacing: 14)]
 
     var body: some View {
+        content
+            .onChange(of: openAt.wrappedValue) { _, requested in honour(requested) }
+            .onAppear { honour(openAt.wrappedValue) }
+    }
+
+    /// Jump to a requested destination, putting the matching tab behind it so
+    /// Back lands somewhere that makes sense rather than on the other section.
+    private func honour(_ requested: Drill?) {
+        guard let requested else { return }
+        query = ""
+        switch requested {
+        case .ampStack, .ampCombo: section = .amp
+        case .pedal:               section = .pedal
+        }
+        drill = requested
+        openAt.wrappedValue = nil
+    }
+
+    private var content: some View {
         VStack(spacing: 0) {
             if let drill {
                 drillHeader(drill)
