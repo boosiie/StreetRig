@@ -10,6 +10,85 @@
 import SwiftUI
 import Combine
 
+/// What deleting one piece of gear would disturb in the current rig, plus the
+/// player-facing copy that describes it.
+///
+/// The copy lives HERE, derived from the flags, rather than at each call site:
+/// the MY GEAR rail, the gear library and the rig stage all delete through
+/// `RigStore.removeFromCollection`, and they must not be able to describe the
+/// same deletion in three drifting ways. Add a new conflict → add a clause here
+/// once and every surface picks it up.
+public struct RemovalImpact: Equatable {
+    /// The gear's model name, so the copy can lead with it.
+    public var name: String
+    /// The guitar — fixed, so the drop is rejected instead of confirmed.
+    public var isProtected: Bool
+    public var isCurrentAmp: Bool
+    public var isCurrentCabinet: Bool
+    public var isCurrentCombo: Bool
+    public var isOnBoard: Bool
+    /// 1-based AR footswitch this pedal is bound to, if any.
+    public var footswitch: Int?
+    /// True when nothing amp-shaped survives this deletion, i.e. the rig ends up
+    /// silent. Drives the extra line in the confirmation.
+    public var leavesRigWithoutAmp: Bool
+
+    public init(name: String, isProtected: Bool = false,
+                isCurrentAmp: Bool = false, isCurrentCabinet: Bool = false,
+                isCurrentCombo: Bool = false, isOnBoard: Bool = false,
+                footswitch: Int? = nil, leavesRigWithoutAmp: Bool = false) {
+        self.name = name
+        self.isProtected = isProtected
+        self.isCurrentAmp = isCurrentAmp
+        self.isCurrentCabinet = isCurrentCabinet
+        self.isCurrentCombo = isCurrentCombo
+        self.isOnBoard = isOnBoard
+        self.footswitch = footswitch
+        self.leavesRigWithoutAmp = leavesRigWithoutAmp
+    }
+
+    /// Is this gear referenced by the rig the player is using right now?
+    public var isInUse: Bool {
+        isCurrentAmp || isCurrentCabinet || isCurrentCombo || isOnBoard || footswitch != nil
+    }
+
+    /// Only IN-USE gear asks first. Confirming every deletion trains the player
+    /// to swat the dialog away, which is exactly when the one that matters gets
+    /// waved through — so unused gear goes straight in the bin.
+    public var needsConfirmation: Bool { !isProtected && isInUse }
+
+    public var title: String { "Remove \(name)?" }
+
+    /// Names the specific conflict in the player's language, e.g.
+    /// "VOSS Digital Delay is on your board and bound to footswitch 2."
+    public var message: String {
+        var clauses: [String] = []
+        if isCurrentAmp     { clauses.append("is your current amp") }
+        if isCurrentCabinet { clauses.append("is your current cabinet") }
+        if isCurrentCombo   { clauses.append("is your current combo amp") }
+        if isOnBoard        { clauses.append("is on your board") }
+        if let footswitch   { clauses.append("bound to footswitch \(footswitch)") }
+
+        guard !clauses.isEmpty else {
+            return "\(name) will be removed from your gear."
+        }
+        var sentence = "\(name) \(Self.list(clauses))."
+        if leavesRigWithoutAmp {
+            // The first of the two no-amp warnings (the stage banner is the
+            // second, the Proceed error the third) — said here while the player
+            // can still back out.
+            sentence += " Removing it leaves your rig with no amp — you won't be able to play until you add one."
+        }
+        return sentence
+    }
+
+    /// "a", "a and b", "a, b and c".
+    private static func list(_ parts: [String]) -> String {
+        guard parts.count > 1 else { return parts.first ?? "" }
+        return parts.dropLast().joined(separator: ", ") + " and " + parts[parts.count - 1]
+    }
+}
+
 @MainActor
 public final class RigStore: ObservableObject {
     @Published public var collection: [GearItem]
@@ -145,8 +224,154 @@ public final class RigStore: ObservableObject {
     /// Add a copy of a catalog item to the owned collection (fresh id + default knobs).
     public func addToCollection(_ item: GearItem) {
         guard !isOwned(item) else { return }
-        collection.append(GearItem(name: item.name, category: item.category))
+        let fresh = GearItem(name: item.name, category: item.category)
+        collection.append(fresh)
+
+        // Self-heal the no-amp state. The stage warning tells the player in so
+        // many words to "add one from the Gear Library", so doing exactly that
+        // has to actually fix it — otherwise the warning sends them somewhere
+        // that doesn't work and they're left guessing that a second, separate
+        // drag onto the stage is also required. Gated on `!hasAmp`, so it can
+        // never hijack the amp in a rig the player has already set up: with an
+        // amp in place, adding another still just puts it in the collection.
+        if !hasAmp, fresh.category == .amp || fresh.category == .comboAmp {
+            apply(fresh)
+        }
     }
+
+    /// The owned INSTANCE matching a catalog entry (which carries a throwaway id).
+    /// `isOwned` matches by model — name + category — because the catalog and the
+    /// collection never share ids; anything that wants to *act* on the owned copy
+    /// (i.e. remove it) has to resolve that model back to the real instance first.
+    public func ownedInstance(of item: GearItem) -> GearItem? {
+        collection.first { $0.name == item.name && $0.category == item.category }
+    }
+
+    // MARK: - Removal
+
+    /// Whether this piece of gear may be deleted from the collection at all.
+    ///
+    /// The guitar is the ONE protected item: the rig's guitar is fixed (see
+    /// `apply`, which ignores `.guitar`), so there is no "pick another one"
+    /// recovery from deleting it. Everything else — including the last amp — is
+    /// deletable; a rig with no amp is a legal, loudly-signposted state (see
+    /// `hasAmp`), not something the store forbids.
+    /// An unknown id is not removable, which is what makes `removeFromCollection`
+    /// idempotent: the second call finds nothing and no-ops.
+    public func canRemove(_ id: UUID) -> Bool {
+        guard let gear = item(id) else { return false }
+        return gear.category != .guitar && id != rig.guitarId
+    }
+
+    /// What deleting `id` would disturb in the CURRENT rig. The UI reads this to
+    /// decide whether to confirm at all, and gets the confirmation copy from
+    /// `RemovalImpact.message` — one definition, so the rail, the library and the
+    /// stage can never describe the same deletion differently.
+    public func removalImpact(_ id: UUID) -> RemovalImpact {
+        let gear = item(id)
+        let isGuitar = gear?.category == .guitar || id == rig.guitarId
+
+        var isAmp = false, isCabinet = false, isCombo = false
+        switch rig.ampSection {
+        case .stack(let ampId, let cabinetId):
+            isAmp = ampId == id
+            isCabinet = cabinetId == id
+        case .combo(let comboId):
+            isCombo = comboId == id
+        }
+
+        // Slots are stored 0-based but spoken about 1-based ("footswitch 2").
+        let slot = arSlots.firstIndex { $0.pedalId == id }.map { $0 + 1 }
+
+        // Would the repair below find a replacement? If neither another head nor
+        // a combo survives, this deletion is the one that strands the rig.
+        let remaining = collection.filter { $0.id != id }
+        let replacementExists = remaining.contains { $0.category == .amp || $0.category == .comboAmp }
+
+        return RemovalImpact(
+            name: gear?.name ?? "",
+            isProtected: isGuitar,
+            isCurrentAmp: isAmp,
+            isCurrentCabinet: isCabinet,
+            isCurrentCombo: isCombo,
+            isOnBoard: rig.pedalIds.contains(id),
+            footswitch: slot,
+            leavesRigWithoutAmp: (isAmp || isCombo) && !replacementExists
+        )
+    }
+
+    /// THE destructive entry point — the rail, the gear library and any future
+    /// surface all funnel through here, so reference cleanup can't be forgotten
+    /// at a call site. Deletes the gear and every reference to it:
+    /// board, AR footswitch, amp section. Idempotent; no-ops for the guitar.
+    public func removeFromCollection(_ id: UUID) {
+        guard canRemove(id) else { return }
+
+        collection.removeAll { $0.id == id }
+        // `pedalIds` holds each id at most once and is already in chain order, so
+        // dropping one entry preserves both invariants `apply`/`replacePedal` keep.
+        rig.pedalIds.removeAll { $0 == id }
+        // A footswitch bound to gear that no longer exists would compile into a
+        // bypass rule for a pedal the graph can't find (RigGraphCompiler), so the
+        // slot is released outright rather than left holding a dead id.
+        for i in arSlots.indices where arSlots[i].pedalId == id { arSlots[i] = ARSlot() }
+        repairAmpSection(afterRemoving: id)
+    }
+
+    /// Point the amp section at something that still exists after `id` was
+    /// deleted — or, deliberately, at nothing.
+    ///
+    /// Called AFTER the item has left `collection`, so "what's left" is simply
+    /// what the collection now holds. Preference order is same-category first
+    /// (another head for a deleted head, another cabinet for a deleted cabinet),
+    /// because that keeps the rig shaped the way the player built it.
+    private func repairAmpSection(afterRemoving id: UUID) {
+        switch rig.ampSection {
+        case .stack(let ampId, let cabinetId):
+            guard ampId == id || cabinetId == id else { return }
+            // A surviving cabinet is picked up independently of the head: losing
+            // the cab shouldn't drag the rig off a head that's still fine.
+            let cab = cabinetId == id ? collection.first { $0.category == .cabinet }?.id : cabinetId
+
+            if let head = ampId == id ? collection.first(where: { $0.category == .amp })?.id : ampId {
+                rig.ampSection = .stack(ampId: head, cabinetId: cab ?? cabinetId)
+            } else if let combo = collection.first(where: { $0.category == .comboAmp })?.id {
+                // No head left, but a combo is owned. A combo is a complete amp on
+                // its own, so switching the section's SHAPE is better than leaving
+                // the player silent next to gear that would work — this is the
+                // "fall back to .combo" case called out in the design.
+                rig.ampSection = .combo(comboId: combo)
+            } else {
+                // Nothing amp-shaped survives. DELIBERATE: the dead head id stays
+                // put. `ampSection` is non-optional by design and `ampItem`
+                // already returns nil for an id that no longer resolves, so a
+                // dangling id IS the representation of "no amp" (see `hasAmp`).
+                // Do not "fix" this by making ampSection optional — that churns
+                // persistence, the AUv3's nonisolated seed path and the compiler
+                // to model a state that is already representable.
+                rig.ampSection = .stack(ampId: ampId, cabinetId: cab ?? cabinetId)
+            }
+
+        case .combo(let comboId):
+            guard comboId == id else { return }
+            if let other = collection.first(where: { $0.category == .comboAmp })?.id {
+                rig.ampSection = .combo(comboId: other)
+            } else if let head = collection.first(where: { $0.category == .amp })?.id {
+                // Same reasoning in reverse: a head (with a cab if one is owned)
+                // beats no amp at all. Without a cabinet the stack points its cab
+                // slot at the head, matching how `apply` fills a missing half.
+                let cab = collection.first { $0.category == .cabinet }?.id ?? head
+                rig.ampSection = .stack(ampId: head, cabinetId: cab)
+            }
+            // else: the dead combo id stays — again, that IS "no amp".
+        }
+    }
+
+    /// Does the rig point at an amp that still exists? The single source of truth
+    /// for the stage's no-amp warning and the device bar's refusal to engage.
+    /// Derived, not stored — see `repairAmpSection` for why "no amp" is modelled
+    /// as an unresolvable id rather than an optional.
+    public var hasAmp: Bool { ampItem != nil }
 
     // MARK: - AR stomp slots
 
@@ -210,6 +435,9 @@ public final class RigStore: ObservableObject {
     /// app no longer ships (and has no artwork for).
     ///   1 — original placeholder catalog
     ///   2 — the 47 licensed-art pedals
+    /// Player-driven removal does NOT bump this: the schema is unchanged (a
+    /// deletion is just a shorter `collection` array), and re-seeding would hand
+    /// back the very gear the player just threw away.
     static let catalogVersion = 2
 
     struct PersistedState: Codable {

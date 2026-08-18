@@ -135,7 +135,18 @@ struct DeviceBarView: View {
             } else {
                 // Present FIRST, engage second: the check screen has to be up to
                 // show the failure if `engage()` throws (always, on the Simulator).
-                if FeatureFlags.signalCheck { showingSignalCheck = true }
+                //
+                // The no-amp refusal is the ONE case that deliberately does not
+                // open it, for the same reason the rest of them do. The signal
+                // check is about the CAPTURE path — its fixed remedy line is
+                // "check the iRig is seated" — which is the wrong advice for a
+                // rig with no amp in it, and it would cover the stage banner and
+                // the status line that do explain it. `engage()` refuses and
+                // reports on its own (see AudioEngineController.noAmpStatus), so
+                // the reason lands in the status line right beside this button.
+                // The button itself is never disabled: a dead button with no
+                // explanation is exactly the failure this is here to prevent.
+                if FeatureFlags.signalCheck && store.hasAmp { showingSignalCheck = true }
                 Task { await audio.engage() }
             }
         } label: {

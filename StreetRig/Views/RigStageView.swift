@@ -7,7 +7,13 @@
 //  that you orbit as a single scene. With 3D off (or a combo amp) it falls back
 //  to the flat vector layout: amp head + cabinet + pedalboard centered, a guitar
 //  on a stand to the right, drag to tilt up to ~20° and rubber-band back. Tap a
-//  component to zoom in. Drop a collection card on it to swap that part.
+//  component to zoom in. Drop a collection card on it to swap that part, or
+//  long-press a pedal and pull it onto the rail's trash to take it off the board
+//  (the gear stays owned — that is NOT the rail's delete).
+//
+//  Also home to the no-amp warning: `store.hasAmp` goes false the moment the
+//  last amp is deleted, and this is the surface where the player will be
+//  looking for the reason nothing works.
 //
 
 import SwiftUI
@@ -78,6 +84,43 @@ struct RigStageView: View {
                 .opacity(isTargeted ? 0.9 : 0)
                 .animation(.easeInOut(duration: 0.15), value: isTargeted)
         }
+        // Non-blocking and pinned to the very top so it never covers the board.
+        .overlay(alignment: .top) {
+            if !store.hasAmp { noAmpWarning }
+        }
+        .animation(.easeInOut(duration: 0.25), value: store.hasAmp)
+    }
+
+    // MARK: - No-amp warning
+
+    /// Shown for exactly as long as `store.hasAmp` is false — it appears the
+    /// instant the last amp is deleted and goes the instant one is added, because
+    /// it is derived, not a flag someone has to remember to clear. States the
+    /// problem AND the fix; the hard stop is the device bar's Proceed error.
+    private var noAmpWarning: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11, weight: .semibold))
+            Text("NO AMP IN YOUR RIG")
+                .font(.system(size: 11, weight: .bold))
+                .tracking(0.8)
+            Text("· add one from the Gear Library")
+                .font(.system(size: 11))
+                .foregroundStyle(RigTheme.textPrimary.opacity(0.9))
+        }
+        .foregroundStyle(RigTheme.clip)
+        .lineLimit(1)
+        .minimumScaleFactor(0.75)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(
+            Capsule().fill(RigTheme.background.opacity(0.92))
+        )
+        .overlay(Capsule().strokeBorder(RigTheme.clip.opacity(0.65), lineWidth: 1))
+        .shadow(color: .black.opacity(0.5), radius: 8, y: 3)
+        .padding(.top, 10)
+        .transition(.move(edge: .top).combined(with: .opacity))
+        .allowsHitTesting(false)      // never in the way of the stage's gestures
     }
 
     /// Reports the stage's frame (in the shared "appRoot" space) to the drag
@@ -144,6 +187,10 @@ struct RigStageView: View {
             } else {
                 ForEach(store.pedalItems) { pedal in
                     gearView(.pedal(pedal.id), item: pedal, width: 40, height: 50)
+                        // Same press-and-hold as a rail card, but flagged `.stage`
+                        // so the trash unloads it from the rig instead of deleting
+                        // it. `.simultaneousGesture` keeps tap-to-focus working.
+                        .simultaneousGesture(liftGesture(pedal))
                 }
             }
         }
@@ -188,6 +235,16 @@ struct RigStageView: View {
     private var rotateDrag: some Gesture {
         DragGesture()
             .onChanged { value in
+                // A pedal is being pulled off the board — hand the gesture over
+                // rather than tilting the whole rig underneath the player's
+                // finger. Any tilt already picked up in the 0.4s before the lift
+                // took is unwound here, so the drag-off starts from level.
+                guard !drag.isDragging else {
+                    if tilt != .zero {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { tilt = .zero }
+                    }
+                    return
+                }
                 tilt = CGSize(
                     width: clamp(value.translation.width / 6),
                     height: clamp(value.translation.height / 6)
@@ -198,12 +255,40 @@ struct RigStageView: View {
             }
     }
 
+    /// Press-and-hold a pedal on the flat board to lift it, then drag it to the
+    /// rail's trash to take it off the rig. Mirrors `GearCardView.dragGesture`
+    /// deliberately: one drag system, one ghost, one trash target.
+    private func liftGesture(_ pedal: GearItem) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.4)
+            .sequenced(before: DragGesture(coordinateSpace: .named("appRoot")))
+            .onChanged { value in
+                if case .second(true, let move?) = value {
+                    if drag.item == nil { drag.begin(pedal, at: move.location, from: .stage) }
+                    else { drag.move(to: move.location) }
+                }
+            }
+            .onEnded { _ in drag.end() }
+    }
+
     private func clamp(_ x: CGFloat) -> CGFloat { max(-maxAngle, min(maxAngle, x)) }
 }
 
 #Preview {
     RigStageView(focused: .constant(nil))
         .environmentObject(RigStore.preview)
+        .environmentObject(RigDragController())
+        .preferredColorScheme(.dark)
+}
+
+#Preview("No amp") {
+    // Delete every amp-shaped thing so nothing backfills — `ampSection` is left
+    // pointing at an id that no longer resolves, which IS "no amp".
+    let store = RigStore.preview
+    for gear in store.collection where gear.category == .amp || gear.category == .comboAmp {
+        store.removeFromCollection(gear.id)
+    }
+    return RigStageView(focused: .constant(nil))
+        .environmentObject(store)
         .environmentObject(RigDragController())
         .preferredColorScheme(.dark)
 }

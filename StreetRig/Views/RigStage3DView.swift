@@ -81,6 +81,24 @@ struct RigStage3DView: UIViewRepresentable {
         orbit.delegate = context.coordinator
         view.addGestureRecognizer(orbit)
 
+        // Press-and-hold a piece to LIFT it off the stage and drag it to the
+        // rail's trash. Deliberately the same 0.4s hold as a rail card
+        // (GearCardView.dragGesture) so the whole app has one "pick gear up".
+        //
+        // It is a separate recognizer rather than a change to the hit-testing:
+        // `componentUnderPoint` is reused untouched, so drag-to-replace and
+        // tap-to-focus keep the exact behaviour they had. The tap recognizer
+        // can't misfire here either — a UITapGestureRecognizer fails once the
+        // touch is held past its own short limit, so a hold never zooms.
+        let lift = UILongPressGestureRecognizer(target: context.coordinator,
+                                                action: #selector(Coordinator.handleLift(_:)))
+        lift.minimumPressDuration = 0.4
+        // Tight, so a swipe across the stage still pages the app shell and only a
+        // press that really stays put lifts a piece.
+        lift.allowableMovement = 12
+        lift.delegate = context.coordinator
+        view.addGestureRecognizer(lift)
+
         // Wire the custom drag controller into this live scene. As the rail's
         // drag moves, `onMove` hit-tests the models under the finger and glows the
         // piece it would replace; `onDrop` swaps it. Points arrive in this view's
@@ -97,6 +115,7 @@ struct RigStage3DView: UIViewRepresentable {
             guard let coord else { return }
             coord.dropHandler?(coord.currentTarget, item)
         }
+        coord.controller = controller
         return view
     }
 
@@ -104,6 +123,10 @@ struct RigStage3DView: UIViewRepresentable {
         let coord = context.coordinator
         coord.onFocus = onFocus
         coord.dropHandler = onDrop
+        // The lift gesture hit-tests to a node NAME; these resolve that name back
+        // to the real GearItem to hand the drag controller.
+        coord.stagePedals = pedals
+        coord.stageGuitar = guitar
 
         let sig = RigDiorama.signature(amp: amp, pedals: pedals, guitar: guitar)
         if coord.signature != sig {
@@ -153,6 +176,23 @@ struct RigStage3DView: UIViewRepresentable {
         // Drag-to-replace state (driven by RigDragController).
         var currentTarget: RigDropTarget?             // what a drop right now would replace
         private var highlightedNode: SCNNode?
+
+        // Drag-OFF state (this view driving RigDragController, the other way round).
+        /// The shared drag controller, so a piece lifted here uses the same ghost,
+        /// the same "appRoot" space and the same trash target as a rail card.
+        var controller: RigDragController?
+        /// The gear currently on the stage, kept in sync by `updateUIView`.
+        var stagePedals: [GearItem] = []
+        var stageGuitar: GearItem?
+        /// True from the moment a lift is recognised until the finger comes up.
+        private var lifting = false
+        /// Scroll views switched off for the duration of a lift — in practice the
+        /// app shell's paging TabView, which this stage sits inside. Dragging a
+        /// pedal toward the rail is a leftward swipe, and without this the pager
+        /// reads it as "go to the previous page" and slides the whole stage out
+        /// from under the finger (which also drags the reported `stageFrame`
+        /// along with it, so the ghost stops tracking).
+        private var suspendedScrollViews: [UIScrollView] = []
         // Each affected material saved ONCE (deduped) so shared materials restore cleanly.
         private var savedMultiply: [(material: SCNMaterial, contents: Any?, intensity: CGFloat)] = []
 
@@ -260,7 +300,10 @@ struct RigStage3DView: UIViewRepresentable {
         // MARK: Orbit → gentle spring back to center
 
         @objc func handleOrbitPan(_ g: UIPanGestureRecognizer) {
-            guard focusedNow == nil, let view, let cam = view.pointOfView else { return }
+            // `!lifting`: a piece is being pulled off the stage, so the finger is
+            // moving the GEAR, not the camera. Without this the diorama would
+            // orbit out from under the drag (and spring back on release).
+            guard focusedNow == nil, !lifting, let view, let cam = view.pointOfView else { return }
             switch g.state {
             case .began:
                 // Catch the camera mid-return (if any) so this orbit resumes from there
@@ -353,6 +396,96 @@ struct RigStage3DView: UIViewRepresentable {
         // Let taps coexist with the camera controller's orbit gesture.
         func gestureRecognizer(_ g: UIGestureRecognizer,
                                shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+        // MARK: Drag-OFF (lift a piece off the stage onto the rail's trash)
+
+        /// Press-and-hold a pedal (or the guitar) to pick it up, then drag it to
+        /// the trash to take it off the rig. Feeds `RigDragController` exactly like
+        /// a rail card does — same ghost, same trash — but tagged `.stage`, which
+        /// is what makes the trash unload the piece instead of deleting the gear.
+        @objc func handleLift(_ g: UILongPressGestureRecognizer) {
+            guard let view, let controller, focusedNow == nil else { return }
+            let point = g.location(in: view)
+
+            switch g.state {
+            case .began:
+                guard let (component, _) = componentUnderPoint(point),
+                      let item = liftableItem(for: component) else { return }
+                lifting = true
+                // Take the camera offline for the duration: SceneKit's built-in
+                // controller would otherwise orbit on the very same finger.
+                // Handed back on .ended, like every other path that borrows it.
+                view.allowsCameraControl = false
+                suspendAncestorScrolling(from: view)
+                setHighlight(nil)
+                currentTarget = nil
+                controller.begin(item, at: appRootPoint(point, in: view), from: .stage)
+
+            case .changed:
+                guard lifting else { return }
+                controller.move(to: appRootPoint(point, in: view))
+
+            case .ended, .cancelled, .failed:
+                guard lifting else { return }
+                lifting = false
+                controller.end()
+                view.allowsCameraControl = true
+                resumeAncestorScrolling()
+
+            default:
+                break
+            }
+        }
+
+        /// Switch off every enclosing scroll view for the duration of a lift.
+        /// Setting `isScrollEnabled = false` also CANCELS a pan already in flight,
+        /// which is what snaps the pager back if it had begun to follow the finger
+        /// in the fraction of a second before the long press was recognised.
+        private func suspendAncestorScrolling(from view: UIView) {
+            var next = view.superview
+            while let current = next {
+                if let scroll = current as? UIScrollView, scroll.isScrollEnabled {
+                    scroll.isScrollEnabled = false
+                    suspendedScrollViews.append(scroll)
+                }
+                next = current.superview
+            }
+        }
+
+        private func resumeAncestorScrolling() {
+            for scroll in suspendedScrollViews { scroll.isScrollEnabled = true }
+            suspendedScrollViews.removeAll()
+        }
+
+        /// What a hit-tested component can be dragged off as.
+        ///
+        /// The guitar IS liftable even though it can never be removed — the trash
+        /// refuses it out loud ("Your guitar is fixed"), which is a far better
+        /// answer to "can I take this out?" than a piece that simply won't move.
+        /// The amp is not liftable: `ampSection` always names an amp, so an amp
+        /// leaves the rig by being replaced, never by being pulled off.
+        private func liftableItem(for component: RigComponent) -> GearItem? {
+            switch component {
+            case .pedal(let id):          return stagePedals.first { $0.id == id }
+            case .guitar:                 return stageGuitar
+            case .amp, .cabinet, .combo:  return nil
+            }
+        }
+
+        /// This view's local point → the shared "appRoot" space the drag
+        /// controller, the ghost and the trash target all measure against.
+        ///
+        /// Goes via the WINDOW rather than by adding `controller.stageFrame.origin`,
+        /// which would look like the obvious shortcut and is wrong: `stageFrame` is
+        /// measured by a GeometryReader inside the shell's paged TabView, where the
+        /// `.named("appRoot")` space does not resolve, so it comes back in window
+        /// coordinates — off by the safe-area inset from the space the ghost and the
+        /// trash are in. `appRootOrigin` is measured on the appRoot view itself and
+        /// is the honest conversion. (Do not "simplify" this back.)
+        private func appRootPoint(_ point: CGPoint, in view: UIView) -> CGPoint {
+            let window = view.convert(point, to: nil)
+            return controller?.appRootPoint(fromWindow: window) ?? window
+        }
 
         // MARK: Drag-to-replace (driven by RigDragController)
 

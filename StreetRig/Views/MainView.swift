@@ -28,6 +28,7 @@ enum AppPage: Int, CaseIterable, Hashable {
 
 struct MainView: View {
     @EnvironmentObject var store: RigStore
+    @EnvironmentObject var drag: RigDragController
     @State private var focused: RigComponent?
     @State private var page: AppPage = .main
 
@@ -68,6 +69,21 @@ struct MainView: View {
         // Shared coordinate space so the rail's drag, the ghost, and the rig
         // stage all measure the finger position against the same origin.
         .coordinateSpace(.named("appRoot"))
+        // …and where that origin actually sits in UIKit window coordinates, for
+        // the one drag that starts in UIKit: a piece lifted off the SceneKit
+        // stage. Measured HERE, on the appRoot view itself, because that is the
+        // only place the answer can't be wrong (see RigDragController.appRootOrigin).
+        .background(appRootOriginReader)
+    }
+
+    private var appRootOriginReader: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear { drag.appRootOrigin = proxy.frame(in: .global).origin }
+                .onChange(of: proxy.frame(in: .global).origin) { _, origin in
+                    drag.appRootOrigin = origin
+                }
+        }
     }
 
     // MARK: - Top navigation (arrows + current page title)
@@ -134,5 +150,18 @@ private struct DragGhostView: View {
     MainView()
         .environmentObject(RigStore.preview)
         .environmentObject(RigDragController())
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Drag in progress") {
+    // The shell mid-drag: ghost on the finger, trash target docked in the rail.
+    let drag = RigDragController()
+    let store = RigStore.preview
+    if let pedal = store.collection.first(where: { $0.category.isPedal }) {
+        drag.begin(pedal, at: CGPoint(x: 300, y: 200))
+    }
+    return MainView()
+        .environmentObject(store)
+        .environmentObject(drag)
         .preferredColorScheme(.dark)
 }

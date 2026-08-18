@@ -6,7 +6,8 @@
 //  tabs, Amp and Pedal, each showing category cards; tapping a card opens a
 //  drill-down page listing that category's models (Back returns). Amp offers
 //  Amp + Cabinet vs Combo Amp; Pedal shows one card per pedal category.
-//  Tapping a model tile adds it to the collection (owned shows a check).
+//  Tapping a model tile adds it to the collection; an owned tile's badge
+//  removes it again (see LibraryTile for why the badge, and not the tile).
 //
 
 import SwiftUI
@@ -21,6 +22,10 @@ struct LibraryContentView: View {
     @State private var section: Section = .amp
     @State private var drill: Drill?
     @State private var query = ""
+    /// Hoisted out of the tiles: a removal confirmation must outlive the tile
+    /// that asked for it, which re-renders (owned → unowned) the moment the
+    /// player answers Remove.
+    @State private var pendingRemoval: PendingGearRemoval?
 
     private let pedalOrder: [GearCategory] = [
         .tuner, .wah, .compressor, .overdrive, .eq, .noiseGate,
@@ -49,6 +54,8 @@ struct LibraryContentView: View {
                 }
             }
         }
+        // Same dialog, same copy as the MY GEAR rail's trash — one definition.
+        .gearRemovalConfirmation($pendingRemoval, store: store)
     }
 
     // MARK: - Card level
@@ -233,7 +240,7 @@ struct LibraryContentView: View {
                             .foregroundStyle(RigTheme.trim)
                     }
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
-                        ForEach(items) { LibraryTile(item: $0) }
+                        ForEach(items) { LibraryTile(item: $0, pendingRemoval: $pendingRemoval) }
                     }
                 }
             }
@@ -267,9 +274,22 @@ struct LibraryContentView: View {
     }
 }
 
+/// One catalog model in the grid. Unowned → the whole tile adds it. Owned → the
+/// tile body does NOTHING and only the corner badge removes it.
+///
+/// Why the badge and not a whole-tile toggle or a context menu: this grid is a
+/// BROWSE surface that players scroll and tap through quickly, so a single tap
+/// must never be able to delete gear they are using — a tap-to-toggle tile makes
+/// every mis-tap on an owned model a silent deletion. A context menu is safe but
+/// invisible: nothing on the tile says "long-press me", so the removal would
+/// effectively not exist. A small, separately-aimed control in the corner is
+/// both visible and deliberate. It also replaces the old dead `checkmark.circle`
+/// — a checkmark that deletes when tapped would be a lie about what it does; the
+/// amber ring and the dimmed art still carry "you own this".
 private struct LibraryTile: View {
     @EnvironmentObject var store: RigStore
     let item: GearItem
+    @Binding var pendingRemoval: PendingGearRemoval?
 
     private var artSize: CGSize {
         switch item.category {
@@ -283,43 +303,80 @@ private struct LibraryTile: View {
 
     var body: some View {
         let owned = store.isOwned(item)
-        Button {
-            withAnimation(.easeInOut(duration: 0.2)) { store.addToCollection(item) }
-        } label: {
-            VStack(spacing: 10) {
-                GearArtView(item: item)
-                    .frame(width: artSize.width, height: artSize.height)
-                    .frame(height: 64)
-                Text(item.name)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(RigTheme.textPrimary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .minimumScaleFactor(0.8)
-                    .frame(height: 32)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(RigTheme.backgroundLift))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(owned ? RigTheme.amber.opacity(0.5) : Color.white.opacity(0.06), lineWidth: 1)
-            )
-            .overlay(alignment: .topTrailing) {
-                Image(systemName: owned ? "checkmark.circle.fill" : "plus.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(owned ? RigTheme.amber : RigTheme.textMuted)
-                    .padding(8)
+        Group {
+            if owned {
+                // No whole-tile action at all when owned — see the note above.
+                tileFace(owned: true)
+            } else {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { store.addToCollection(item) }
+                } label: {
+                    tileFace(owned: false)
+                }
+                .buttonStyle(.plain)
+                .draggable(item) {
+                    GearArtView(item: item)
+                        .frame(width: 64, height: 64)
+                        .padding(8)
+                }
             }
         }
-        .buttonStyle(.plain)
-        .draggable(item) {
+        .overlay(alignment: .topTrailing) { badge(owned: owned) }
+    }
+
+    private func tileFace(owned: Bool) -> some View {
+        VStack(spacing: 10) {
             GearArtView(item: item)
-                .frame(width: 64, height: 64)
-                .padding(8)
+                .frame(width: artSize.width, height: artSize.height)
+                .frame(height: 64)
+            Text(item.name)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(RigTheme.textPrimary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.8)
+                .frame(height: 32)
         }
-        .disabled(owned)
+        .padding(12)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(RigTheme.backgroundLift))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(owned ? RigTheme.amber.opacity(0.5) : Color.white.opacity(0.06), lineWidth: 1)
+        )
         .opacity(owned ? 0.72 : 1)
+    }
+
+    @ViewBuilder
+    private func badge(owned: Bool) -> some View {
+        if owned {
+            Button { remove() } label: {
+                Image(systemName: "minus.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(RigTheme.clip)
+                    .padding(8)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove \(item.name) from your gear")
+        } else {
+            Image(systemName: "plus.circle.fill")
+                .font(.title3)
+                .foregroundStyle(RigTheme.textMuted)
+                .padding(8)
+                .allowsHitTesting(false)   // the whole tile is the add target
+        }
+    }
+
+    /// The catalog carries throwaway ids, so "owned" has to be resolved back to
+    /// the real instance before anything is deleted — otherwise this would ask
+    /// the store to remove an id it has never seen and silently do nothing.
+    private func remove() {
+        guard let ownedItem = store.ownedInstance(of: item) else { return }
+        switch GearRemoval.request(ownedItem.id, store: store) {
+        case .removed, .rejected:              break   // the library holds no guitars
+        case .needsConfirmation(let pending):  pendingRemoval = pending
+        }
     }
 }
 

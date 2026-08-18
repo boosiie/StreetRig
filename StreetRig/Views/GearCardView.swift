@@ -67,7 +67,9 @@ struct GearCardView: View {
             .sequenced(before: DragGesture(coordinateSpace: .named("appRoot")))
             .onChanged { value in
                 if case .second(true, let move?) = value {
-                    if drag.item == nil { drag.begin(item, at: move.location) }
+                    // `.rail` origin: dropping this on the trash DELETES the gear
+                    // (a piece lifted off the stage only leaves the rig).
+                    if drag.item == nil { drag.begin(item, at: move.location, from: .rail) }
                     else { drag.move(to: move.location) }
                 }
             }
