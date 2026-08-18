@@ -127,6 +127,7 @@ struct RigStage3DView: UIViewRepresentable {
         // to the real GearItem to hand the drag controller.
         coord.stagePedals = pedals
         coord.stageGuitar = guitar
+        coord.stageAmp = amp
 
         let sig = RigDiorama.signature(amp: amp, pedals: pedals, guitar: guitar)
         if coord.signature != sig {
@@ -184,6 +185,13 @@ struct RigStage3DView: UIViewRepresentable {
         /// The gear currently on the stage, kept in sync by `updateUIView`.
         var stagePedals: [GearItem] = []
         var stageGuitar: GearItem?
+        var stageAmp: GearItem?
+        /// The piece hidden for the duration of a lift, and what it was. While a
+        /// piece is in your hand as a card it must not ALSO be sitting on the
+        /// stage — the ghost is the piece, not a copy of it.
+        private var liftedNode: SCNNode?
+        private var liftedShadow: SCNNode?
+        private var liftedComponent: RigComponent?
         /// True from the moment a lift is recognised until the finger comes up.
         private var lifting = false
         /// Scroll views switched off for the duration of a lift — in practice the
@@ -409,9 +417,22 @@ struct RigStage3DView: UIViewRepresentable {
 
             switch g.state {
             case .began:
-                guard let (component, _) = componentUnderPoint(point),
+                guard let (component, node) = componentUnderPoint(point),
                       let item = liftableItem(for: component) else { return }
                 lifting = true
+                // Out of the diorama the instant it is in hand, so the stage shows
+                // the hole the card came out of. Restored on release unless the
+                // bin actually took it — see `.ended`.
+                node.isHidden = true
+                liftedNode = node
+                // The contact shadow is a separate flat plane, not a cast shadow,
+                // so the piece leaves its blob printed on the floor unless the two
+                // are hidden together. Pedals share one board-wide shadow, so only
+                // the amp and the guitar have one of their own to take along.
+                liftedShadow = node.name.flatMap { view.scene?.rootNode.childNode(withName: $0 + "Shadow",
+                                                                                  recursively: true) }
+                liftedShadow?.isHidden = true
+                liftedComponent = component
                 // Take the camera offline for the duration: SceneKit's built-in
                 // controller would otherwise orbit on the very same finger.
                 // Handed back on .ended, like every other path that borrows it.
@@ -428,7 +449,22 @@ struct RigStage3DView: UIViewRepresentable {
             case .ended, .cancelled, .failed:
                 guard lifting else { return }
                 lifting = false
+                // Read the drop target BEFORE `end()` resolves and clears it.
+                let intoBin = controller.isOverTrash
                 controller.end()
+                // The gap stays only if the bin actually took the piece. The guitar
+                // is always refused, and a release anywhere else does nothing, so
+                // both have to come back — otherwise the stage keeps a hole in it
+                // until something unrelated rebuilds the scene. When the piece IS
+                // taken the store has already changed, and the rebuild that follows
+                // discards this node anyway.
+                if !(intoBin && liftedComponent != .guitar) {
+                    liftedNode?.isHidden = false
+                    liftedShadow?.isHidden = false
+                }
+                liftedNode = nil
+                liftedShadow = nil
+                liftedComponent = nil
                 view.allowsCameraControl = true
                 resumeAncestorScrolling()
 
@@ -462,13 +498,14 @@ struct RigStage3DView: UIViewRepresentable {
         /// The guitar IS liftable even though it can never be removed — the trash
         /// refuses it out loud ("Your guitar is fixed"), which is a far better
         /// answer to "can I take this out?" than a piece that simply won't move.
-        /// The amp is not liftable: `ampSection` always names an amp, so an amp
-        /// leaves the rig by being replaced, never by being pulled off.
+        /// The amp is liftable too, and really does leave: the rig is allowed to
+        /// have no amp (`RigStore.removeAmpFromRig`), it just says so loudly
+        /// afterwards — a banner on the stage and a refusal to play.
         private func liftableItem(for component: RigComponent) -> GearItem? {
             switch component {
             case .pedal(let id):          return stagePedals.first { $0.id == id }
             case .guitar:                 return stageGuitar
-            case .amp, .cabinet, .combo:  return nil
+            case .amp, .cabinet, .combo:  return stageAmp
             }
         }
 
@@ -650,17 +687,23 @@ enum RigDiorama {
         world.name = "world"
 
         // ---- Amp: center, slightly back. Bottom (local y ≈ −2.15) sits on the floor.
-        let ampRoot = SCNNode()
-        ampRoot.name = "ampRoot"
-        if let loaded = GearModelLoader.modelNode(for: amp) {   // custom .usdz: modelName / <slug> / category
-            ampRoot.addChildNode(loaded)
-        } else {
-            ProceduralAmp.build(into: ampRoot)
+        // Omitted entirely when the rig has no amp — exactly as the pedalboard
+        // below already is. Falling through to the procedural amp here would draw
+        // a generic amp for a rig that has none, which is worse than an empty
+        // stage: the banner would be calling the thing you can see a lie.
+        if amp != nil {
+            let ampRoot = SCNNode()
+            ampRoot.name = "ampRoot"
+            if let loaded = GearModelLoader.modelNode(for: amp) {   // custom .usdz: modelName / <slug> / category
+                ampRoot.addChildNode(loaded)
+            } else {
+                ProceduralAmp.build(into: ampRoot)
+            }
+            let ampScale: Float = 0.55
+            ampRoot.scale = SCNVector3(ampScale, ampScale, ampScale)
+            ampRoot.position = SCNVector3(-0.1, 2.15 * ampScale, -0.9)   // aligned in x with the pedalboard
+            world.addChildNode(ampRoot)
         }
-        let ampScale: Float = 0.55
-        ampRoot.scale = SCNVector3(ampScale, ampScale, ampScale)
-        ampRoot.position = SCNVector3(-0.1, 2.15 * ampScale, -0.9)   // aligned in x with the pedalboard
-        world.addChildNode(ampRoot)
 
         // ---- Pedalboard: in front of the amp (toward the camera).
         if !pedals.isEmpty {
@@ -695,11 +738,15 @@ enum RigDiorama {
 
         // ---- Lighting + grounding shadows + camera.
         Studio3D.addLighting(to: scene)
-        Studio3D.addContactShadow(to: scene.rootNode, width: 3.4, height: 2.5, at: SCNVector3(-0.1, 0.02, -0.85))
+        if amp != nil {
+            Studio3D.addContactShadow(to: scene.rootNode, width: 3.4, height: 2.5,
+                                      at: SCNVector3(-0.1, 0.02, -0.85), name: "ampRootShadow")
+        }
         if !pedals.isEmpty {
             Studio3D.addContactShadow(to: scene.rootNode, width: 3.6, height: 1.6, at: SCNVector3(-0.1, 0.02, 0.4))
         }
-        Studio3D.addContactShadow(to: scene.rootNode, width: 1.7, height: 1.4, at: SCNVector3(1.8, 0.02, -0.2))
+        Studio3D.addContactShadow(to: scene.rootNode, width: 1.7, height: 1.4,
+                                  at: SCNVector3(1.8, 0.02, -0.2), name: "guitarRootShadow")
 
         // Natural 3/4 "living-room" view, pulled back a touch so the full amp
         // (head included) fits. Horizontal projection makes the fov span the

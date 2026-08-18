@@ -208,14 +208,20 @@ struct GearTrashTarget: View {
 
         case .stage:
             // Pulled off the rig board: the gear stays OWNED and stays in the
-            // rail. Only the board loses it.
-            guard item.category.isPedal else {
-                // The only non-pedal the stage lets you lift is the guitar, and
-                // the guitar is fixed — same refusal, same wording.
+            // rail. Only the rig loses it.
+            switch item.category {
+            case .guitar:
+                // Fixed — same refusal, same wording as the rail's.
                 reject(GearRemoval.protectedReason)
-                return
+            case .amp, .cabinet, .comboAmp:
+                // The head and its cabinet are one piece on the stage, so they
+                // leave together. This is the one drag that can leave the rig
+                // unable to make a sound, which is allowed and then said out
+                // loud: the stage banner appears and PROCEED refuses.
+                withAnimation(.easeInOut(duration: 0.28)) { store.removeAmpFromRig() }
+            default:
+                withAnimation(.easeInOut(duration: 0.28)) { store.removePedal(item.id) }
             }
-            withAnimation(.easeInOut(duration: 0.28)) { store.removePedal(item.id) }
         }
     }
 

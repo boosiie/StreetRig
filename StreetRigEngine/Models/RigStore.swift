@@ -194,6 +194,26 @@ public final class RigStore: ObservableObject {
         rig.pedalIds.removeAll { $0 == id }
     }
 
+    /// An id deliberately present in no collection — the "nothing here" marker for
+    /// a rig slot that has to stay non-optional. All-zeros so it is recognisable on
+    /// sight in a saved rig, and STABLE so a saved rig round-trips instead of
+    /// growing a fresh meaningless id every time it is written.
+    public static let noGear = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+
+    /// Take the whole amp section off the rig WITHOUT disowning it — what the
+    /// stage's drag-off is to an amp, `removePedal` is to a pedal. The head and
+    /// its cabinet are one piece on the stage, so they leave together.
+    ///
+    /// It cannot simply leave the amp's own id in place the way `repairAmpSection`
+    /// does: there the gear is being DELETED, so its id stops resolving on its own.
+    /// Here the amp stays owned and in the rail, so its id would still resolve and
+    /// the rig would still have an amp. Pointing the slot at `noGear` gives the
+    /// same end state by the same means — an `ampSection` whose ids name nothing,
+    /// which is what "no amp" has always been here (see `hasAmp`).
+    public func removeAmpFromRig() {
+        rig.ampSection = .stack(ampId: Self.noGear, cabinetId: Self.noGear)
+    }
+
     /// Replace the pedal currently occupying `slotId`'s spot with `dropped`,
     /// keeping the board in signal-chain order and never leaving a duplicate id.
     /// Used by the rig stage's drag-to-replace: drop a pedal onto a specific
