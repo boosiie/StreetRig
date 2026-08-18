@@ -114,15 +114,12 @@ private struct DragGhostView: View {
             GearArtView(item: item)
                 .frame(width: 44, height: 56)
                 .padding(8)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(RigTheme.backgroundLift)
-                        .shadow(color: .black.opacity(0.55), radius: 12, y: 5)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(RigTheme.amber.opacity(0.85), lineWidth: 1.5)
-                )
+                // Literally in the air: the `lifted` shadow, and an amber edge that
+                // means "this one is in your hand" rather than the usual hairline.
+                .rigCard(cornerRadius: 12,
+                         stroke: RigTheme.amber.opacity(0.85),
+                         lineWidth: 1.5,
+                         lifted: true)
                 .scaleEffect(1.12)
                 .position(drag.location)
                 .allowsHitTesting(false)

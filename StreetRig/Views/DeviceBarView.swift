@@ -163,10 +163,7 @@ struct DeviceBarView: View {
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(RigTheme.trim)
                 .frame(width: 40, height: 44)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(RigTheme.backgroundLift)
-                )
+                .rigRaised(cornerRadius: 10)
         }
         .help("Run offline render harness")
     }
@@ -193,14 +190,7 @@ struct DropdownChrome: View {
             .foregroundStyle(RigTheme.textPrimary)
             .padding(.horizontal, 10)
             .padding(.vertical, 9)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(RigTheme.backgroundLift)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
-            )
+            .rigRaised(cornerRadius: 8)
         }
         .frame(maxWidth: .infinity)
     }

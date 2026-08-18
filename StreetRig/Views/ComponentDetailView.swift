@@ -196,10 +196,7 @@ struct ComponentDetailView: View {
             }
             .padding(18)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(RigTheme.backgroundLift)
-        )
+        .rigCard(cornerRadius: 18)
     }
 }
 
@@ -292,8 +289,8 @@ struct NumberKeypad: View {
             }
             .padding(20)
             .frame(width: 300)
-            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(RigTheme.backgroundLift))
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
+            // A modal sheet over the dimmed detail view — the deepest shadow in the app.
+            .rigCard(cornerRadius: 22, lifted: true)
         }
         .onAppear { if text.isEmpty { text = fmt(initial) } }
     }
@@ -304,7 +301,7 @@ struct NumberKeypad: View {
                 .font(.title2.weight(.medium))
                 .foregroundStyle(RigTheme.textPrimary)
                 .frame(maxWidth: .infinity, minHeight: 48)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
+                .rigRaised(cornerRadius: 12)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -316,8 +313,15 @@ struct NumberKeypad: View {
             Text(label).font(.body.weight(.semibold))
                 .foregroundStyle(filled ? .black : tint)
                 .frame(maxWidth: .infinity, minHeight: 46)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(filled ? tint : Color.white.opacity(0.06)))
+                // Filled = the tint IS the surface (Set is amber); otherwise it's a
+                // raised key like the digits above it.
+                .background {
+                    if filled {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous).fill(tint)
+                    } else {
+                        Color.clear.rigRaised(cornerRadius: 12)
+                    }
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

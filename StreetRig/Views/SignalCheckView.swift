@@ -183,10 +183,7 @@ private struct SignalCheckHeader: View {
                 .foregroundStyle(RigTheme.textPrimary)
                 .frame(width: 70)
                 .padding(.vertical, 9)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(RigTheme.surface)
-                )
+                .rigRaised(cornerRadius: 8)
         }
     }
 }
@@ -395,15 +392,8 @@ struct DeviceOfferPrompt: View {
         }
         .padding(20)
         .frame(width: 380)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(RigTheme.backgroundLift)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(RigTheme.hairline, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.6), radius: 24, y: 10)
+        // A modal asking a question over the live screen, so it floats.
+        .rigCard(cornerRadius: 16, lifted: true)
     }
 
     private func choice(_ title: String, filled: Bool, action: @escaping () -> Void) -> some View {
@@ -413,10 +403,15 @@ struct DeviceOfferPrompt: View {
                 .foregroundStyle(filled ? .black : RigTheme.textPrimary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 11)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(filled ? RigTheme.amber : RigTheme.surface)
-                )
+                // Filled = amber IS the surface; the other choice is a raised key
+                // on the sheet it sits in.
+                .background {
+                    if filled {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous).fill(RigTheme.amber)
+                    } else {
+                        Color.clear.rigRaised(cornerRadius: 10)
+                    }
+                }
         }
     }
 }

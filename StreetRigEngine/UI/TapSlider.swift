@@ -59,7 +59,13 @@ public struct TapSlider: View {
             let knobX = CGFloat(frac) * usable // left edge of the knob
 
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.14)).frame(height: track)
+                // The unfilled track is a GROOVE, not a raised surface, so it takes
+                // `hairline` rather than a rung of the elevation ladder — the same
+                // warm tone LevelMeterView draws its unlit segments in, so every
+                // "range you haven't used yet" in the app reads as one material.
+                // (It was `Color.white.opacity(0.14)`, which greyed out over the
+                // espresso card behind it.)
+                Capsule().fill(RigTheme.hairline).frame(height: track)
                 Capsule().fill(tint).frame(width: knobX + knob / 2, height: track)
                 Circle()
                     .fill(.white)

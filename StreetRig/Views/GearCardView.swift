@@ -42,14 +42,7 @@ struct GearCardView: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(RigTheme.backgroundLift)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
-        )
+        .rigCard(cornerRadius: 14)
         .opacity(drag.item?.id == item.id ? 0.35 : 1)   // dim the card that's lifted
         // `.simultaneousGesture` (not `.gesture`) so a quick swipe still scrolls
         // the rail; the ScrollView is disabled only once a drag actually starts
