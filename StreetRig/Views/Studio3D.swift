@@ -111,8 +111,11 @@ enum Studio3D {
 
     /// A cheap fake contact shadow — a flat radial-gradient plane on the floor —
     /// so a model reads as grounded without a shadow-casting light setup.
+    /// `name` ties the shadow to the piece casting it, so a piece lifted off the
+    /// stage can take its shadow with it — the blob is a flat plane, not a real
+    /// shadow, so hiding the gear alone leaves it printed on the floor.
     static func addContactShadow(to root: SCNNode, width: CGFloat, height: CGFloat,
-                                 at p: SCNVector3) {
+                                 at p: SCNVector3, name: String? = nil) {
         let plane = SCNPlane(width: width, height: height)
         let m = SCNMaterial()
         m.diffuse.contents = radialShadowImage()
@@ -122,6 +125,7 @@ enum Studio3D {
         m.blendMode = .alpha
         plane.materials = [m]
         let node = SCNNode(geometry: plane)
+        node.name = name
         node.eulerAngles.x = -.pi / 2                            // lay flat
         node.position = p
         node.renderingOrder = -10

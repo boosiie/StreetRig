@@ -340,7 +340,7 @@ struct ControlPanelSurface: View {
                 .font(.system(size: 12))
             Text(message)
                 .font(.system(size: 12, weight: .semibold))
-            Text("· \(Self.remedy)")
+            Text("· \(Self.remedy(for: message))")
                 .font(.system(size: 12))
                 .foregroundStyle(RigTheme.textPrimary.opacity(0.85))
             Spacer(minLength: 0)
@@ -359,7 +359,16 @@ struct ControlPanelSurface: View {
 
     // Short enough to survive the one line it gets: the message in front of it is
     // the OS's, and can be long.
-    private static let remedy = "check the iRig is seated and pick an INPUT."
+    private static let captureRemedy = "check the iRig is seated and pick an INPUT."
+    private static let noAmpRemedy = "add an amp from the Gear Library."
+
+    /// Nearly every refusal is the capture path failing, so that remedy is the
+    /// default. A rig with no amp is the one that isn't: telling someone to reseat
+    /// an interface when what's missing is the amp sends them to the wrong end of
+    /// the signal chain entirely.
+    private static func remedy(for message: String) -> String {
+        message == AudioEngineController.noAmpStatus ? noAmpRemedy : captureRemedy
+    }
 }
 
 // MARK: - A route: what it is, what it's called, what's coming through it

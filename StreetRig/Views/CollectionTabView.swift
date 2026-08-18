@@ -4,7 +4,9 @@
 //
 //  The left tab: the user's owned gear, grouped with amps & cabinets on top
 //  and pedals below (in signal-chain order), scrollable, one card each.
-//  Cards drag out onto the rig stage to replace a part.
+//  Cards drag out onto the rig stage to replace a part — or across to the trash
+//  target that fades in at the top of the centre area, just past this rail,
+//  which deletes them (see GearTrashTarget).
 //
 
 import SwiftUI
