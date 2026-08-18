@@ -30,7 +30,7 @@ struct DeviceBarView: View {
             inputPicker
             outputDisplay
 
-            VStack(alignment: .trailing, spacing: 4) {
+            VStack(alignment: .trailing, spacing: 3) {
                 statusLine
                 HStack(spacing: 8) {
                     #if DEBUG
@@ -42,7 +42,7 @@ struct DeviceBarView: View {
             .frame(width: 190)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.vertical, 8)
         .background(RigTheme.background.opacity(0.95))
         .overlay(alignment: .top) {
             Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1)
@@ -67,7 +67,7 @@ struct DeviceBarView: View {
         // connected, just before Proceed. Forced nil while the check is up,
         // because that screen presents its own copy over its own content and two
         // covers must not race. Presented as a cover rather than an overlay so it
-        // can darken the whole app: this bar is 70pt tall.
+        // can darken the whole app — the bar is only a sliver of the screen.
         .fullScreenCover(item: Binding(get: { showingSignalCheck ? nil : audio.deviceOffer },
                                        set: { _ in })) { _ in
             DeviceOfferPrompt(audio: audio)
@@ -143,7 +143,7 @@ struct DeviceBarView: View {
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(.black)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 13)
+                .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(audio.isEngaged ? RigTheme.emberSoft : RigTheme.amber)
@@ -162,7 +162,7 @@ struct DeviceBarView: View {
                   : "checkmark.circle.fill")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(RigTheme.trim)
-                .frame(width: 40, height: 44)
+                .frame(width: 40, height: 36)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(RigTheme.backgroundLift)
@@ -180,7 +180,7 @@ struct DropdownChrome: View {
     let value: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 3) {
             Text(label)
                 .font(.system(size: 10, weight: .semibold))
                 .tracking(1)
@@ -192,7 +192,7 @@ struct DropdownChrome: View {
             }
             .foregroundStyle(RigTheme.textPrimary)
             .padding(.horizontal, 10)
-            .padding(.vertical, 9)
+            .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(RigTheme.backgroundLift)
