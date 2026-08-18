@@ -13,6 +13,26 @@
 import SwiftUI
 import StreetRigEngine
 
+extension GearCategory {
+    /// Art proportions per category (pedals tall & narrow, amps wide).
+    ///
+    /// Shared deliberately: the procedural drawings below size everything off
+    /// `geo.size` and have NO intrinsic aspect ratio, so they stretch to fill
+    /// whatever frame they're handed — and some clip their own overflow. Every
+    /// place that shows gear art has to frame it with these numbers or the art
+    /// distorts and loses its edges. The drag ghost learned this the hard way.
+    var artSize: CGSize {
+        switch self {
+        case .amp:      return CGSize(width: 74, height: 50)
+        case .cabinet:  return CGSize(width: 58, height: 54)
+        case .comboAmp: return CGSize(width: 62, height: 52)
+        case .guitar:   return CGSize(width: 42, height: 54)
+        case .wah:      return CGSize(width: 64, height: 50)
+        default:        return CGSize(width: 38, height: 54) // pedals
+        }
+    }
+}
+
 struct GearArtView: View {
     let item: GearItem?
 
