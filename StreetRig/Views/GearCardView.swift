@@ -70,14 +70,9 @@ struct GearCardView: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(RigTheme.backgroundLift)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
-        )
+        // `.rigCard` before the affordance overlays so the grip dots, hold ring and
+        // hint draw ON the card rather than under its edge and shadow.
+        .rigCard(cornerRadius: 14)
         .overlay(alignment: .topTrailing) { gripDots }
         .overlay { holdRing }
         .overlay(alignment: .bottom) { tapHint }

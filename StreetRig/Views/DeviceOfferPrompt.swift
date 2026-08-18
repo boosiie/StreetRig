@@ -83,28 +83,30 @@ struct DeviceOfferPrompt: View {
         }
         .padding(20)
         .frame(width: 380)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(RigTheme.backgroundLift)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(RigTheme.hairline, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.6), radius: 24, y: 10)
+        // A floating dialog, so `lifted:` — a deeper shadow than a card resting in
+        // the page. `backgroundLift` here was the old invisible-card bug carried
+        // over from DeviceBarView; it is only 1.10:1 against the page behind it.
+        .rigCard(cornerRadius: 16, lifted: true)
     }
 
+    @ViewBuilder
     private func choice(_ title: String, filled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title)
+            let label = Text(title)
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(filled ? .black : RigTheme.textPrimary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 11)
-                .background(
+            // The dismissive choice sits ON the dialog, so it takes the RAISED rung.
+            // At `surface` it was the same tone as the card under it and vanished.
+            if filled {
+                label.background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(filled ? RigTheme.amber : RigTheme.surface)
+                        .fill(RigTheme.amber)
                 )
+            } else {
+                label.rigRaised(cornerRadius: 10)
+            }
         }
     }
 }

@@ -64,7 +64,7 @@ struct LibraryContentView: View {
                 segTab("Pedal", .pedal)
             }
             .padding(4)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(RigTheme.backgroundLift))
+            .rigRaised(cornerRadius: 12)
 
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(RigTheme.textMuted)
@@ -80,8 +80,7 @@ struct LibraryContentView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(RigTheme.backgroundLift))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
+            .rigRaised(cornerRadius: 10)
             .frame(maxWidth: 360)
 
             Spacer(minLength: 0)
@@ -144,8 +143,7 @@ struct LibraryContentView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(18)
-            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(RigTheme.backgroundLift))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+            .rigCard(cornerRadius: 18)
             .overlay(alignment: .topTrailing) {
                 Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(RigTheme.textMuted).padding(12)
             }
@@ -173,8 +171,7 @@ struct LibraryContentView: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(RigTheme.backgroundLift))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
+            .rigCard(cornerRadius: 16)
             .overlay(alignment: .topTrailing) {
                 Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(RigTheme.textMuted).padding(8)
             }
@@ -305,11 +302,8 @@ private struct LibraryTile: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(RigTheme.backgroundLift))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(owned ? RigTheme.amber.opacity(0.5) : Color.white.opacity(0.06), lineWidth: 1)
-            )
+            // Owned gear keeps its amber edge — here the border is state, not chrome.
+            .rigCard(cornerRadius: 16, stroke: owned ? RigTheme.amber.opacity(0.5) : RigTheme.surfaceEdge)
             .overlay(alignment: .topTrailing) {
                 Image(systemName: owned ? "checkmark.circle.fill" : "plus.circle.fill")
                     .font(.title3)

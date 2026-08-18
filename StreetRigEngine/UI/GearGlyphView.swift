@@ -20,17 +20,17 @@ public struct GearGlyphView: View {
 
     public var body: some View {
         let category = item?.category ?? .overdrive
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(RigTheme.backgroundLift)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(RigTheme.trim.opacity(0.5), lineWidth: 1)
-            )
+        // `Color.clear` (not a filled shape) so the tile still takes whatever frame
+        // its caller hands it, while `.rigRaised` draws the well behind the glyph.
+        // The brass edge stays: on this tile the border is the gear's trim, not the
+        // generic card hairline.
+        Color.clear
             .overlay(
                 Image(systemName: category.symbolName)
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(RigTheme.amber)
                     .padding(6)
             )
+            .rigRaised(cornerRadius: 8, stroke: RigTheme.trim.opacity(0.5))
     }
 }

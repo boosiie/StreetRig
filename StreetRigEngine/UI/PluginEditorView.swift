@@ -181,7 +181,7 @@ private struct GearBar: View {
                         }
                     }
                     .padding(.horizontal, 8).padding(.vertical, 5)
-                    .background(Capsule().fill(RigTheme.backgroundLift))
+                    .rigRaised(Capsule())
                 }
             }
             .padding(.horizontal, 16)
@@ -196,7 +196,7 @@ private struct GearBar: View {
         }
         .foregroundStyle(RigTheme.amber)
         .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(Capsule().fill(RigTheme.backgroundLift))
+        .rigRaised(Capsule())
     }
 }
 
@@ -224,9 +224,7 @@ private struct SectionCard<Content: View>: View {
             content
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(RigTheme.backgroundLift))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
+        .rigCard(cornerRadius: 16)
     }
 }
 
