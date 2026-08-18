@@ -2,10 +2,12 @@
 //  MainView.swift
 //  StreetRig
 //
-//  The app shell: a persistent left MY GEAR rail and bottom device bar frame a
+//  The app shell: a persistent left MY GEAR rail and bottom control panel frame a
 //  center area that pages between three screens — the gear library (left), the
 //  rig (center), and the AR pedal setup (right). Move between them with the top
-//  arrows or by swiping. A tapped rig component zooms into a control overlay.
+//  arrows, by swiping the center area, or with a decisive horizontal swipe across
+//  the header — the dots under the title say which page you're on. A tapped rig
+//  component zooms into a control overlay.
 //
 
 import SwiftUI
@@ -63,7 +65,7 @@ struct MainView: View {
                             .padding(.top, 8)
                     }
                 }
-                DeviceBarView()
+                ControlPanelView()
             }
 
             if let component = focused {
@@ -105,10 +107,13 @@ struct MainView: View {
         HStack(spacing: 0) {
             navArrow(systemName: "chevron.left", target: page.previous)
             Spacer()
-            Text(page.title)
-                .font(.caption.weight(.bold))
-                .tracking(2)
-                .foregroundStyle(RigTheme.textMuted)
+            VStack(spacing: 5) {
+                Text(page.title)
+                    .font(.caption.weight(.bold))
+                    .tracking(2)
+                    .foregroundStyle(RigTheme.textMuted)
+                pageDots
+            }
             Spacer()
             navArrow(systemName: "chevron.right", target: page.next)
         }
@@ -116,6 +121,34 @@ struct MainView: View {
         .padding(.vertical, 10)
         .background(RigTheme.background)
         .overlay(alignment: .bottom) { Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1) }
+        .contentShape(Rectangle())   // the gaps beside the title are swipeable too
+        .gesture(headerSwipe)
+    }
+
+    /// The visible hint that the header pages, and the only place the pager's
+    /// position is shown — the TabView's own dots are switched off.
+    private var pageDots: some View {
+        HStack(spacing: 5) {
+            ForEach(AppPage.allCases, id: \.self) { dot in
+                Circle()
+                    .fill(dot == page ? RigTheme.amber : RigTheme.textMuted.opacity(0.35))
+                    .frame(width: 5, height: 5)
+            }
+        }
+        .animation(.easeInOut(duration: 0.28), value: page)
+    }
+
+    /// Swipe the header to page. Deliberately hard to trigger by accident: it only
+    /// commits past a real distance AND when the movement is clearly horizontal, so
+    /// drifting sideways while reaching for a chevron leaves the page alone.
+    private var headerSwipe: some Gesture {
+        DragGesture(minimumDistance: 20)
+            .onEnded { value in
+                let dx = value.translation.width, dy = value.translation.height
+                guard abs(dx) >= 60, abs(dx) > abs(dy) * 2 else { return }
+                guard let target = dx < 0 ? page.next : page.previous else { return }
+                withAnimation(.easeInOut(duration: 0.28)) { page = target }
+            }
     }
 
     private func navArrow(systemName: String, target: AppPage?) -> some View {
@@ -141,17 +174,19 @@ private struct DragGhostView: View {
     var body: some View {
         if let item = drag.item {
             GearArtView(item: item)
-                .frame(width: 44, height: 56)
+                // Per-category, exactly as the rail card frames it. A fixed size
+                // here squashed wide gear (an amp is 74x50, not 44x56) and the
+                // art's own clipShape then cropped what spilled out.
+                .frame(width: item.category.artSize.width,
+                       height: item.category.artSize.height)
+                .frame(width: 74, height: 56)   // uniform ghost box, art centred
                 .padding(8)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(RigTheme.backgroundLift)
-                        .shadow(color: .black.opacity(0.55), radius: 12, y: 5)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(RigTheme.amber.opacity(0.85), lineWidth: 1.5)
-                )
+                // Literally in the air: the `lifted` shadow, and an amber edge that
+                // means "this one is in your hand" rather than the usual hairline.
+                .rigCard(cornerRadius: 12,
+                         stroke: RigTheme.amber.opacity(0.85),
+                         lineWidth: 1.5,
+                         lifted: true)
                 .scaleEffect(1.12)
                 .position(drag.location)
                 .allowsHitTesting(false)

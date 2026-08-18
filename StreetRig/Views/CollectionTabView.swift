@@ -16,6 +16,14 @@ struct CollectionTabView: View {
     @EnvironmentObject var store: RigStore
     @EnvironmentObject var drag: RigDragController
     @State private var isDropTargeted = false
+    /// The card currently held down, set by GearCardView the moment its hold
+    /// succeeds. Tracked here (not in the controller) purely so the rail can stop
+    /// scrolling before the drag begins — see `scrollDisabled` below.
+    @State private var heldCard: GearItem.ID?
+    /// Shown once, ever: the rail's first card gives a small hop so a new player
+    /// sees that these lift at all.
+    @AppStorage("streetrig.railLiftHintShown") private var railHintShown = false
+    @State private var demoTarget: GearItem.ID?
 
     /// Amps, cabinets, combos — the guitar is fixed so it's not listed.
     private var ampsAndCabs: [GearItem] {
@@ -41,13 +49,21 @@ struct CollectionTabView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("MY GEAR")
-                .font(.caption2.weight(.bold))
-                .tracking(1.5)
-                .foregroundStyle(RigTheme.textMuted)
-                .padding(.horizontal, 14)
-                .padding(.top, 14)
-                .padding(.bottom, 10)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("MY GEAR")
+                    .font(.caption2.weight(.bold))
+                    .tracking(1.5)
+                    .foregroundStyle(RigTheme.textMuted)
+                // The standing instruction. One line here beats repeating a hint
+                // on all 47 cards, and the rail is only 150pt wide.
+                Text("HOLD TO PLACE")
+                    .font(.system(size: 8, weight: .medium))
+                    .tracking(0.8)
+                    .foregroundStyle(RigTheme.textMuted.opacity(0.55))
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
@@ -57,9 +73,18 @@ struct CollectionTabView: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 20)
             }
-            .scrollDisabled(drag.isDragging)   // don't scroll the rail mid-drag
+            // Freeze the rail from the moment a card is held, not just once the
+            // ghost exists: otherwise pulling a held card straight up out of the
+            // rail scrolls it instead of lifting, since the ScrollView wins the
+            // pan before the drag clears its threshold.
+            .scrollDisabled(drag.isDragging || heldCard != nil)
         }
         .frame(width: 150)
+        .onAppear {
+            guard !railHintShown else { return }
+            demoTarget = ampsAndCabs.first?.id ?? pedals.first?.id
+            railHintShown = true
+        }
         .background(RigTheme.background.opacity(0.55))
         .overlay(alignment: .trailing) {
             Rectangle().fill(Color.white.opacity(0.07)).frame(width: 1)
@@ -89,7 +114,7 @@ struct CollectionTabView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .tracking(1.2)
                 .foregroundStyle(RigTheme.trim.opacity(0.9))
-            ForEach(items) { GearCardView(item: $0) }
+            ForEach(items) { GearCardView(item: $0, held: $heldCard, demoLift: $0.id == demoTarget) }
         }
     }
 }

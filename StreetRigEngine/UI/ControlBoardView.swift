@@ -80,14 +80,7 @@ public struct ControlBoardView: View {
             }
         }
         .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(RigTheme.backgroundLift)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
-        )
+        .rigCard(cornerRadius: 18)
     }
 }
 

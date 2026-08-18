@@ -2,24 +2,30 @@
 //  LevelMeterView.swift
 //  StreetRig
 //
-//  A horizontal signal meter, drawn the way a hardware one reads: a row of
-//  SEGMENTS that light up with the RMS ("how loud this feels"), a peak-hold
-//  segment parked above them, a dB scale you can actually aim at, a
-//  signal-present lamp and a clip LED that stays lit long enough to be seen.
+//  The live signal read-out, in two pieces the control panel places itself: a
+//  LAMP (dark → green when signal arrives → red on clip) and a segment BAR.
 //
 //  Segments rather than a continuous bar because a lit-segment count is
 //  something you can read at a glance from a few feet away — which is the
 //  distance you are standing at with a guitar on.
 //
-//  RE-RENDER ISOLATION: this view is the ONLY observer of `AudioLevelMonitor`.
-//  Levels publish ~30×/s; because the meter (not its parent) holds the
-//  @ObservedObject, a level update redraws the bar and nothing else — the AR
-//  slots and the camera preview beside it never re-render.
+//  DELIBERATELY JUST THE BAR. This meter used to carry its own title, port name,
+//  dBFS read-out, CLIP badge and printed dB scale — a five-part instrument, sized
+//  for the full-screen signal check it lived on. In the panel the route zone
+//  already names the port in type twice that size, and the lamp says the two
+//  things a player acts on: signal, and too much of it. The exact dBFS is not
+//  something you fix from the bottom of the rig screen.
+//
+//  RE-RENDER ISOLATION: these two views are the ONLY observers of
+//  `AudioLevelMonitor`. Levels publish ~30×/s; because the lamp and the bar (not
+//  their parent) hold the @ObservedObject, a level update redraws them and
+//  nothing else — the panel around them never re-renders.
 //
 
 import SwiftUI
 import StreetRigEngine
 
+/// The segment bar. 3 dB per segment across a 72 dB scale.
 struct LevelMeterView: View {
 
     /// Which of the monitor's two meters to draw.
@@ -27,85 +33,17 @@ struct LevelMeterView: View {
 
     @ObservedObject var monitor: AudioLevelMonitor
     let channel: Channel
-    let title: String
-    /// Shown under the title — e.g. the port the DI is arriving from.
-    var subtitle: String?
-    /// Greys the whole meter out when the engine isn't running.
+    /// Greys the meter out when the engine isn't running.
     var isLive: Bool = true
-
-    /// dB marks drawn under the bar. -60 is the signal-present floor; 0 is clip.
-    private static let ticks: [Float] = [-60, -40, -20, -6, 0]
 
     private var level: AudioLevel {
         channel == .input ? monitor.input : monitor.output
     }
 
     var body: some View {
-        let current = level
-        VStack(alignment: .leading, spacing: 4) {
-            header(current)
-            bar(current)
-            scale
-        }
-        .opacity(isLive ? 1 : 0.45)
-        .animation(.easeOut(duration: 0.12), value: current.isClipping)
-    }
-
-    // MARK: - Header (name, lamps, numbers)
-
-    private func header(_ level: AudioLevel) -> some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(lampColor(level))
-                .frame(width: 8, height: 8)
-                .shadow(color: level.hasSignal ? RigTheme.signal : .clear, radius: 3)
-            Text(title)
-                .font(.system(size: 12, weight: .bold))
-                .tracking(1)
-                .foregroundStyle(RigTheme.textMuted)
-                .lineLimit(1)
-                .fixedSize()
-            if let subtitle {
-                // Lowest priority in the row: when the column is tight this is
-                // the part that gives way, because the level and the name of the
-                // meter matter more than which port it came from.
-                Text(subtitle)
-                    .font(.system(size: 11))
-                    .foregroundStyle(RigTheme.textMuted.opacity(0.75))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .layoutPriority(-1)
-            }
-            Spacer(minLength: 4)
-            Text(readout(level))
-                .font(.system(size: 13, weight: .medium).monospacedDigit())
-                .foregroundStyle(level.hasSignal ? RigTheme.textPrimary : RigTheme.textMuted)
-                .lineLimit(1)
-                .fixedSize()
-            Text("CLIP")
-                .font(.system(size: 10, weight: .bold))
-                .tracking(0.5)
-                .fixedSize()
-                .foregroundStyle(level.isClipping ? RigTheme.clip : RigTheme.textMuted.opacity(0.35))
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(level.isClipping ? RigTheme.clip.opacity(0.22) : .clear)
-                )
-        }
-    }
-
-    private func lampColor(_ level: AudioLevel) -> Color {
-        if !isLive { return RigTheme.textMuted.opacity(0.3) }
-        if level.isClipping { return RigTheme.clip }
-        return level.hasSignal ? RigTheme.signal : RigTheme.textMuted.opacity(0.3)
-    }
-
-    private func readout(_ level: AudioLevel) -> String {
-        guard isLive else { return "—" }
-        guard level.hasSignal || level.peakDB > AudioLevel.floorDB + 0.5 else { return "no signal" }
-        return String(format: "%.1f dBFS", level.peakDB)
+        bar(level)
+            .frame(height: 11)
+            .opacity(isLive ? 1 : 0.4)
     }
 
     // MARK: - The bar
@@ -153,7 +91,6 @@ struct LevelMeterView: View {
                     .mask { segmentRow { $0 == holdIndex ? Color.white : .clear } }
             }
         }
-        .frame(height: 18)
     }
 
     /// One row of evenly-spaced segments, coloured by index. Drawn three times —
@@ -177,30 +114,9 @@ struct LevelMeterView: View {
         min(Float(segmentCount), max(0, fraction(db) * Float(segmentCount)))
     }
 
-    // MARK: - Scale
-
-    private var scale: some View {
-        GeometryReader { geo in
-            let width = geo.size.width
-            ZStack(alignment: .topLeading) {
-                ForEach(Self.ticks, id: \.self) { db in
-                    let x = width * CGFloat(Self.fraction(db))
-                    Text(db == 0 ? "0" : "\(Int(db))")
-                        .font(.system(size: 10, weight: .medium).monospacedDigit())
-                        .foregroundStyle(RigTheme.textMuted.opacity(0.7))
-                        .fixedSize()
-                        // Nudge the end labels inboard so they don't clip.
-                        .offset(x: min(max(0, x - 6), width - 12))
-                }
-            }
-        }
-        .frame(height: 12)
-    }
-
     // MARK: - Scale mapping
 
-    /// dBFS → 0…1 across the drawn scale, linear in dB so the printed ticks land
-    /// where they say they do.
+    /// dBFS → 0…1 across the drawn scale, linear in dB.
     static func fraction(_ db: Float) -> Float {
         let floor = AudioLevel.floorDB
         return min(1, max(0, (db - floor) / -floor))
@@ -221,17 +137,48 @@ struct LevelMeterView: View {
     ])
 }
 
+// MARK: - Lamp
+
+/// The "is anything arriving, and is it too hot" light, sat next to the route's
+/// name. Its own view so a 30 Hz level tick redraws an 8pt circle, not the panel.
+struct SignalLamp: View {
+    @ObservedObject var monitor: AudioLevelMonitor
+    let channel: LevelMeterView.Channel
+    var isLive: Bool = true
+
+    private var level: AudioLevel {
+        channel == .input ? monitor.input : monitor.output
+    }
+
+    var body: some View {
+        let level = self.level
+        Circle()
+            .fill(color(level))
+            .frame(width: 8, height: 8)
+            .shadow(color: isLive && level.hasSignal ? color(level) : .clear, radius: 4)
+            .animation(.easeOut(duration: 0.12), value: level.isClipping)
+    }
+
+    private func color(_ level: AudioLevel) -> Color {
+        if !isLive { return RigTheme.textMuted.opacity(0.3) }
+        if level.isClipping { return RigTheme.clip }
+        return level.hasSignal ? RigTheme.signal : RigTheme.textMuted.opacity(0.3)
+    }
+}
+
 #Preview {
     struct Demo: View {
         @StateObject private var monitor = AudioLevelMonitor()
         var body: some View {
-            VStack(spacing: 14) {
-                LevelMeterView(monitor: monitor, channel: .input,
-                               title: "INPUT", subtitle: "iRig HD 2")
-                LevelMeterView(monitor: monitor, channel: .output,
-                               title: "OUTPUT", subtitle: "Speaker")
-                LevelMeterView(monitor: monitor, channel: .input,
-                               title: "INPUT (IDLE)", isLive: false)
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(spacing: 7) {
+                    SignalLamp(monitor: monitor, channel: .input)
+                    Text("INPUT").font(.system(size: 12, weight: .bold)).tracking(1.5)
+                        .foregroundStyle(RigTheme.textMuted)
+                }
+                LevelMeterView(monitor: monitor, channel: .input)
+                LevelMeterView(monitor: monitor, channel: .output)
+                LevelMeterView(monitor: monitor, channel: .input, isLive: false)
             }
             .padding(24)
             .background(RigTheme.background)
