@@ -13,9 +13,9 @@
 //  each pedal's `enabled`, and `RigAudioBridge` pushes onto the DSP's lock-free
 //  parameter bus. Dropping a pedal that isn't in the rig adds it to the chain.
 //
-//  There is ONE implementation, `ARPedalContentView`, with two entry points:
-//  this page (right of the rig in MainView's pager) and the signal-check screen,
-//  where you can see your levels while you stomp.
+//  The content lives in `ARPedalContentView`, which `ARPedalSetupView` wraps as
+//  the pager page right of the rig in MainView. Signal levels are no longer shown
+//  over it — they sit in the control panel at the bottom of the shell instead.
 //
 //  PLACEMENT READINESS. The slots outline GREEN once ARKit reports a real floor
 //  below the phone, in view, with steady tracking — a promise that stomps will land.
@@ -53,8 +53,8 @@ struct ARPedalContentView: View {
     var body: some View {
         GeometryReader { geo in
             // Landscape is short: give the slots what's left after the banner and
-            // the ON/OFF captions, so the same content fits the full page AND the
-            // shorter body of the signal-check screen.
+            // the ON/OFF captions, so the content fits whatever height the page is
+            // given.
             let slotHeight = min(150, max(72, geo.size.height - 96))
             // Below this there is no room for the big camera-status block without
             // it landing on top of the slots — it becomes a line under the banner.

@@ -189,7 +189,7 @@ final class CameraStompDetector: ObservableObject {
     ///
     /// Called when a camera view is torn down while another host is still on screen.
     /// ARKit does not document what an `ARSCNView` does to its session on dealloc,
-    /// and "the pager page went black after closing the signal check" is a bug that
+    /// and "the pager page went black after swiping away and back" is a bug that
     /// would only ever show up on a device, in the one configuration hardest to test.
     /// Idempotent and rare, so paying for it beats reasoning about it.
     func cameraViewDetached() {
