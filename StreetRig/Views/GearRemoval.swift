@@ -91,3 +91,163 @@ private struct GearRemovalConfirmation: ViewModifier {
         }
     }
 }
+
+// MARK: - The trash target
+
+/// The drag-only trash, parked at the TOP-LEFT of the centre area — immediately
+/// right of the MY GEAR rail, under the page title.
+///
+/// It sits there rather than inside the rail because the rail is the thing being
+/// dragged FROM: a bin at the bottom of a scrolling column of cards put the
+/// target under the finger's starting point and made a short downward flick read
+/// as a delete. Out here it is a deliberate destination — you have to leave the
+/// rail to reach it — and it is equally reachable from the rig stage, which is
+/// the other place drags start.
+///
+/// Idle state costs nothing: it is laid out permanently (so its frame is current
+/// the instant a drag starts) but drawn at zero opacity and non-interactive, so
+/// there is no persistent trash button. It fades in with the drag and, on hover,
+/// scales up and goes solid `RigTheme.clip` — the existing semantic clip/peak
+/// red, deliberately not the amber that already means "drop here to swap this
+/// piece in".
+///
+/// It owns what a drop on it MEANS (`handleTrash`), because it is now the only
+/// view that knows a drop happened at all.
+struct GearTrashTarget: View {
+    @EnvironmentObject private var store: RigStore
+    @EnvironmentObject private var drag: RigDragController
+
+    /// A deletion waiting on the player's answer (in-use gear only).
+    @State private var pendingRemoval: PendingGearRemoval?
+    /// Inline reason for a rejected drop ("Your guitar is fixed"), auto-clearing.
+    @State private var rejection: String?
+    /// Bumped per rejection so the shake replays even for the same reason.
+    @State private var rejectionShake: CGFloat = 0
+    @State private var rejectionTimeout: Task<Void, Never>?
+
+    private let diameter: CGFloat = 58
+
+    var body: some View {
+        // Stays up a beat past the drag when a rejection needs explaining.
+        let visible = drag.isDragging || rejection != nil
+        let hot = drag.isOverTrash
+
+        VStack(spacing: 5) {
+            ZStack {
+                // Opaque base first: this now floats over the rig stage and the
+                // gear library, so the tint alone can't be trusted to carry it.
+                Circle().fill(RigTheme.background.opacity(0.94))
+                Circle().fill(hot ? RigTheme.clip : RigTheme.clip.opacity(0.18))
+                Circle().strokeBorder(RigTheme.clip.opacity(hot ? 0 : 0.9), lineWidth: 1.5)
+                Image(systemName: "trash.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(hot ? .white : RigTheme.clip)
+            }
+            .frame(width: diameter, height: diameter)
+            .scaleEffect(hot ? 1.18 : 1)
+            .shadow(color: .black.opacity(0.55), radius: 9, y: 4)
+            .background(frameReader)
+
+            Text(rejection ?? caption)
+                .font(.system(size: 9, weight: .semibold))
+                .tracking(0.8)
+                .foregroundStyle(rejection == nil ? RigTheme.clip.opacity(0.95) : RigTheme.textPrimary)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.75)
+                .frame(width: 104)
+                .shadow(color: RigTheme.background, radius: 4)
+        }
+        .modifier(ShakeEffect(phase: rejectionShake))
+        .opacity(visible ? 1 : 0)
+        // Grows DOWN from the top edge it's anchored to, so it reads as dropping
+        // into the corner rather than swelling out of the middle of the stage.
+        .scaleEffect(visible ? 1 : 0.86, anchor: .top)
+        .animation(.easeOut(duration: 0.18), value: visible)
+        .animation(.easeOut(duration: 0.14), value: hot)
+        // The project's haptic idiom (see TapSlider): SwiftUI-native, so it
+        // no-ops wherever there's no haptic context. Fires only on ENTERING the
+        // target — that's the commit point the player needs to feel.
+        .sensoryFeedback(trigger: hot) { _, isHot in isHot ? .impact(flexibility: .rigid) : nil }
+        // Never eats a tap, a scroll or a page swipe: the drag controller
+        // hit-tests it by frame, so it needs no hit-testing of its own.
+        .allowsHitTesting(false)
+        .onAppear { drag.onTrash = { item, origin in handleTrash(item, from: origin) } }
+        .gearRemovalConfirmation($pendingRemoval, store: store)
+    }
+
+    /// A rail drag DELETES; a stage drag only unloads the piece from the rig.
+    /// Saying which keeps one red circle from meaning two different things.
+    private var caption: String { drag.origin == .stage ? "OFF RIG" : "DELETE" }
+
+    /// Publishes the target's frame in WINDOW coordinates — see
+    /// `RigDragController.trashFrameInWindow` for why it isn't "appRoot" space.
+    /// Slightly generous: a 58pt circle is a small thing to hit with a moving finger.
+    private var frameReader: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear { drag.trashFrameInWindow = proxy.frame(in: .global).insetBy(dx: -12, dy: -12) }
+                .onChange(of: proxy.frame(in: .global)) { _, frame in
+                    drag.trashFrameInWindow = frame.insetBy(dx: -12, dy: -12)
+                }
+        }
+    }
+
+    /// A card was released over the trash. What that means depends entirely on
+    /// where the drag started — see `RigDragOrigin`.
+    private func handleTrash(_ item: GearItem, from origin: RigDragOrigin) {
+        switch origin {
+        case .rail:
+            // Owned gear being deleted. Everything funnels through GearRemoval so
+            // the library's owned tiles ask the identical question.
+            switch GearRemoval.request(item.id, store: store) {
+            case .removed:                         break
+            case .needsConfirmation(let pending):  pendingRemoval = pending
+            case .rejected(let reason):            reject(reason)
+            }
+
+        case .stage:
+            // Pulled off the rig board: the gear stays OWNED and stays in the
+            // rail. Only the board loses it.
+            guard item.category.isPedal else {
+                // The only non-pedal the stage lets you lift is the guitar, and
+                // the guitar is fixed — same refusal, same wording.
+                reject(GearRemoval.protectedReason)
+                return
+            }
+            withAnimation(.easeInOut(duration: 0.28)) { store.removePedal(item.id) }
+        }
+    }
+
+    /// Refuse a drop out loud: shake the target and post a short reason under it.
+    /// A dialog would be far too much ceremony for "no".
+    private func reject(_ reason: String) {
+        rejectionTimeout?.cancel()
+        rejection = reason
+        withAnimation(.easeInOut(duration: 0.45)) { rejectionShake += 1 }
+        rejectionTimeout = Task {
+            try? await Task.sleep(for: .seconds(2.2))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.25)) { rejection = nil }
+        }
+    }
+}
+
+/// A short horizontal wobble, used to refuse a drop. Driven by a phase counter
+/// so the same rejection can replay.
+private struct ShakeEffect: GeometryEffect {
+    var travel: CGFloat = 7
+    var shakes: CGFloat = 3
+    var phase: CGFloat
+
+    var animatableData: CGFloat {
+        get { phase }
+        set { phase = newValue }
+    }
+
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        ProjectionTransform(
+            CGAffineTransform(translationX: travel * sin(phase * .pi * shakes * 2), y: 0)
+        )
+    }
+}

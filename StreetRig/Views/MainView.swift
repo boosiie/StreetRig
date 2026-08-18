@@ -49,6 +49,19 @@ struct MainView: View {
                             .tag(AppPage.ar)
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
+                    // The trash lives HERE — top-left of the centre area, just
+                    // past the MY GEAR rail — so it is somewhere you drag TO,
+                    // equally reachable from the rail and from the rig stage.
+                    //
+                    // An overlay ON the TabView, not a page inside it: it has to
+                    // stay put while the pages swipe under it, and it must sit
+                    // outside the UIPageViewController bridge, where measurements
+                    // still mean what they say (see RigDragController.appRootOrigin).
+                    .overlay(alignment: .topLeading) {
+                        GearTrashTarget()
+                            .padding(.leading, 10)
+                            .padding(.top, 8)
+                    }
                 }
                 DeviceBarView()
             }

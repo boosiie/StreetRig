@@ -48,8 +48,23 @@ final class RigDragController: ObservableObject {
 
     /// The rig stage's frame in "appRoot" space (set by the stage view).
     var stageFrame: CGRect = .zero
-    /// The trash target's frame in "appRoot" space (set by the trash view).
-    var trashFrame: CGRect = .zero
+    /// The trash target's frame in UIKit WINDOW coordinates (set by the target).
+    ///
+    /// Window space rather than "appRoot" because the target floats over the
+    /// shell's paged TabView, where a `.named` space is not guaranteed to resolve
+    /// (see `appRootOrigin`) — `.global` always is. Converting on READ rather than
+    /// on write also removes an ordering hazard: the target may publish its frame
+    /// before MainView has reported the origin, and still be right.
+    var trashFrameInWindow: CGRect = .zero
+
+    /// That same frame in the shared "appRoot" space every drag measures in.
+    /// Before the target reports, this is zero-sized — and a zero-sized rect
+    /// contains nothing, so an unreported target is simply cold rather than a
+    /// bin sitting invisibly in the top-left corner.
+    var trashFrame: CGRect {
+        CGRect(origin: appRootPoint(fromWindow: trashFrameInWindow.origin),
+               size: trashFrameInWindow.size)
+    }
 
     /// Where the "appRoot" space's origin sits in UIKit WINDOW coordinates,
     /// reported by MainView.
