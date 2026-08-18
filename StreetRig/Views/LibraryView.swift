@@ -363,19 +363,29 @@ private struct LibraryTile: View {
                 .minimumScaleFactor(0.8)
                 .frame(height: 32)
         }
-        // Dims the CONTENT of an owned tile, not the card under it. Applied after
-        // `.rigCard` this also faded the shadow, so the deeper shadow below would
-        // have been handed back 28% of itself.
-        .opacity(owned ? 0.72 : 1)
         .padding(12)
         .frame(maxWidth: .infinity)
-        // Owned gear keeps its amber edge AND sits proudest of the grid — here the
-        // border and the shadow are both state, not chrome. Scanning for what you
-        // already have is the main thing this page gets used for, and depth reads
-        // at arm's length where a hairline border does not.
-        .rigCard(cornerRadius: 16,
-                 stroke: owned ? RigTheme.amber.opacity(0.5) : RigTheme.surfaceEdge,
-                 lifted: owned)
+        // The stroke is drawn separately, BELOW, so the scrim can pass between the
+        // card and its edge: the tile goes dark, the amber edge saying why does not.
+        .rigCard(cornerRadius: 16, stroke: .clear)
+        // Gear you already own sits in shadow — the whole tile, fill included, not
+        // just its contents. Scanning for what you have yet to add is the main thing
+        // this page gets used for, and a tile that has visibly gone dark answers
+        // that across the grid, where a hairline border and a badge have to be
+        // looked at one at a time. In the page's own background colour rather than
+        // black, so an owned tile recedes toward the page instead of turning grey
+        // on a warm espresso ground.
+        .overlay {
+            if owned {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(RigTheme.background.opacity(0.58))
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(owned ? RigTheme.amber.opacity(0.5) : RigTheme.surfaceEdge, lineWidth: 1)
+        }
     }
 
     @ViewBuilder
