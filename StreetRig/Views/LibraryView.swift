@@ -40,11 +40,15 @@ struct LibraryContentView: View {
                 header
                 ScrollView {
                     if query.isEmpty {
-                        cards.padding(20)
+                        cards.padding(.horizontal, 20)
+                            .padding(.top, 15)
+                            .padding(.bottom, 20)
                     } else {
                         modelGrid(section == .amp ? [.amp, .cabinet, .comboAmp] : pedalOrder,
                                   showHeaders: true)
-                            .padding(20)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 15)
+                            .padding(.bottom, 20)
                     }
                 }
             }
@@ -83,7 +87,8 @@ struct LibraryContentView: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 12)
+        .padding(.top, 12)
+        .padding(.bottom, 9)
     }
 
     private func segTab(_ title: String, _ value: Section) -> some View {
