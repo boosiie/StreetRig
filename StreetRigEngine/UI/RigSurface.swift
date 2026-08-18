@@ -39,9 +39,11 @@ public extension View {
     ///     amber "you already own this", the drag ghost's amber "this is in the air".
     ///     Everything else wants the default warm `surfaceEdge` hairline.
     ///   - lineWidth: stroke width; 1pt reads correctly across the 8…24pt range here.
-    ///   - lifted: `true` for something genuinely floating ABOVE the UI (the drag
-    ///     ghost, a modal offer). It deepens the shadow rather than the fill, so the
-    ///     tone ladder stays three steps instead of quietly growing a fourth.
+    ///   - lifted: `true` for something standing above its surroundings — genuinely
+    ///     floating (the drag ghost, a modal offer), or one card meant to read as
+    ///     proud of its neighbours (the library's owned tiles). It deepens the
+    ///     shadow rather than the fill, so the tone ladder stays three steps instead
+    ///     of quietly growing a fourth.
     func rigCard(cornerRadius: CGFloat = 14,
                  stroke: Color = RigTheme.surfaceEdge,
                  lineWidth: CGFloat = 1,

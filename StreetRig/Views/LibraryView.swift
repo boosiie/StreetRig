@@ -339,11 +339,19 @@ private struct LibraryTile: View {
                 .minimumScaleFactor(0.8)
                 .frame(height: 32)
         }
+        // Dims the CONTENT of an owned tile, not the card under it. Applied after
+        // `.rigCard` this also faded the shadow, so the deeper shadow below would
+        // have been handed back 28% of itself.
+        .opacity(owned ? 0.72 : 1)
         .padding(12)
         .frame(maxWidth: .infinity)
-        // Owned gear keeps its amber edge — here the border is state, not chrome.
-        .rigCard(cornerRadius: 16, stroke: owned ? RigTheme.amber.opacity(0.5) : RigTheme.surfaceEdge)
-        .opacity(owned ? 0.72 : 1)
+        // Owned gear keeps its amber edge AND sits proudest of the grid — here the
+        // border and the shadow are both state, not chrome. Scanning for what you
+        // already have is the main thing this page gets used for, and depth reads
+        // at arm's length where a hairline border does not.
+        .rigCard(cornerRadius: 16,
+                 stroke: owned ? RigTheme.amber.opacity(0.5) : RigTheme.surfaceEdge,
+                 lifted: owned)
     }
 
     @ViewBuilder
