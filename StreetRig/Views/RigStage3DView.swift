@@ -14,8 +14,12 @@
 //  the overlay flies the camera back to the diorama.
 //
 //  Reuses the same procedural builders as the standalone views (ProceduralAmp,
-//  PedalboardScene, ProceduralGuitar). The amp's knobs turn live from
-//  GearItem.values. Gated by FeatureFlags.amp3D (stacks only; combo → vector).
+//  PedalboardScene, ProceduralGuitar). The amp head and the cabinet each wear
+//  their own bespoke artwork when they have one — the SAME `<slug>.imageset`
+//  that dresses the cards and the library, mapped onto the front of the box —
+//  so swapping either piece visibly changes the stack. A piece with no artwork
+//  falls back to the generic build, whose knobs turn live from GearItem.values.
+//  Gated by FeatureFlags.amp3D (stacks only; combo → vector).
 //
 
 import SwiftUI
@@ -33,6 +37,10 @@ enum RigDropTarget: Equatable {
 
 struct RigStage3DView: UIViewRepresentable {
     var amp: GearItem?
+    /// The cabinet under the head. Threaded all the way through to the scene
+    /// builder so the lower box can wear the selected cab's artwork — without
+    /// it the diorama drew one hardcoded 4x12 no matter what was in the rig.
+    var cabinet: GearItem?
     var pedals: [GearItem]
     var guitar: GearItem?
     /// The stage's current focus. When it returns to nil the camera flies back.
@@ -105,7 +113,7 @@ struct RigStage3DView: UIViewRepresentable {
         coord.onFocus = onFocus
         coord.dropHandler = onDrop
 
-        let sig = RigDiorama.signature(amp: amp, pedals: pedals, guitar: guitar)
+        let sig = RigDiorama.signature(amp: amp, cabinet: cabinet, pedals: pedals, guitar: guitar)
         if coord.signature != sig {
             rebuild(view, context: context)          // gear set changed → rebuild
         } else {
@@ -121,13 +129,14 @@ struct RigStage3DView: UIViewRepresentable {
     /// Rebuild the scene but keep the user's current camera orientation.
     private func rebuild(_ view: SCNView, context: Context) {
         context.coordinator.clearHighlight()      // old nodes are about to be replaced
-        let scene = RigDiorama.make(amp: amp, pedals: pedals, guitar: guitar)
+        let scene = RigDiorama.make(amp: amp, cabinet: cabinet, pedals: pedals, guitar: guitar)
         view.scene = scene
         view.pointOfView = scene.rootNode.childNode(withName: "camera", recursively: false)
         view.defaultCameraController.target = RigDiorama.lookTarget
         context.coordinator.cacheKnobs(in: scene)
         context.coordinator.applyAmp(values: amp?.values ?? [:])
-        context.coordinator.signature = RigDiorama.signature(amp: amp, pedals: pedals, guitar: guitar)
+        context.coordinator.signature = RigDiorama.signature(amp: amp, cabinet: cabinet,
+                                                             pedals: pedals, guitar: guitar)
     }
 
     // MARK: Coordinator
@@ -158,6 +167,10 @@ struct RigStage3DView: UIViewRepresentable {
 
         init(onFocus: ((RigComponent) -> Void)?) { self.onFocus = onFocus }
 
+        /// Cache the live knob nodes. An art-textured head has none — its knobs
+        /// are part of the drawing (see `ProceduralAmp.build`) — so these lookups
+        /// return nil, the keys never land in the dictionary, and `applyAmp`
+        /// simply has nothing to turn. That is the expected quiet path, not a bug.
         func cacheKnobs(in scene: SCNScene) {
             knobs.removeAll()
             for p in AmpScene.knobParamNames {
@@ -506,12 +519,18 @@ enum RigDiorama {
         return (position, aim.orientation)
     }
 
-    static func signature(amp: GearItem?, pedals: [GearItem], guitar: GearItem?) -> String {
-        "\(amp?.id.uuidString ?? "-")|\(guitar?.id.uuidString ?? "-")|"
+    /// What the scene is BUILT from. The scene is only rebuilt when this string
+    /// changes, so every piece the builder reads has to appear here — the
+    /// cabinet included, or swapping cabs would leave the old one on screen
+    /// until some unrelated change happened to force a rebuild.
+    static func signature(amp: GearItem?, cabinet: GearItem?,
+                          pedals: [GearItem], guitar: GearItem?) -> String {
+        "\(amp?.id.uuidString ?? "-")|\(cabinet?.id.uuidString ?? "-")|\(guitar?.id.uuidString ?? "-")|"
             + pedals.map { $0.id.uuidString }.joined(separator: ",")
     }
 
-    static func make(amp: GearItem?, pedals: [GearItem], guitar: GearItem?) -> SCNScene {
+    static func make(amp: GearItem?, cabinet: GearItem?,
+                     pedals: [GearItem], guitar: GearItem?) -> SCNScene {
         let scene = SCNScene()
         let world = SCNNode()
         world.name = "world"
@@ -519,10 +538,15 @@ enum RigDiorama {
         // ---- Amp: center, slightly back. Bottom (local y ≈ −2.15) sits on the floor.
         let ampRoot = SCNNode()
         ampRoot.name = "ampRoot"
+        // Fallback chain, first hit wins:
+        //   1. a custom `.usdz` for the amp (head AND cab are one model — the
+        //      documented seam in CUSTOMIZING-GEAR.md, which still wins outright),
+        //   2. the procedural stack textured with the amp's and cab's own art,
+        //   3. the plain generic stack.
         if let loaded = GearModelLoader.modelNode(for: amp) {   // custom .usdz: modelName / <slug> / category
             ampRoot.addChildNode(loaded)
         } else {
-            ProceduralAmp.build(into: ampRoot)
+            ProceduralAmp.build(into: ampRoot, amp: amp, cabinet: cabinet)
         }
         let ampScale: Float = 0.55
         ampRoot.scale = SCNVector3(ampScale, ampScale, ampScale)
@@ -579,8 +603,9 @@ enum RigDiorama {
 
 #Preview {
     RigStage3DView(
-        amp: GearItem(name: "Marshall JCM800", category: .amp,
+        amp: GearItem(name: "Marswell JCM800 2203", category: .amp,
                       values: ["Gain": 8, "Bass": 6, "Mid": 4, "Treble": 7, "Presence": 5, "Master": 6]),
+        cabinet: GearItem(name: "Marswell 1960A 4x12", category: .cabinet),
         pedals: [GearItem(name: "Ibonez Tube Screamer", category: .overdrive),
                  GearItem(name: "VOSS Digital Delay", category: .delay),
                  GearItem(name: "VOSS Reverb", category: .reverb)],

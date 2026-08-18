@@ -273,10 +273,16 @@ private struct LibraryTile: View {
     @EnvironmentObject var store: RigStore
     let item: GearItem
 
+    /// The tile's own frames, a size up from `GearCategory.artSize` because a
+    /// library tile is roomier than a rail card. Shaped to the shipped art's
+    /// measured aspects (head ≈ 2.05:1, cabinet ≈ 0.87:1, combo ≈ 1.13:1) so the
+    /// aspect-fit icon fills the frame instead of floating between letterbox
+    /// bars; the art sits inside a fixed 64pt-tall box below, so the grid's row
+    /// height doesn't move when these change.
     private var artSize: CGSize {
         switch item.category {
-        case .amp:      return CGSize(width: 84, height: 56)
-        case .cabinet:  return CGSize(width: 66, height: 60)
+        case .amp:      return CGSize(width: 84, height: 41)
+        case .cabinet:  return CGSize(width: 52, height: 60)
         case .comboAmp: return CGSize(width: 70, height: 58)
         case .wah:      return CGSize(width: 72, height: 56)
         default:        return CGSize(width: 44, height: 62)

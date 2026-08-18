@@ -466,7 +466,7 @@ extension AudioEngineController {
                        planFuzz.pedals.contains { $0.character == ParameterMap.voiceBigMuff } && Self.peak(fuzz.samples) > 1e-4,
                        "voicings \(planFuzz.pedals.map { $0.character })"))
 
-        // (c) swap the whole amp section stack → combo (Fender Deluxe = different cab).
+        // (c) swap the whole amp section stack → combo (Volt AC30 = different cab).
         if let combo = store.collection.first(where: { $0.category == .comboAmp }) { store.apply(combo) }
         let planCombo = RigGraphCompiler.compile(store: store)
         let combo = (try? await renderRigPlan(planCombo, source: dry, fmt: fmt)) ?? PassOutput()

@@ -4,27 +4,39 @@
 //
 //  Scalable vector art for each gear model — a stylized-but-recognizable
 //  drawing of the real-life unit (Tube Screamer green 3-knob, Big Muff "π",
-//  MXR boxes, Boss compacts with the big tread plate, Cry Baby treadle,
-//  Marshall head + 4x12, a combo). Derived from the item's name/category so
+//  MXR boxes, Boss compacts with the big tread plate, Cry Baby treadle, a
+//  generic head + 4x12, a combo). Derived from the item's name/category so
 //  it works with already-persisted data; unknown items fall back to a
 //  category-appropriate generic. Used on cards, the rig stage, and zoom.
+//
+//  Every piece the app SHIPS — all 47 pedals and all 14 amps/cabs/combos —
+//  now has a bespoke icon, so the procedural drawings below are strictly the
+//  fallback for a name with no matching asset.
 //
 
 import SwiftUI
 import StreetRigEngine
 
 extension GearCategory {
-    /// Art proportions per category (pedals tall & narrow, amps wide).
+    /// Art proportions per category (pedals tall & narrow, amp heads wide,
+    /// cabinets taller than wide).
     ///
     /// Shared deliberately: the procedural drawings below size everything off
     /// `geo.size` and have NO intrinsic aspect ratio, so they stretch to fill
     /// whatever frame they're handed — and some clip their own overflow. Every
     /// place that shows gear art has to frame it with these numbers or the art
     /// distorts and loses its edges. The drag ghost learned this the hard way.
+    ///
+    /// A bespoke icon, by contrast, is drawn aspect-FIT, so a frame that
+    /// disagrees with the artwork letterboxes it — the icon shrinks and floats
+    /// in dead space. So these track the shipped art's measured proportions:
+    /// amp heads ≈ 2.05:1, cabinets ≈ 0.87:1, combos ≈ 1.13:1. Callers that
+    /// pin the art inside a fixed-height box (the rail card, the library tile)
+    /// keep their footprint; only the drawing inside it changes shape.
     var artSize: CGSize {
         switch self {
-        case .amp:      return CGSize(width: 74, height: 50)
-        case .cabinet:  return CGSize(width: 58, height: 54)
+        case .amp:      return CGSize(width: 74, height: 36)
+        case .cabinet:  return CGSize(width: 47, height: 54)
         case .comboAmp: return CGSize(width: 62, height: 52)
         case .guitar:   return CGSize(width: 42, height: 54)
         case .wah:      return CGSize(width: 64, height: 50)
@@ -412,8 +424,10 @@ private extension Color {
                         Text(name).font(.caption2)
                     }
                 }
-                GearArtView(item: GearItem(name: "Marshall JCM800", category: .amp)).frame(width: 80, height: 54)
-                GearArtView(item: GearItem(name: "1960A", category: .cabinet)).frame(width: 70, height: 64)
+                GearArtView(item: GearItem(name: "Marswell JCM800 2203", category: .amp))
+                    .frame(width: 84, height: 41)
+                GearArtView(item: GearItem(name: "Marswell 1960A 4x12", category: .cabinet))
+                    .frame(width: 52, height: 60)
             }
         }
     }

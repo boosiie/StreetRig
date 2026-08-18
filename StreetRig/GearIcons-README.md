@@ -41,8 +41,9 @@ Regex form: replace `[^a-z0-9]+` with `-`, then trim `-`.
 | `electro-harmonium BIG MUFF π`  | `electro-harmonium-big-muff`   |
 | `VOSS Chromatic Tuner`          | `voss-chromatic-tuner`         |
 | `Fullstone Deja'Vibe`           | `fullstone-deja-vibe`          |
-| `Marshall JCM800`               | `marshall-jcm800`              |
-| `1960A`                         | `1960a`                        |
+| `Marswell JCM800 2203`          | `marswell-jcm800-2203`         |
+| `Marswell 1960A 4x12`           | `marswell-1960a-4x12`          |
+| `Fandor Bassman '59`            | `fandor-bassman-59`            |
 
 ---
 
@@ -77,9 +78,10 @@ Regex form: replace `[^a-z0-9]+` with `-`, then trim `-`.
 
 That's it. Rebuild and the icon overrides that piece everywhere.
 
-> All 47 shipped pedals have a bespoke icon (228x330 PNG, transparent background),
-> so the procedural pedal art is now only the fallback for gear whose name has no
-> matching asset. Delete a pedal's `.imageset` and it falls straight back to that
+> **Everything the app ships has a bespoke icon**: all 47 pedals (228x330 PNG,
+> transparent background) and all 14 amp heads, cabinets and combos. The
+> procedural art is now purely the fallback for gear whose name has no matching
+> asset. Delete a piece's `.imageset` and it falls straight back to that
 > procedural art.
 
 ---
@@ -108,14 +110,24 @@ Icons are drawn with **aspect-fit** (never stretched), then centered in a per-ca
 frame. Author your art at the frame's proportions so it fills the space without empty
 bars. Use a **transparent background** so the icon sits cleanly on the card.
 
-| Category                         | Frame shape      | Recommended aspect (W:H) |
-| -------------------------------- | ---------------- | ------------------------ |
-| Pedals (overdrive, delay, …)     | tall & narrow    | ~0.7 : 1  (e.g. 240x336) |
-| Wah                              | slightly wide    | ~1.3 : 1                 |
-| Amp head                         | wide             | ~1.5 : 1                 |
-| Cabinet                          | near square      | ~1.1 : 1                 |
-| Combo amp                        | near square/wide | ~1.2 : 1                 |
-| Guitar                           | tall             | ~0.8 : 1                 |
+| Category                         | Frame shape           | Recommended aspect (W:H)   |
+| -------------------------------- | --------------------- | -------------------------- |
+| Pedals (overdrive, delay, …)     | tall & narrow         | ~0.7 : 1  (e.g. 240x336)   |
+| Wah                              | slightly wide         | ~1.3 : 1                   |
+| Amp head                         | **wide, ~2:1**        | ~2.05 : 1 (e.g. 500x240)   |
+| Cabinet                          | **taller than wide**  | ~0.87 : 1 (e.g. 512x590)   |
+| Combo amp                        | near square           | ~1.13 : 1 (e.g. 460x405)   |
+| Guitar                           | tall                  | ~0.8 : 1                   |
+
+The amp/cabinet/combo numbers are **measured from the shipped art**, not guessed: the
+five heads run 1.68–2.11, the three cabinets 0.80–0.94, and the six combos 1.05–1.21.
+A cabinet is *taller than wide* — an earlier version of this table called it "near
+square, 1.1:1", which is the wrong way round and sent art back letterboxed.
+
+The frames in code (`GearCategory.artSize`, `LibraryView`'s tile sizes and the rig
+stage's) are set to these same proportions, so art authored at them fills the frame.
+Drift far from the column and the icon aspect-fits inside the frame with empty bars —
+it never stretches, it just gets smaller.
 
 Render PNGs at ~3x the on-screen size (icons range from ~38x54 up to ~112x90 pt) so they
 stay crisp on Retina displays — or use a vector PDF and forget about resolution entirely.
@@ -126,8 +138,16 @@ stay crisp on Retina displays — or use a vector PDF and forget about resolutio
 
 - **Data is untouched.** Matching is purely by name at render time; nothing is stored on
   the gear item and `rig_state.json` is unaffected. Saved rigs stay backward-compatible.
-- **The 3D amp path is separate.** Custom 2D icons apply to `GearArtView` only. The
-  feature-flagged 3D amp pipeline has its own asset seam (`GearItem.modelName` -> `.usdz`)
-  and is not affected by these files.
+- **The 3D stage uses these icons too.** An amp head's and a cabinet's icon are mapped
+  onto the front face of their box in the rig diorama, and the box's proportions are
+  taken from the image's pixel size — so one PNG dresses the cards, the library, the
+  rail *and* the 3D stage. A real `.usdz` still wins over both (see
+  [`../CUSTOMIZING-GEAR.md`](../CUSTOMIZING-GEAR.md)); the icon is the middle rung of
+  that chain, not a competitor to it.
+- **A head's icon replaces its 3D knobs.** The drawn art already has that amp's knob
+  row on it, and every model's row sits somewhere different, so the procedural knob
+  nodes are dropped when art is applied rather than doubled up. The trade: those knobs
+  no longer turn with the values while you look at the diorama. Tap the amp and the
+  zoom overlay's knobs and sliders are still the live control surface.
 - **Empty/blank names** (used internally for some category-header placeholders) never
   match an asset and always render procedural art.
