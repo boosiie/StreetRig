@@ -33,6 +33,13 @@ struct PlayView: View {
     var body: some View {
         VStack(spacing: 0) {
             ControlPanelSurface(audio: audio, onDone: { dismiss() })
+            // The AR page, minus one thing it has in the shell: there is no MY GEAR
+            // rail on this surface, so there is nothing to drag FROM and dragging a
+            // pedal into a slot is structurally unavailable here — not switched off,
+            // simply absent. Filling a slot is a tap: an empty slot opens the pedal
+            // picker. That is deliberate rather than a gap, because this is the page
+            // you are standing over with a guitar on, where a drag across the floor
+            // is not a gesture anyone can make.
             ARPedalContentView()
         }
         .background(RigTheme.background)

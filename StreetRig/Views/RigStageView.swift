@@ -26,6 +26,9 @@ struct RigStageView: View {
 
     @State private var tilt: CGSize = .zero
     @State private var isTargeted = false
+    /// The stage's registration with the drag controller — its frame plus the
+    /// hooks whichever stage layout is on screen wires into it.
+    @State private var stageArea = RigDropArea()
 
     private let maxAngle: CGFloat = 20
 
@@ -54,7 +57,7 @@ struct RigStageView: View {
                             }
                         }
                     },
-                    controller: drag
+                    dropArea: stageArea
                 )
                 .background(stageFrameReader)
                 .padding(.horizontal, 8)
@@ -80,24 +83,31 @@ struct RigStageView: View {
         }
     }
 
-    /// Reports the stage's frame (in the shared "appRoot" space) to the drag
-    /// controller, so it can map the finger position into the scene for hit-testing.
+    /// Registers the stage as a drop target for as long as it is on screen, with
+    /// its frame in the shared "appRoot" space so the controller can map the finger
+    /// position into the scene for hit-testing. Deregistering is not tidiness: this
+    /// page stays alive one screen to the left once you swipe to the AR page, and a
+    /// stage that stayed registered could take a drop meant for a stomp slot.
     private var stageFrameReader: some View {
         GeometryReader { proxy in
             Color.clear
-                .onAppear { drag.stageFrame = proxy.frame(in: .named("appRoot")) }
-                .onChange(of: proxy.frame(in: .named("appRoot"))) { _, frame in
-                    drag.stageFrame = frame
+                .onAppear {
+                    stageArea.frame = proxy.frame(in: .named("appRoot"))
+                    drag.register(stageArea)
                 }
+                .onChange(of: proxy.frame(in: .named("appRoot"))) { _, frame in
+                    stageArea.frame = frame
+                }
+                .onDisappear { drag.deregister(stageArea) }
         }
     }
 
     /// The flat vector fallback has no per-piece hit-testing, so a drop anywhere
     /// on it just applies the item by category (amp/cab replace, a pedal is added).
     private func wireVectorDrop() {
-        drag.onMove = { _, _ in isTargeted = true }
-        drag.onClear = { isTargeted = false }
-        drag.onDrop = { item in
+        stageArea.onHover = { _, _ in isTargeted = true }
+        stageArea.onExit = { isTargeted = false }
+        stageArea.onDrop = { item in
             withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) { store.apply(item) }
         }
     }

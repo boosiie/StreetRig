@@ -43,9 +43,10 @@ struct RigStage3DView: UIViewRepresentable {
     /// piece under the finger (highlighted during the drag), or nil for a
     /// drop that didn't land on a compatible piece.
     var onDrop: ((RigDropTarget?, GearItem) -> Void)? = nil
-    /// The custom drag controller. This view wires it to the live scene so the
-    /// rail's drag can hit-test and highlight the 3D models under the finger.
-    var controller: RigDragController
+    /// The stage's registration with the custom drag controller. This view wires
+    /// the live scene into it so the rail's drag can hit-test and highlight the 3D
+    /// models under the finger.
+    var dropArea: RigDropArea
 
     func makeCoordinator() -> Coordinator { Coordinator(onFocus: onFocus) }
 
@@ -81,19 +82,19 @@ struct RigStage3DView: UIViewRepresentable {
         orbit.delegate = context.coordinator
         view.addGestureRecognizer(orbit)
 
-        // Wire the custom drag controller into this live scene. As the rail's
-        // drag moves, `onMove` hit-tests the models under the finger and glows the
+        // Wire this live scene into the stage's drop target. As the rail's drag
+        // moves, `onHover` hit-tests the models under the finger and glows the
         // piece it would replace; `onDrop` swaps it. Points arrive in this view's
         // coordinate space (the controller subtracts the stage's frame origin).
         let coord = context.coordinator
-        controller.onMove = { [weak coord] point, item in
+        dropArea.onHover = { [weak coord] point, item in
             coord?.highlightForDrag(at: point, item: item)
         }
-        controller.onClear = { [weak coord] in
+        dropArea.onExit = { [weak coord] in
             coord?.setHighlight(nil)
             coord?.currentTarget = nil
         }
-        controller.onDrop = { [weak coord] item in
+        dropArea.onDrop = { [weak coord] item in
             guard let coord else { return }
             coord.dropHandler?(coord.currentTarget, item)
         }
@@ -586,7 +587,7 @@ enum RigDiorama {
                  GearItem(name: "VOSS Reverb", category: .reverb)],
         guitar: GearItem(name: "Les Paul Standard", category: .guitar),
         focused: nil,
-        controller: RigDragController()
+        dropArea: RigDropArea()
     )
     .frame(height: 460)
     .background(RigTheme.background)
