@@ -2,7 +2,7 @@
 //  MainView.swift
 //  StreetRig
 //
-//  The app shell: a persistent left MY GEAR rail and bottom device bar frame a
+//  The app shell: a persistent left MY GEAR rail and bottom control panel frame a
 //  center area that pages between three screens — the gear library (left), the
 //  rig (center), and the AR pedal setup (right). Move between them with the top
 //  arrows, by swiping the center area, or with a decisive horizontal swipe across
@@ -51,7 +51,7 @@ struct MainView: View {
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
                 }
-                DeviceBarView()
+                ControlPanelView()
             }
 
             if let component = focused {

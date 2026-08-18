@@ -28,7 +28,7 @@
 //
 //  The meters live on their OWN ObservableObject rather than on
 //  `AudioEngineController` on purpose: a 30 Hz publish on the controller would
-//  re-render every view that observes it (the device bar, the route pickers, the
+//  re-render every view that observes it (the control panel, its route zones, the
 //  AR slots, the camera preview). Only the meter views observe this object, so a
 //  level update redraws a meter and nothing else.
 //

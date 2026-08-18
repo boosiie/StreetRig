@@ -35,12 +35,4 @@ enum FeatureFlags {
     /// back when ARKit is genuinely unavailable (the Simulator) is the page's own
     /// no-camera path: gradient, placeholder, tap-to-toggle.
     static let arPlacement = true
-
-    /// Open the full-screen SIGNAL CHECK when the player taps Proceed: live
-    /// input/output level meters, the capture-route picker, monitoring volume and
-    /// the working AR stomp slots on one landscape screen. Strictly additive:
-    /// Proceed still engages the engine exactly as before, and the AR page keeps
-    /// its place in the pager. Off = Proceed starts monitoring with only the
-    /// device bar's status line for feedback, i.e. today's behaviour.
-    static let signalCheck = true
 }

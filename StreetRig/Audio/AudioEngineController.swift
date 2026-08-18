@@ -5,8 +5,10 @@
 //  The audio ENGINE HOST: owns the AVAudioSession, the AVAudioEngine graph
 //  (inputNode -> StreetRigDSPUnit -> mainMixerNode -> outputNode), the engine
 //  lifecycle, interruption/route-change handling, mic permission, live route
-//  enumeration for the DeviceBar, and the OFFLINE FILE-RENDER HARNESS that
-//  verifies the whole graph on the Simulator (which has no audio input).
+//  enumeration for the control panel, and the OFFLINE FILE-RENDER HARNESS that
+//  verifies the whole graph without a guitar plugged in. (The Simulator DOES
+//  capture — it forwards the Mac's mic — so live monitoring runs there too; what
+//  it can't reproduce is the iRig's real DI levels.)
 //
 //  THREADING: everything here is @MainActor — session setup, engine start/stop,
 //  parameter writes, published UI state. The ONLY code that runs on the audio
@@ -59,7 +61,7 @@ final class AudioEngineController: ObservableObject {
     ///
     /// Deliberately a nested ObservableObject held by a plain `let` rather than a
     /// `@Published` property here: levels publish ~30×/s, and anything observing
-    /// the controller (the device bar, route pickers, the AR slots, the camera
+    /// the controller (the control panel, its route zones, the AR slots, the camera
     /// preview) would re-render at that rate. Only the meter views observe this,
     /// so a level update redraws a meter and nothing else. The controller still
     /// owns its lifecycle: it installs the taps that feed it and tears them down.
@@ -75,7 +77,7 @@ final class AudioEngineController: ObservableObject {
         }
     }
 
-    // Routes for the DeviceBar dropdowns.
+    // Routes for the control panel's INPUT / OUTPUT zones.
     @Published private(set) var currentInputName: String = "—"
     @Published private(set) var currentOutputName: String = "—"
     @Published private(set) var availableInputs: [RouteOption] = []
@@ -109,7 +111,7 @@ final class AudioEngineController: ObservableObject {
     private var rigBridge: RigAudioBridge?
 
     /// Give the controller the app's rig so live monitoring plays the built rig
-    /// and every knob is bound. Call once (e.g. from the device bar's onAppear).
+    /// and every knob is bound. Call once (e.g. from the control panel's onAppear).
     func attach(store: RigStore) { rigStore = store }
 
     // The requested low-latency targets (the OS grants what it can).
@@ -310,7 +312,7 @@ final class AudioEngineController: ObservableObject {
     // MARK: - Routes
 
     /// Set a record-capable category (no activation, no permission prompt) so the
-    /// DeviceBar can enumerate inputs before the player engages. Best-effort.
+    /// control panel can enumerate inputs before the player engages. Best-effort.
     func primeRoutes() {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playAndRecord, mode: .measurement, options: [.allowBluetoothA2DP])
