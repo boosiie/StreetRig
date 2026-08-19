@@ -91,6 +91,16 @@ struct RigStage3DView: UIViewRepresentable {
         orbit.delegate = context.coordinator
         view.addGestureRecognizer(orbit)
 
+        // Same for the pinch: the built-in controller does the zooming, this only
+        // watches for the release so the zoom rubber-bands home like the orbit does.
+        let pinch = UIPinchGestureRecognizer(target: context.coordinator,
+                                             action: #selector(Coordinator.handlePinch(_:)))
+        pinch.delegate = context.coordinator
+        // Purely an observer: never swallow the touches the built-in controller is
+        // using to do the actual zooming, or the pinch would stop working entirely.
+        pinch.cancelsTouchesInView = false
+        view.addGestureRecognizer(pinch)
+
         // Wire the custom drag controller into this live scene. As the rail's
         // drag moves, `onMove` hit-tests the models under the finger and glows the
         // piece it would replace; `onDrop` swaps it. Points arrive in this view's
@@ -293,8 +303,39 @@ struct RigStage3DView: UIViewRepresentable {
             }
         }
 
-        /// Snap the camera back to the framed home view when the user lets go — keeping
-        /// their zoom (distance) and easing straight to the home ANGLE, ending square.
+        // MARK: Pinch → spring the ZOOM back too
+
+        /// The zoom half of the same rubber band. `allowsCameraControl` runs the
+        /// pinch itself, and nothing was watching it — so orbiting sprang back but
+        /// zooming just stayed wherever it was let go, which read as the gesture
+        /// being broken rather than deliberate. Releasing a pinch now returns the
+        /// camera to the default framing distance, the one the stage is composed
+        /// around and the one guaranteed to fit every amp.
+        @objc func handlePinch(_ g: UIPinchGestureRecognizer) {
+            guard focusedNow == nil, let view, let cam = view.pointOfView else { return }
+            switch g.state {
+            case .began:
+                // Same hand-off as orbit: catch the camera mid-return so the pinch
+                // resumes from where it actually is instead of jumping.
+                cam.position = cam.presentation.position
+                cam.orientation = cam.presentation.orientation
+                cam.removeAllAnimations()
+                cam.removeAllActions()
+                view.allowsCameraControl = true
+            case .ended, .cancelled, .failed:
+                springBackToCenter(distance: RigDiorama.defaultCameraDistance)
+            default:
+                break
+            }
+        }
+
+        /// Snap the camera back to the framed home view when the user lets go.
+        ///
+        /// `distance: nil` keeps the zoom the user is currently at and eases only the
+        /// ANGLE home — what an orbit release wants. Passing a distance rubber-bands
+        /// the RADIUS as well, which is what a pinch release wants: the zoom returns
+        /// to the default framing instead of leaving the stage parked wherever the
+        /// pinch ended.
         ///
         /// This mirrors the fly-IN exactly: take the camera offline
         /// (`allowsCameraControl = false`, handed back on landing) and let a single
@@ -304,9 +345,10 @@ struct RigStage3DView: UIViewRepresentable {
         /// teleport. (Hand-driving it per frame with an SCNAction stalled against the
         /// render loop, which is what left the camera on a weird angle until the final
         /// set snapped it straight.) Offline also stops the camera controller fighting it.
-        private func springBackToCenter() {
+        private func springBackToCenter(distance targetDistance: Float? = nil) {
             guard focusedNow == nil, let view, let cam = view.pointOfView else { return }
-            let distance = RigDiorama.distance(from: cam.presentation.position, to: RigDiorama.lookTarget)
+            let distance = targetDistance
+                ?? RigDiorama.distance(from: cam.presentation.position, to: RigDiorama.lookTarget)
             let (end, endOrientation) = RigDiorama.framedPose(atDistanceFromTarget: distance)
 
             view.allowsCameraControl = false               // take over so nothing fights the ease
@@ -466,10 +508,28 @@ struct RigStage3DView: UIViewRepresentable {
 /// positions are in a single world so one camera orbit moves everything together.
 enum RigDiorama {
     /// The point the camera orbits around (roughly the middle of the arrangement).
-    static let lookTarget = SCNVector3(0.5, 0.9, 0.0)
+    /// Lifted with the amp: the stack is the tallest thing here, so orbiting about
+    /// a point down at the pedalboard swung it out of frame.
+    static let lookTarget = SCNVector3(0.5, 1.05, 0.0)
+
     /// Default diorama camera pose (also the pose the focus animation returns to).
-    static let cameraPosition = SCNVector3(0.5, 3.1, 6.9)
-    static let cameraPitch: Float = -0.31
+    ///
+    /// FRAMED FOR THE TALLEST AMP, deliberately. Every stack occupies the same
+    /// vertical envelope by construction — `ProceduralAmp.Layout` solves each one's
+    /// width from a fixed height budget, so a Plexi, a Dual Rectifier and a fitted
+    /// art stack are all exactly `span` tall — and a combo is shorter still. So one
+    /// framing covers the whole catalog, and the number that matters is the MARGIN
+    /// above the head.
+    ///
+    /// That margin used to be roughly zero: the head sat right on the top edge, which
+    /// is why raising the amp scale pushed it out of frame entirely. The camera now
+    /// sits further back so the full envelope lands at ~0.28 of frame height instead
+    /// of ~0.32. Note the trade this makes, because it is not free: an amp's apparent
+    /// size IS its fraction of the frame, so the headroom is paid for by the amp
+    /// reading slightly smaller. What keeps it feeling big is `ampScale` against the
+    /// guitar and board, not the camera.
+    static let cameraPosition = SCNVector3(0.5, 3.75, 8.9)
+    static let cameraPitch: Float = -0.30
     static let cameraFOV: CGFloat = 42
 
     // MARK: Gentle-recenter framing (orbit release + overlay close)
@@ -561,7 +621,10 @@ enum RigDiorama {
         // The amp is the centrepiece and was reading small next to the board and
         // the guitar — it is the piece you actually chose. Scaled up so it holds
         // the middle of the stage; the lift keeps its base on the floor either way.
-        let ampScale: Float = 0.62
+        // This can go this high only because `cameraPosition` now frames the full
+        // envelope with margin — at the old framing anything past ~0.62 clipped the
+        // head off the top edge.
+        let ampScale: Float = 0.70
         ampRoot.scale = SCNVector3(ampScale, ampScale, ampScale)
         ampRoot.position = SCNVector3(-0.1, 2.15 * ampScale, -0.9)   // aligned in x with the pedalboard
         world.addChildNode(ampRoot)
