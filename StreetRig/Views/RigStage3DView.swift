@@ -613,19 +613,21 @@ enum RigDiorama {
     static let cameraPitch: Float = -0.29
     static let cameraFOV: CGFloat = 42
 
-    // MARK: Gentle-recenter framing (orbit release + overlay close)
-    // Both return paths ease the camera's viewing ANGLE back to this canonical home
-    // view while KEEPING the user's chosen zoom (their distance from lookTarget), so
-    // the camera is never shoved back out to the far default. See `framedPose(_:)`.
+    // MARK: Return framing (orbit release + pinch release + overlay close)
+    // Every return path eases the camera all the way back to this canonical home
+    // view — ANGLE and DISTANCE both. An earlier design preserved whatever zoom the
+    // user had chosen, but with the zoom rubber-banding home there is nothing left
+    // to preserve, and making the two paths differ is what let a release cancel a
+    // pinch's own return. One home view, reached the same way every time.
 
-    /// The default framing distance — ‖cameraPosition − lookTarget‖ ≈ 7.24. The
-    /// distance the diorama was designed around; also the farthest a recenter pulls
-    /// back to (see `maxCameraDistance`) and the fallback when no zoom was captured.
+    /// The default framing distance — ‖cameraPosition − lookTarget‖ ≈ 11.37. The
+    /// distance the diorama is composed around, what every gesture returns to, and
+    /// the fallback when no zoom was captured.
     static let defaultCameraDistance = distance(from: cameraPosition, to: lookTarget)
 
-    /// Unit vector from lookTarget out to the default camera. A recenter places the
-    /// camera along this direction at the *preserved* distance, so recentering
-    /// changes only the viewing angle and pitch — never the user's zoom.
+    /// Unit vector from lookTarget out to the default camera. Returns place the
+    /// camera along this direction, so the rig stays centred and the pitch matches
+    /// the designed 3/4 view.
     static let homeDirection: SCNVector3 = {
         let d = defaultCameraDistance
         guard d > 1e-5 else { return SCNVector3(0, 0, 1) }
@@ -650,7 +652,16 @@ enum RigDiorama {
     /// the edge; at 7.0 the pedal bodies were fully clear with only the board's
     /// front lip at the boundary. 7.2 keeps a little margin on that. **Raising
     /// `bScale` or moving the board forward means re-measuring this.**
-    static let maxCameraDistance = defaultCameraDistance
+    /// How far OUT a pinch may pull. This used to be `defaultCameraDistance` — i.e.
+    /// exactly where the camera already sits — so pinching to zoom out clamped on
+    /// the very first frame, moved the camera not at all, and therefore had nothing
+    /// to spring back FROM. Zoom-in bounced and zoom-out did nothing, which reads as
+    /// "the bounce only works one way". Zoom-in was unaffected because `min` (7.2)
+    /// leaves it real room to travel.
+    ///
+    /// Now that every gesture returns home, letting the user pull back temporarily
+    /// costs nothing — the wider view is transient by construction.
+    static let maxCameraDistance = defaultCameraDistance * 1.75
     static let minCameraDistance: Float = 7.2
 
     /// Straight-line distance between two points (the camera↔lookTarget zoom radius).
