@@ -14,8 +14,14 @@
 //  the overlay flies the camera back to the diorama.
 //
 //  Reuses the same procedural builders as the standalone views (ProceduralAmp,
-//  PedalboardScene, ProceduralGuitar). The amp's knobs turn live from
-//  GearItem.values. Gated by FeatureFlags.amp3D (stacks only; combo → vector).
+//  PedalboardScene, ProceduralGuitar). The amp head and the cabinet each wear
+//  their own bespoke artwork when they have one — the SAME `<slug>.imageset`
+//  that dresses the cards and the library, mapped onto the front of the box —
+//  so swapping either piece visibly changes the stack. A piece with no artwork
+//  falls back to the generic build, whose knobs turn live from GearItem.values.
+//  Gated by FeatureFlags.amp3D. EVERY amp section renders here, a combo included:
+//  a combo is simply a one-box amp in the same scene, so choosing one no longer
+//  drops the whole stage — board and guitar with it — back to the flat layout.
 //
 
 import SwiftUI
@@ -37,6 +43,10 @@ enum RigDropTarget: Equatable {
 
 struct RigStage3DView: UIViewRepresentable {
     var amp: GearItem?
+    /// The cabinet under the head. Threaded all the way through to the scene
+    /// builder so the lower box can wear the selected cab's artwork — without
+    /// it the diorama drew one hardcoded 4x12 no matter what was in the rig.
+    var cabinet: GearItem?
     var pedals: [GearItem]
     var guitar: GearItem?
     /// The stage's current focus. When it returns to nil the camera flies back.
@@ -93,7 +103,25 @@ struct RigStage3DView: UIViewRepresentable {
         let orbit = UIPanGestureRecognizer(target: context.coordinator,
                                            action: #selector(Coordinator.handleOrbitPan(_:)))
         orbit.delegate = context.coordinator
+        // ONE finger only — an orbit is a one-finger gesture, and a pan recognizer
+        // otherwise accepts any number of touches, so a two-finger pinch was driving
+        // this handler as well as the pinch one.
+        orbit.maximumNumberOfTouches = 1
         view.addGestureRecognizer(orbit)
+
+        // The pinch is ours end to end — it does the zooming AND the spring-back,
+        // with the built-in controller switched off for the duration so there is no
+        // second owner of the camera. See `handlePinch` for why it is not an
+        // observer of the built-in zoom (two attempts at that did not come back).
+        let pinch = UIPinchGestureRecognizer(target: context.coordinator,
+                                             action: #selector(Coordinator.handlePinch(_:)))
+        pinch.delegate = context.coordinator
+        pinch.cancelsTouchesInView = false      // leave the tap/orbit recognizers alone
+        view.addGestureRecognizer(pinch)
+
+        // Backstop: even if none of the above fires, this notices the camera sitting
+        // away from home and brings it back. See `startZoomWatchdog`.
+        context.coordinator.startZoomWatchdog()
 
         // Press-and-hold a piece to LIFT it off the stage and drag it to the
         // rail's trash. Deliberately the same 0.4s hold as a rail card
@@ -145,7 +173,7 @@ struct RigStage3DView: UIViewRepresentable {
         coord.stageAmp = amp
         coord.setAddSlot(visible: pedalInFlight)
 
-        let sig = RigDiorama.signature(amp: amp, pedals: pedals, guitar: guitar)
+        let sig = RigDiorama.signature(amp: amp, cabinet: cabinet, pedals: pedals, guitar: guitar)
         if coord.signature != sig {
             rebuild(view, context: context)          // gear set changed → rebuild
         } else {
@@ -161,13 +189,14 @@ struct RigStage3DView: UIViewRepresentable {
     /// Rebuild the scene but keep the user's current camera orientation.
     private func rebuild(_ view: SCNView, context: Context) {
         context.coordinator.clearHighlight()      // old nodes are about to be replaced
-        let scene = RigDiorama.make(amp: amp, pedals: pedals, guitar: guitar)
+        let scene = RigDiorama.make(amp: amp, cabinet: cabinet, pedals: pedals, guitar: guitar)
         view.scene = scene
         view.pointOfView = scene.rootNode.childNode(withName: "camera", recursively: false)
         view.defaultCameraController.target = RigDiorama.lookTarget
         context.coordinator.cacheKnobs(in: scene)
         context.coordinator.applyAmp(values: amp?.values ?? [:])
-        context.coordinator.signature = RigDiorama.signature(amp: amp, pedals: pedals, guitar: guitar)
+        context.coordinator.signature = RigDiorama.signature(amp: amp, cabinet: cabinet,
+                                                             pedals: pedals, guitar: guitar)
     }
 
     // MARK: Coordinator
@@ -222,6 +251,10 @@ struct RigStage3DView: UIViewRepresentable {
 
         init(onFocus: ((RigComponent) -> Void)?) { self.onFocus = onFocus }
 
+        /// Cache the live knob nodes. An art-textured head has none — its knobs
+        /// are part of the drawing (see `ProceduralAmp.build`) — so these lookups
+        /// return nil, the keys never land in the dictionary, and `applyAmp`
+        /// simply has nothing to turn. That is the expected quiet path, not a bug.
         func cacheKnobs(in scene: SCNScene) {
             knobs.removeAll()
             for p in AmpScene.knobParamNames {
@@ -323,6 +356,50 @@ struct RigStage3DView: UIViewRepresentable {
 
         // MARK: Orbit → gentle spring back to center
 
+        /// Camera→lookTarget radius at the instant a pinch began; the pinch's scale
+        /// is applied against it. Zero means no pinch is in flight.
+        private var pinchStartDistance: Float = 0
+
+        // MARK: Zoom watchdog — the backstop that does not trust gesture plumbing
+
+        private var zoomWatchdog: Timer?
+
+        /// Watches the CAMERA rather than any gesture, and pulls it home whenever it
+        /// is parked away from the default distance with nothing being touched.
+        ///
+        /// This exists because two recognizer-based attempts at the zoom rubber band
+        /// both failed on device, and the Simulator could not be driven reliably
+        /// enough to tell me which link in the chain was broken. Watching the result
+        /// instead of the cause sidesteps the question entirely: it does not matter
+        /// whether our pinch handler ran, whether SceneKit's built-in controller did
+        /// the zooming, or whether the two fought — if the camera ends up somewhere
+        /// other than home and the user is not touching the screen, it comes back.
+        ///
+        /// Deliberately cheap and deliberately dumb: 10 Hz, a distance compare, and
+        /// an early-out while any recognizer is mid-gesture so it can never yank the
+        /// view out from under a live pinch.
+        func startZoomWatchdog() {
+            zoomWatchdog?.invalidate()
+            zoomWatchdog = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                self?.springBackIfCameraDrifted()
+            }
+        }
+
+        private func springBackIfCameraDrifted() {
+            guard focusedNow == nil, !animatingForward, let view, let cam = view.pointOfView else { return }
+            // Never interrupt a gesture that is still in progress.
+            if let gestures = view.gestureRecognizers,
+               gestures.contains(where: { $0.state == .began || $0.state == .changed }) { return }
+            // Compare the MODEL position, not the presentation one: the spring sets
+            // the model value immediately, so an in-flight return already reads as
+            // "home" here and cannot re-trigger itself every tick.
+            let d = RigDiorama.distance(from: cam.position, to: RigDiorama.lookTarget)
+            guard abs(d - RigDiorama.defaultCameraDistance) > 0.02 else { return }
+            springBackToCenter()
+        }
+
+        deinit { zoomWatchdog?.invalidate() }
+
         @objc func handleOrbitPan(_ g: UIPanGestureRecognizer) {
             // `!lifting`: a piece is being pulled off the stage, so the finger is
             // moving the GEAR, not the camera. Without this the diorama would
@@ -345,8 +422,68 @@ struct RigStage3DView: UIViewRepresentable {
             }
         }
 
-        /// Snap the camera back to the framed home view when the user lets go — keeping
-        /// their zoom (distance) and easing straight to the home ANGLE, ending square.
+        // MARK: Pinch → spring the ZOOM back too
+
+        /// The zoom half of the rubber band — and this handler does the ZOOMING as
+        /// well as the spring-back, deliberately.
+        ///
+        /// Two earlier attempts left this as a passive observer of
+        /// `allowsCameraControl`'s built-in pinch, and neither made the camera come
+        /// back. Rather than keep guessing which half was at fault — the observer
+        /// never firing, or the built-in controller restoring its own cached pose
+        /// once control was handed back and undoing the ease — the zoom is now ours
+        /// end to end. The built-in controller is switched OFF for the duration of
+        /// the pinch, so there is no second owner of the camera to fight, and this
+        /// handler cannot silently fail to run: if the view zooms at all, it ran.
+        @objc func handlePinch(_ g: UIPinchGestureRecognizer) {
+            guard focusedNow == nil, let view, let cam = view.pointOfView else { return }
+            switch g.state {
+            case .began:
+                // Catch the camera mid-return so the pinch resumes from where it
+                // actually is instead of jumping.
+                cam.position = cam.presentation.position
+                cam.orientation = cam.presentation.orientation
+                cam.removeAllAnimations()
+                cam.removeAllActions()
+                view.allowsCameraControl = false        // we own the camera now
+                pinchStartDistance = RigDiorama.distance(from: cam.position,
+                                                         to: RigDiorama.lookTarget)
+            case .changed:
+                guard pinchStartDistance > 0 else { return }
+                // Fingers apart (scale > 1) = zoom in = a SMALLER radius. Clamped to
+                // the same bounds `framedPose` uses, so a pinch can never crop the
+                // pedalboard (see `minCameraDistance`).
+                let raw = pinchStartDistance / Float(max(g.scale, 0.01))
+                let d = min(max(raw, RigDiorama.minCameraDistance), RigDiorama.maxCameraDistance)
+                let t = RigDiorama.lookTarget, p = cam.position
+                let v = SCNVector3(p.x - t.x, p.y - t.y, p.z - t.z)
+                let len = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+                guard len > 1e-5 else { return }
+                // Change ONLY the radius — the user keeps whatever angle they orbited to.
+                SCNTransaction.begin()
+                SCNTransaction.animationDuration = 0     // track the fingers exactly
+                cam.position = SCNVector3(t.x + v.x / len * d,
+                                          t.y + v.y / len * d,
+                                          t.z + v.z / len * d)
+                SCNTransaction.commit()
+            case .ended, .cancelled, .failed:
+                pinchStartDistance = 0
+                springBackToCenter()                     // hands control back on landing
+            default:
+                break
+            }
+        }
+
+        /// Snap the camera back to the framed home view when the user lets go —
+        /// ANGLE *and* ZOOM, always, whichever gesture they were using.
+        ///
+        /// This deliberately does NOT try to be clever about which recognizer saw the
+        /// gesture. An earlier version preserved the user's zoom on an orbit release
+        /// and only rubber-banded it on a pinch release, which meant the behaviour
+        /// depended on UIKit's choice of recognizer for a given touch sequence — and
+        /// a two-finger pinch drives BOTH a pinch and (by default) a pan, so the
+        /// preserve-zoom path could win the race and silently cancel the return. The
+        /// stage has one composed home view; every gesture ends back at it.
         ///
         /// This mirrors the fly-IN exactly: take the camera offline
         /// (`allowsCameraControl = false`, handed back on landing) and let a single
@@ -358,8 +495,8 @@ struct RigStage3DView: UIViewRepresentable {
         /// set snapped it straight.) Offline also stops the camera controller fighting it.
         private func springBackToCenter() {
             guard focusedNow == nil, let view, let cam = view.pointOfView else { return }
-            let distance = RigDiorama.distance(from: cam.presentation.position, to: RigDiorama.lookTarget)
-            let (end, endOrientation) = RigDiorama.framedPose(atDistanceFromTarget: distance)
+            let (end, endOrientation) =
+                RigDiorama.framedPose(atDistanceFromTarget: RigDiorama.defaultCameraDistance)
 
             view.allowsCameraControl = false               // take over so nothing fights the ease
             cam.position = cam.presentation.position        // start from the live pose so it eases,
@@ -395,9 +532,17 @@ struct RigStage3DView: UIViewRepresentable {
                 localNormal = SCNVector3(0, 0.85, 0.5)   // knob panel (top), tilted toward the front
                 dist = 1.15
             case .amp, .cabinet, .combo:
-                localFocus = SCNVector3(0, 1.12, 0.68)   // center of the amp's knob row on the faceplate
-                localNormal = SCNVector3(0, 0, 1)        // straight-on to the faceplate → flat to the screen
-                dist = 3.6
+                // Measured, not baked. The amp root is now any of three shapes —
+                // a generic stack, an art-fitted stack of different proportions,
+                // or a single squat combo — so a fixed focal point (it used to be
+                // the original head's knob row) framed empty air above a combo.
+                // Centre on whatever is actually there, at its front face.
+                let (lo, hi) = node.boundingBox
+                localFocus = SCNVector3((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, hi.z)
+                localNormal = SCNVector3(0, 0, 1)        // straight-on to the front → flat to the screen
+                // Pull back in proportion to the piece's real world height so a
+                // combo and a full stack fill about the same fraction of frame.
+                dist = max(1.8, (hi.y - lo.y) * node.scale.y * 1.6)
             case .guitar:
                 localFocus = SCNVector3(0, 0, 0)
                 localNormal = SCNVector3(0, 0, 1)        // body front
@@ -665,25 +810,46 @@ struct RigStage3DView: UIViewRepresentable {
 /// positions are in a single world so one camera orbit moves everything together.
 enum RigDiorama {
     /// The point the camera orbits around (roughly the middle of the arrangement).
-    static let lookTarget = SCNVector3(0.5, 0.9, 0.0)
+    /// Lifted with the amp: the stack is the tallest thing here, so orbiting about
+    /// a point down at the pedalboard swung it out of frame.
+    static let lookTarget = SCNVector3(0.5, 1.05, 0.0)
+
     /// Default diorama camera pose (also the pose the focus animation returns to).
-    static let cameraPosition = SCNVector3(0.5, 3.1, 6.9)
-    static let cameraPitch: Float = -0.31
+    ///
+    /// FRAMED FOR THE TALLEST AMP, deliberately. Every stack occupies the same
+    /// vertical envelope by construction — `ProceduralAmp.Layout` solves each one's
+    /// width from a fixed height budget, so a Plexi, a Dual Rectifier and a fitted
+    /// art stack are all exactly `span` tall — and a combo is shorter still. So one
+    /// framing covers the whole catalog, and the number that matters is the MARGIN
+    /// above the head.
+    ///
+    /// That margin used to be roughly zero: the head sat right on the top edge, which
+    /// is why raising the amp scale pushed it out of frame entirely. The camera now
+    /// sits well back, putting the full envelope at ~0.23 of frame height rather than
+    /// the ~0.32 it started at, so the stage reads as a room the rig sits IN rather
+    /// than a box cropped around it. Note the trade, because it is not free: an amp's
+    /// apparent size IS its fraction of the frame, so headroom is paid for by the amp
+    /// reading smaller. What keeps it feeling big is `ampScale` against the guitar
+    /// and board, not the camera.
+    static let cameraPosition = SCNVector3(0.5, 4.3, 10.9)
+    static let cameraPitch: Float = -0.29
     static let cameraFOV: CGFloat = 42
 
-    // MARK: Gentle-recenter framing (orbit release + overlay close)
-    // Both return paths ease the camera's viewing ANGLE back to this canonical home
-    // view while KEEPING the user's chosen zoom (their distance from lookTarget), so
-    // the camera is never shoved back out to the far default. See `framedPose(_:)`.
+    // MARK: Return framing (orbit release + pinch release + overlay close)
+    // Every return path eases the camera all the way back to this canonical home
+    // view — ANGLE and DISTANCE both. An earlier design preserved whatever zoom the
+    // user had chosen, but with the zoom rubber-banding home there is nothing left
+    // to preserve, and making the two paths differ is what let a release cancel a
+    // pinch's own return. One home view, reached the same way every time.
 
-    /// The default framing distance — ‖cameraPosition − lookTarget‖ ≈ 7.24. The
-    /// distance the diorama was designed around; also the farthest a recenter pulls
-    /// back to (see `maxCameraDistance`) and the fallback when no zoom was captured.
+    /// The default framing distance — ‖cameraPosition − lookTarget‖ ≈ 11.37. The
+    /// distance the diorama is composed around, what every gesture returns to, and
+    /// the fallback when no zoom was captured.
     static let defaultCameraDistance = distance(from: cameraPosition, to: lookTarget)
 
-    /// Unit vector from lookTarget out to the default camera. A recenter places the
-    /// camera along this direction at the *preserved* distance, so recentering
-    /// changes only the viewing angle and pitch — never the user's zoom.
+    /// Unit vector from lookTarget out to the default camera. Returns place the
+    /// camera along this direction, so the rig stays centred and the pitch matches
+    /// the designed 3/4 view.
     static let homeDirection: SCNVector3 = {
         let d = defaultCameraDistance
         guard d > 1e-5 else { return SCNVector3(0, 0, 1) }
@@ -692,14 +858,33 @@ enum RigDiorama {
                           (cameraPosition.z - lookTarget.z) / d)
     }()
 
-    /// Bounds the preserved distance is clamped into before easing, so no gear can
-    /// leave the frame at any allowed zoom. `max` = the default framing (never push
-    /// past the pose the diorama was designed around). `min` keeps the widest gear —
-    /// the guitar + stand at world-x ≈ 2.2 — fully inside the 42° horizontal FOV
-    /// (its right edge clips at d ≈ 4.0, so 4.5 leaves a small margin). First-pass
-    /// values, fine to tune on-device.
-    static let maxCameraDistance = defaultCameraDistance
-    static let minCameraDistance: Float = 4.5
+    /// Bounds the zoom is clamped into, so no gear can leave the frame at any
+    /// allowed distance. `max` = the default framing (never push past the pose the
+    /// diorama was composed around).
+    ///
+    /// `min` is the closest you may zoom. It used to be reasoned about as a WIDTH
+    /// problem — the guitar being the widest thing on the stage — but measuring it
+    /// at the enlarged scales showed the real binding constraint is HEIGHT, and it
+    /// is the PEDALBOARD: the board sits closest to the camera (z = 0.4), so as you
+    /// zoom in it runs off the bottom of the frame well before the guitar reaches
+    /// either side.
+    ///
+    /// Measured by parking the default camera at a candidate distance and looking:
+    /// at d = 4.8 the board was cut off mid-pedal; at 6.5 the pedals still touched
+    /// the edge; at 7.0 the pedal bodies were fully clear with only the board's
+    /// front lip at the boundary. 7.2 keeps a little margin on that. **Raising
+    /// `bScale` or moving the board forward means re-measuring this.**
+    /// How far OUT a pinch may pull. This used to be `defaultCameraDistance` — i.e.
+    /// exactly where the camera already sits — so pinching to zoom out clamped on
+    /// the very first frame, moved the camera not at all, and therefore had nothing
+    /// to spring back FROM. Zoom-in bounced and zoom-out did nothing, which reads as
+    /// "the bounce only works one way". Zoom-in was unaffected because `min` (7.2)
+    /// leaves it real room to travel.
+    ///
+    /// Now that every gesture returns home, letting the user pull back temporarily
+    /// costs nothing — the wider view is transient by construction.
+    static let maxCameraDistance = defaultCameraDistance * 1.75
+    static let minCameraDistance: Float = 7.2
 
     /// Straight-line distance between two points (the camera↔lookTarget zoom radius).
     static func distance(from p: SCNVector3, to q: SCNVector3) -> Float {
@@ -728,12 +913,18 @@ enum RigDiorama {
         return (position, aim.orientation)
     }
 
-    static func signature(amp: GearItem?, pedals: [GearItem], guitar: GearItem?) -> String {
-        "\(amp?.id.uuidString ?? "-")|\(guitar?.id.uuidString ?? "-")|"
+    /// What the scene is BUILT from. The scene is only rebuilt when this string
+    /// changes, so every piece the builder reads has to appear here — the
+    /// cabinet included, or swapping cabs would leave the old one on screen
+    /// until some unrelated change happened to force a rebuild.
+    static func signature(amp: GearItem?, cabinet: GearItem?,
+                          pedals: [GearItem], guitar: GearItem?) -> String {
+        "\(amp?.id.uuidString ?? "-")|\(cabinet?.id.uuidString ?? "-")|\(guitar?.id.uuidString ?? "-")|"
             + pedals.map { $0.id.uuidString }.joined(separator: ",")
     }
 
-    static func make(amp: GearItem?, pedals: [GearItem], guitar: GearItem?) -> SCNScene {
+    static func make(amp: GearItem?, cabinet: GearItem?,
+                     pedals: [GearItem], guitar: GearItem?) -> SCNScene {
         let scene = SCNScene()
         let world = SCNNode()
         world.name = "world"
@@ -746,12 +937,23 @@ enum RigDiorama {
         if amp != nil {
             let ampRoot = SCNNode()
             ampRoot.name = "ampRoot"
+            // Fallback chain, first hit wins:
+            //   1. a custom `.usdz` for the amp (head AND cab are one model — the
+            //      documented seam in CUSTOMIZING-GEAR.md, which still wins outright),
+            //   2. the procedural stack textured with the amp's and cab's own art,
+            //   3. the plain generic stack.
             if let loaded = GearModelLoader.modelNode(for: amp) {   // custom .usdz: modelName / <slug> / category
                 ampRoot.addChildNode(loaded)
             } else {
-                ProceduralAmp.build(into: ampRoot)
+                ProceduralAmp.build(into: ampRoot, amp: amp, cabinet: cabinet)
             }
-            let ampScale: Float = 0.55
+            // The amp is the centrepiece and was reading small next to the board and
+            // the guitar — it is the piece you actually chose. Scaled up so it holds
+            // the middle of the stage; the lift keeps its base on the floor either way.
+            // This can go this high only because `cameraPosition` now frames the full
+            // envelope with margin — at the old framing anything past ~0.62 clipped the
+            // head off the top edge.
+            let ampScale: Float = 0.70
             ampRoot.scale = SCNVector3(ampScale, ampScale, ampScale)
             ampRoot.position = SCNVector3(-0.1, 2.15 * ampScale, -0.9)   // aligned in x with the pedalboard
             world.addChildNode(ampRoot)
@@ -760,7 +962,7 @@ enum RigDiorama {
         // ---- Pedalboard: in front of the amp (toward the camera).
         if !pedals.isEmpty {
             let board = PedalboardScene.boardNode(pedals: pedals)
-            let bScale: Float = 0.44                     // slightly smaller board (matches the add marker)
+            let bScale: Float = 0.54                     // scaled up with the guitar (matches the add marker)
             board.scale = SCNVector3(bScale, bScale, bScale)
             board.position = SCNVector3(-0.1, 0.16 * bScale, 0.4)   // close in front of the amp
             board.eulerAngles.x = -0.12                 // slight rake toward the camera
@@ -771,11 +973,15 @@ enum RigDiorama {
         // an empty board (which draws no board at all), so the answer to "where do
         // pedals go?" is in the same place whether you have none or five. Hidden
         // until a pedal is actually in the air — see RigStage3DView.setAddSlot.
-        let bScale: Float = 0.44
+        // Same scale as the board above — the marker is meant to read as the next
+        // slot ON that board, so if the two ever diverge it sits at the wrong size
+        // and the wrong height. Its y was 0.42 when the board was 0.44, so it is
+        // expressed against `bScale` now rather than left as a bare constant.
+        let bScale: Float = 0.54
         let addSlot = PedalboardScene.addSlotNode()
         addSlot.scale = SCNVector3(bScale, bScale, bScale)
         addSlot.position = SCNVector3(-0.1 + bScale * PedalboardScene.nextSlotX(pedalCount: pedals.count),
-                                      0.42, 0.4)
+                                      0.955 * bScale, 0.4)
         addSlot.isHidden = true
         world.addChildNode(addSlot)
 
@@ -792,7 +998,10 @@ enum RigDiorama {
         } else {
             ProceduralGuitar.buildStand(into: guitarRoot)
         }
-        let gScale: Float = 0.34
+        // Bigger, which pushes the guitar's right edge out — and that edge is what
+        // sets `minCameraDistance`, since it is the widest thing on the stage. The
+        // two numbers move together; see the note there.
+        let gScale: Float = 0.42
         guitarRoot.scale = SCNVector3(gScale, gScale, gScale)
         guitarRoot.position = SCNVector3(1.8, 2.1 * gScale, -0.3)   // in closer to the amp
         guitarRoot.eulerAngles.y = -0.5
@@ -803,7 +1012,9 @@ enum RigDiorama {
         // ---- Lighting + grounding shadows + camera.
         Studio3D.addLighting(to: scene)
         if amp != nil {
-            Studio3D.addContactShadow(to: scene.rootNode, width: 3.4, height: 2.5,
+            // Widened with the amp itself — a 0.70-scale stack casting the old
+            // 0.55-scale shadow reads as floating.
+            Studio3D.addContactShadow(to: scene.rootNode, width: 3.8, height: 2.8,
                                       at: SCNVector3(-0.1, 0.02, -0.85), name: "ampRootShadow")
         }
         if !pedals.isEmpty {
@@ -823,8 +1034,9 @@ enum RigDiorama {
 
 #Preview {
     RigStage3DView(
-        amp: GearItem(name: "Marshall JCM800", category: .amp,
+        amp: GearItem(name: "Marswell JCM800 2203", category: .amp,
                       values: ["Gain": 8, "Bass": 6, "Mid": 4, "Treble": 7, "Presence": 5, "Master": 6]),
+        cabinet: GearItem(name: "Marswell 1960A 4x12", category: .cabinet),
         pedals: [GearItem(name: "Ibonez Tube Screamer", category: .overdrive),
                  GearItem(name: "VOSS Digital Delay", category: .delay),
                  GearItem(name: "VOSS Reverb", category: .reverb)],

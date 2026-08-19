@@ -455,10 +455,17 @@ public final class RigStore: ObservableObject {
     /// app no longer ships (and has no artwork for).
     ///   1 — original placeholder catalog
     ///   2 — the 47 licensed-art pedals
+    ///   3 — amps/cabs/combos re-badged to invented brands to match their new
+    ///       bespoke art (Marshall JCM800 → Marswell JCM800 2203, …), Twin Reverb
+    ///       and AC30 recategorised as combos, and the four art-less amps retired.
+    ///       Renaming shipped gear and bumping this are ONE atomic change: the
+    ///       icon seam matches on name, so a saved rig left on the old names would
+    ///       resolve no asset and show procedural art forever.
+    ///
     /// Player-driven removal does NOT bump this: the schema is unchanged (a
     /// deletion is just a shorter `collection` array), and re-seeding would hand
     /// back the very gear the player just threw away.
-    static let catalogVersion = 2
+    static let catalogVersion = 3
 
     struct PersistedState: Codable {
         var collection: [GearItem]
@@ -501,9 +508,13 @@ public final class RigStore: ObservableObject {
     // types (GearItem / RigConfiguration), touching no `@MainActor` state.
     nonisolated static func seed() -> (collection: [GearItem], rig: RigConfiguration) {
         let guitar   = GearItem(name: "Les Paul Standard", category: .guitar)
-        let amp      = GearItem(name: "Marshall JCM800",   category: .amp, values: ["Gain": 0, "Bass": 2, "Mid": 5, "Treble": 5, "Presence": 8, "Master": 10])
-        let cab      = GearItem(name: "Marshall 1960A 4x12", category: .cabinet)
-        let combo    = GearItem(name: "Fender Deluxe",     category: .comboAmp)
+        let amp      = GearItem(name: "Marswell JCM800 2203", category: .amp, values: ["Gain": 0, "Bass": 2, "Mid": 5, "Treble": 5, "Presence": 8, "Master": 10])
+        let cab      = GearItem(name: "Marswell 1960A 4x12", category: .cabinet)
+        // Replaces the retired "Fender Deluxe" as the owned starter combo. Picked
+        // deliberately: it is the only new combo whose name still routes to the
+        // brighter 1x12 cab IR (`ParameterMap.cabSlot` matches "ac30"), so the
+        // seeded stack → combo swap keeps audibly changing the cab as before.
+        let combo    = GearItem(name: "Volt AC30",         category: .comboAmp)
         let tuner    = GearItem(name: "VOSS Chromatic Tuner", category: .tuner)
         let wah      = GearItem(name: "DUNLAP CRY BABY",   category: .wah)
         let comp     = GearItem(name: "MXP dyna comp",     category: .compressor)
@@ -531,13 +542,30 @@ public final class RigStore: ObservableObject {
             GearItem(name: name, category: category)
         }
         return [
-            // Amp heads
-            mk("Marshall JCM800", .amp), mk("Fender Twin Reverb", .amp), mk("Vox AC30", .amp),
-            mk("Mesa Dual Rectifier", .amp), mk("Orange Rockerverb", .amp),
-            // Cabinets
-            mk("Marshall 1960A 4x12", .cabinet), mk("Marshall 1936 2x12", .cabinet), mk("Fender 1x12", .cabinet),
-            // Combo amps
-            mk("Fender Deluxe", .comboAmp), mk("Vox AC15", .comboAmp),
+            // ---- Amps, cabinets, combos --------------------------------------
+            // Re-badged like the pedals below (Marswell/Fandor/Volt/Tangerine/
+            // Mesa Boogey/Rolund/Freedman) so nothing ships under a real
+            // trademark, and named so `GearIconLoader.slug(name)` lands exactly
+            // on the bespoke imageset — these names are load-bearing.
+            //
+            // Every entry here has artwork; the four art-less heads that used to
+            // sit in this list (Marshall 1936 2x12, Fender 1x12, Fender Deluxe,
+            // Vox AC15) are retired rather than left to render the procedural
+            // fallback beside thirteen illustrated neighbours.
+
+            // Amp heads (art drawn ~2:1)
+            mk("Marswell JCM800 2203", .amp), mk("Marswell Plexi Super Lead 1959", .amp),
+            mk("Freedman BE-100", .amp), mk("Mesa Boogey Dual Rectifier", .amp),
+            mk("Tangerine Rockerverb 100", .amp),
+            // Cabinets (art drawn taller than wide, ~0.86:1)
+            mk("Marswell 1960A 4x12", .cabinet), mk("Mesa Boogey Oversized 4x12", .cabinet),
+            mk("Tangerine PPC412", .cabinet),
+            // Combo amps (art drawn near-square, ~1.13:1). Twin Reverb and AC30
+            // used to be catalogued as heads; both are combos in the real world
+            // and both are drawn combo-shaped, so they live here now.
+            mk("Fandor Twin Reverb", .comboAmp), mk("Volt AC30", .comboAmp),
+            mk("Marswell DSL40C", .comboAmp), mk("Rolund JC-120 Jazz Chorus", .comboAmp),
+            mk("Fandor Bassman '59", .comboAmp), mk("VOSS Katana 100", .comboAmp),
             // ---- Pedals ------------------------------------------------------
             // The 47 shipped models. Every one has a bespoke icon in
             // Assets.xcassets keyed off `GearIconLoader.slug(name)`, so these

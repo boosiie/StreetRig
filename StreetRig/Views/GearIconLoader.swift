@@ -15,6 +15,12 @@
 //    `GearItem.modelName` .usdz seam, but resolved by name instead of a stored
 //    field — so already-saved rigs keep working untouched.
 //
+//  ALSO THE 3D STAGE. The icon is no longer 2D-only: when no custom `.usdz`
+//  exists, `ProceduralAmp` textures the amp head's and cabinet's front faces
+//  with this same image (via `uiImage(for:)`) and takes the box proportions
+//  from its pixel size — so one correctly-named PNG dresses the cards, the
+//  library, the rail AND the diorama.
+//
 //  TO ADD A CUSTOM ICON (designer workflow — see GearIcons-README.md):
 //    1. Slug the piece's name with the rule below ("ProCon RAT" ->
 //       "procon-rat").
@@ -46,7 +52,8 @@ enum GearIconLoader {
     ///   "Ibonez Tube Screamer"         -> "ibonez-tube-screamer"
     ///   "electro-harmonium BIG MUFF π" -> "electro-harmonium-big-muff"
     ///   "Fullstone Deja'Vibe"          -> "fullstone-deja-vibe"
-    ///   "Marshall JCM800" -> "marshall-jcm800"   "1960A" -> "1960a"
+    ///   "Marswell JCM800 2203"         -> "marswell-jcm800-2203"
+    ///   "Fandor Bassman '59"           -> "fandor-bassman-59"
     static func slug(_ name: String) -> String {
         let dashed = name
             .lowercased()
@@ -67,6 +74,17 @@ enum GearIconLoader {
     /// decoded image, so no custom cache is needed. Supports both PNG and vector
     /// PDF imagesets natively.
     static func image(for item: GearItem?) -> Image? {
+        uiImage(for: item).map { Image(uiImage: $0) }
+    }
+
+    /// The same resolution, handed back as a `UIImage`.
+    ///
+    /// Exists because the 3D stage is a second renderer of the very same art:
+    /// SceneKit needs a `UIImage` to texture a face, and needs its PIXEL SIZE to
+    /// derive the box's proportions from the drawing (see `ProceduralAmp`). One
+    /// name rule, two renderers — resolving it twice by two different rules is
+    /// exactly the drift this seam exists to prevent.
+    static func uiImage(for item: GearItem?) -> UIImage? {
         // Guard: no item, or an empty/blank name (e.g. LibraryView's category
         // header placeholders use `GearItem(name: "", ...)`) -> skip lookup and
         // let the procedural art render, exactly as today.
@@ -75,13 +93,9 @@ enum GearIconLoader {
         guard !key.isEmpty else { return nil }
 
         // 1. Bespoke, per-piece icon.
-        if let ui = UIImage(named: key) {
-            return Image(uiImage: ui)
-        }
+        if let ui = UIImage(named: key) { return ui }
         // 2. Optional shared per-category default.
-        if let ui = UIImage(named: "category-\(item.category.rawValue)") {
-            return Image(uiImage: ui)
-        }
+        if let ui = UIImage(named: "category-\(item.category.rawValue)") { return ui }
         // 3. No custom asset — signal the caller to use procedural art.
         return nil
     }

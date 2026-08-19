@@ -41,8 +41,11 @@ struct RigStageView: View {
 
     private let maxAngle: CGFloat = 20
 
-    /// One 3D diorama for a head+cab stack; the vector layout otherwise.
-    private var use3DStage: Bool { FeatureFlags.amp3D && !store.isCombo }
+    /// The 3D diorama, for every amp section. A combo used to fall back here to
+    /// the flat vector layout, which meant picking a combo dropped the WHOLE
+    /// stage — pedalboard and guitar included — out of 3D. The combo is now just
+    /// a one-box amp in the same scene, so only the amp's shape changes.
+    private var use3DStage: Bool { FeatureFlags.amp3D }
 
     var body: some View {
         ZStack {
@@ -53,7 +56,8 @@ struct RigStageView: View {
                 // Dragging a card over it glows the exact piece it would replace
                 // (handled inside RigStage3DView) and drops swap that piece.
                 RigStage3DView(
-                    amp: store.ampItem, pedals: store.pedalItems, guitar: store.guitar,
+                    amp: store.ampItem, cabinet: store.cabinetItem,
+                    pedals: store.pedalItems, guitar: store.guitar,
                     focused: focused,
                     pedalInFlight: drag.item?.category.isPedal == true,
                     onFocus: { component in
@@ -186,9 +190,16 @@ struct RigStageView: View {
                 if store.isCombo {
                     gearView(.combo, item: store.ampItem, width: 156, height: 116)
                 } else {
+                    // Head and cab are framed as ONE stack: a shared width, with
+                    // each height falling out of that piece's drawn aspect (head
+                    // ≈ 2.05:1, cab ≈ 0.87:1). Sized off the cabinet's original
+                    // 98pt height so the stack keeps its vertical footprint —
+                    // the axis this composition is actually tight on. Framing the
+                    // two independently made the head come out wider than the cab
+                    // it stands on, which no stack has ever looked like.
                     VStack(spacing: 5) {
-                        gearView(.amp, item: store.ampItem, width: 138, height: 46)
-                        gearView(.cabinet, item: store.cabinetItem, width: 166, height: 98)
+                        gearView(.amp, item: store.ampItem, width: 84, height: 41)
+                        gearView(.cabinet, item: store.cabinetItem, width: 85, height: 98)
                     }
                 }
                 vectorPedalboard
