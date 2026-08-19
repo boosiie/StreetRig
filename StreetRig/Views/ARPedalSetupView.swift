@@ -400,8 +400,8 @@ private struct ARFloorSlotView: View {
         .opacity(held ? 0 : 1)
         .frame(width: 132)
         .contentShape(Rectangle())
-        .arSlotInteraction(index: index, pedal: pedal, held: $held, targeted: $targeted,
-                           onAssign: onAssign)
+        .arSlotInteraction(index: index, pedal: pedal, cornerRadius: 16,
+                           held: $held, targeted: $targeted, onAssign: onAssign)
     }
 }
 
@@ -484,8 +484,8 @@ private struct ARSlotView: View {
         .frame(maxWidth: .infinity)
         .opacity(held ? 0 : 1)
         .contentShape(Rectangle())
-        .arSlotInteraction(index: index, pedal: pedal, held: $held, targeted: $targeted,
-                           onAssign: onAssign)
+        .arSlotInteraction(index: index, pedal: pedal, cornerRadius: 18,
+                           held: $held, targeted: $targeted, onAssign: onAssign)
     }
 
     /// Amber wins, always. It is the PEDAL's state — engaged, or being dropped onto —
@@ -505,10 +505,11 @@ extension View {
     /// Tap, drop-onto, and lift-off — the three things a footswitch does, attached
     /// identically to the bottom row and to a pedal on the floor. Shared so the two
     /// presentations cannot drift into behaving differently.
-    func arSlotInteraction(index: Int, pedal: GearItem?, held: Binding<Bool>,
-                           targeted: Binding<Bool>, onAssign: @escaping () -> Void) -> some View {
-        modifier(ARSlotInteraction(index: index, pedal: pedal, held: held,
-                                   targeted: targeted, onAssign: onAssign))
+    func arSlotInteraction(index: Int, pedal: GearItem?, cornerRadius: CGFloat,
+                           held: Binding<Bool>, targeted: Binding<Bool>,
+                           onAssign: @escaping () -> Void) -> some View {
+        modifier(ARSlotInteraction(index: index, pedal: pedal, cornerRadius: cornerRadius,
+                                   held: held, targeted: targeted, onAssign: onAssign))
     }
 }
 
@@ -522,6 +523,9 @@ private struct ARSlotInteraction: ViewModifier {
     @Environment(\.rigDrag) private var drag: RigDragController?
     let index: Int
     let pedal: GearItem?
+    /// Corner radius of the ring drawn around this slot while it charges — the
+    /// bottom row is a rounded box, a floor pedal's label is a capsule.
+    let cornerRadius: CGFloat
     @Binding var held: Bool
     @Binding var targeted: Bool
     let onAssign: () -> Void
@@ -531,8 +535,24 @@ private struct ARSlotInteraction: ViewModifier {
     /// as the rail card's lift. See GearCardView.liftDrag.
     private let unreachable: CGFloat = 10_000
 
+    /// The charge waits, then runs; the two sum to the hold duration, exactly as
+    /// the rail card's does. Same numbers on purpose — one "pick gear up" in the
+    /// whole app means one length of hold and one animation for it.
+    private let chargeDelay: Duration = .milliseconds(80)
+    private let chargeFill: TimeInterval = 0.17
+
+    /// 0…1 across the hold, driving the ring AND the squeeze from one value.
+    @State private var charge: CGFloat = 0
+    @State private var chargeTask: Task<Void, Never>?
+    /// Flipped by the charge animation finishing, not by the press timer — see
+    /// `beginCharge`.
+    @State private var charged = false
+    @State private var pressing = false
+
     func body(content: Content) -> some View {
         content
+            .scaleEffect(1 - 0.04 * charge)     // animates with `charge`, no second curve
+            .overlay { holdRing }
             .onTapGesture {
                 guard !held else { return }
                 if pedal == nil {
@@ -550,10 +570,18 @@ private struct ARSlotInteraction: ViewModifier {
                 // has travelled far enough to recognise, the swipe it would be
                 // mistaken for has already started.
                 lift.armed = true
-            } onPressingChanged: { pressing in
-                // A hold that never became a drag has to let go again, or the slot
-                // stays invisible and untappable — and the pager stays frozen.
-                if !pressing && drag?.item == nil {
+            } onPressingChanged: { isPressing in
+                pressing = isPressing
+                if isPressing {
+                    guard pedal != nil else { return }
+                    beginCharge()
+                    return
+                }
+                endCharge()
+                // The drag below may never reach its threshold, so lifting the
+                // finger here is the only guaranteed end: without it a
+                // hold-and-release strands the ghost and leaves the pager frozen.
+                if held && drag?.item == nil {
                     held = false
                     lift.armed = false
                 }
@@ -566,26 +594,80 @@ private struct ARSlotInteraction: ViewModifier {
             // it. The pager is kept off this drag by `ARSlotLift` instead, which is
             // the same move the rail makes by disabling its ScrollView.
             .simultaneousGesture(liftDrag)
+            // At 0.25s the hold is too short to be sure of by eye, so the thump is
+            // what says the pedal is actually in your hand — on the frame the ring
+            // closes, which is why it triggers off `charged`.
+            .sensoryFeedback(.impact(weight: .medium, intensity: 0.8), trigger: charged) { _, done in done }
             .background { SlotDropArea(index: index, targeted: $targeted) }
     }
 
+    /// Fills over the hold, so an aborted press shows a half-drawn ring — which
+    /// teaches "too early" rather than "nothing happened". The rail card's ring,
+    /// on a slot.
+    private var holdRing: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .trim(from: 0, to: charge)
+            .stroke(RigTheme.amber, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            .opacity(held ? 0 : 1)
+            .animation(.easeOut(duration: 0.14), value: held)
+            .allowsHitTesting(false)
+    }
+
+    /// MEASURED IN THE WINDOW, then converted — never in `.named("appRoot")`.
+    ///
+    /// A slot lives inside the shell's paged TabView, and a named coordinate space
+    /// does not resolve across that bridge: the gesture quietly reports points in
+    /// the slot's OWN space instead, which put the ghost in the top-left corner of
+    /// the screen the moment a pedal was picked up. `.global` always resolves, and
+    /// `appRootPoint` is the conversion the 3D stage's lift already uses for exactly
+    /// this reason.
     private var liftDrag: some Gesture {
-        DragGesture(minimumDistance: held ? 20 : unreachable, coordinateSpace: .named("appRoot"))
+        DragGesture(minimumDistance: held ? 20 : unreachable, coordinateSpace: .global)
             .onChanged { move in
                 guard held, let drag, let pedal else { return }
+                let point = drag.appRootPoint(fromWindow: move.location)
                 // `.arSlot` origin: the trash takes this OFF THE SWITCH and nothing
                 // more — the pedal keeps its place in the chain and stays owned.
-                if drag.item == nil { drag.begin(pedal, at: move.location, from: .arSlot(index)) }
-                else { drag.move(to: move.location) }
+                if drag.item == nil { drag.begin(pedal, at: point, from: .arSlot(index)) }
+                else { drag.move(to: point) }
             }
             .onEnded { move in
                 guard held, let drag else { return }
                 held = false
                 lift.armed = false
+                endCharge()
                 guard drag.item?.id == pedal?.id else { return }
-                drag.move(to: move.location)
+                drag.move(to: drag.appRootPoint(fromWindow: move.location))
                 drag.end()
             }
+    }
+
+    private func beginCharge() {
+        chargeTask?.cancel()
+        charged = false
+        chargeTask = Task { @MainActor in
+            try? await Task.sleep(for: chargeDelay)
+            guard !Task.isCancelled else { return }
+            withAnimation(.linear(duration: chargeFill)) {
+                charge = 1
+            } completion: {
+                // Fired by the animation finishing rather than the press timer, so
+                // the thump lands on the frame the eye sees the ring close. The
+                // guard keeps an aborted hold silent.
+                guard pressing else { return }
+                charged = true
+            }
+        }
+    }
+
+    /// The abort/finish path. A successful hold keeps its charge up until the pedal
+    /// is put down, so nothing springs back at the instant of success.
+    private func endCharge() {
+        chargeTask?.cancel()
+        chargeTask = nil
+        charged = false
+        guard !held else { return }
+        withAnimation(.easeOut(duration: 0.12)) { charge = 0 }
     }
 }
 
@@ -615,7 +697,12 @@ private struct SlotDropArea: View {
         GeometryReader { proxy in
             Color.clear
                 .onAppear {
-                    area.frame = proxy.frame(in: .named("appRoot"))
+                    // WINDOW space, converted on read — a named space does not
+                    // resolve across the shell's paged TabView, so measuring in
+                    // "appRoot" here silently returns something else. Same reason
+                    // the lift gesture measures globally. See RigDropArea.Space.
+                    area.space = .window
+                    area.frame = proxy.frame(in: .global)
                     // Pedals only. Refusing an amp here means it never highlights
                     // the slot and never lands in it — a footswitch onto an amp is
                     // not a thing the audio path can express.
@@ -645,7 +732,7 @@ private struct SlotDropArea: View {
                     }
                     drag?.register(area)
                 }
-                .onChange(of: proxy.frame(in: .named("appRoot"))) { _, frame in
+                .onChange(of: proxy.frame(in: .global)) { _, frame in
                     area.frame = frame
                 }
                 .onDisappear { drag?.deregister(area) }
