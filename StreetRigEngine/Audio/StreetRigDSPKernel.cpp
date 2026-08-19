@@ -42,6 +42,8 @@ inline RampedGain *gainForAddress(DSPKernel *k, uint64_t address) noexcept {
         case SRParamOutputLevel: return &k->outputLevel;
         case SRParamAmpDrive:    return &k->ampDrive;
         case SRParamAmpMakeup:   return &k->ampMakeup;
+        case SRParamAmpVolume:   return &k->ampVolume;
+        case SRParamAmpPower:    return &k->ampPower;
         default:                 return nullptr;
     }
 }
@@ -58,6 +60,13 @@ SRKernelRef SRKernelCreate(void) {
     k->ampDrive.current = 3.0f;
     k->ampMakeup.target.store(1.0f, std::memory_order_relaxed);
     k->ampMakeup.current = 1.0f;
+    // Unity volume into the power amp and 100 W of headroom, so an untouched
+    // kernel — and every already-saved rig or host session, which carries no
+    // value for either — behaves exactly as it did before the power amp existed.
+    k->ampVolume.target.store(1.0f, std::memory_order_relaxed);
+    k->ampVolume.current = 1.0f;
+    k->ampPower.target.store(1.0f, std::memory_order_relaxed);
+    k->ampPower.current = 1.0f;
     return k;
 }
 
@@ -75,6 +84,8 @@ void SRKernelPrepare(SRKernelRef kernel, double sampleRate, int channelCount, in
     k->outputLevel.reset();
     k->ampDrive.reset();
     k->ampMakeup.reset();
+    k->ampVolume.reset();
+    k->ampPower.reset();
     k->pedals.prepare(k->sampleRate, k->channelCount);
     k->processor.prepare(k->sampleRate, k->channelCount, k->maxFrames);
     k->chainGain = 1.0f;
@@ -87,6 +98,8 @@ void SRKernelReset(SRKernelRef kernel) {
     k->outputLevel.reset();
     k->ampDrive.reset();
     k->ampMakeup.reset();
+    k->ampVolume.reset();
+    k->ampPower.reset();
     k->pedals.reset();
     k->processor.reset();
 }
@@ -125,7 +138,11 @@ void SRKernelSetParameter(SRKernelRef kernel, uint64_t address, float value) {
         case SRParamAmpBass:      k->processor.setToneBandDB(0, value); break;
         case SRParamAmpMid:       k->processor.setToneBandDB(1, value); break;
         case SRParamAmpTreble:    k->processor.setToneBandDB(2, value); break;
-        case SRParamAmpPresence:  k->processor.setToneBandDB(3, value); break;
+        // Presence is routed by the PROFILE, not by the kernel: tone band 3 for
+        // the legacy voicing, the power-amp NFB shelf for every profiled amp.
+        // Both destinations recompute off the audio thread, so this adds no new
+        // threading concern — and the kernel stays profile-agnostic.
+        case SRParamAmpPresence:  k->processor.setPresenceDB(value); break;
         default: break;
     }
 }
@@ -212,6 +229,33 @@ void SRKernelConfigurePedal(SRKernelRef kernel, int slot, int type, int characte
     k->pedals.setParam(slot, streetrig::PedalChain::Enabled, enabled ? 1.0f : 0.0f);
 }
 
+void SRKernelSetPedalSplits(SRKernelRef kernel, int splitPre, int splitPost) {
+    auto *k = static_cast<DSPKernel *>(kernel);
+    if (!k) return;
+    k->pedals.setSplits(splitPre, splitPost);
+}
+
+uint64_t SRKernelPedalArenaBytes(SRKernelRef kernel) {
+    auto *k = static_cast<DSPKernel *>(kernel);
+    return k ? (uint64_t)k->pedals.arenaBytes() : 0;
+}
+
+void SRKernelConfigureAmp(SRKernelRef kernel, int profile) {
+    auto *k = static_cast<DSPKernel *>(kernel);
+    if (!k) return;
+    k->processor.configureAmp(profile);
+}
+
+int SRKernelActiveAmpProfile(SRKernelRef kernel) {
+    auto *k = static_cast<DSPKernel *>(kernel);
+    return k ? k->processor.activeAmpProfile() : 0;
+}
+
+bool SRKernelAmpProfileBypassesCab(SRKernelRef kernel) {
+    auto *k = static_cast<DSPKernel *>(kernel);
+    return k ? k->processor.profileBypassesCab() : false;
+}
+
 void SRKernelSetReconfiguring(SRKernelRef kernel, bool reconfiguring) {
     auto *k = static_cast<DSPKernel *>(kernel);
     if (!k) return;
@@ -284,22 +328,32 @@ double SRKernelBenchmarkFullNsPerSample(SRKernelRef kernel, int frames, int iter
     p.ampBypass = k->ampBypass.load(std::memory_order_relaxed);
     p.cabBypass = k->cabBypass.load(std::memory_order_relaxed);
     p.useNeural = k->useNeural.load(std::memory_order_relaxed);
-    p.drive     = k->ampDrive.target.load(std::memory_order_relaxed);
-    p.ampOut    = k->ampMakeup.target.load(std::memory_order_relaxed);
+    p.drive      = k->ampDrive.target.load(std::memory_order_relaxed);
+    p.ampOut     = k->ampMakeup.target.load(std::memory_order_relaxed);
+    p.ampVolume  = k->ampVolume.target.load(std::memory_order_relaxed);
+    p.powerScale = k->ampPower.target.load(std::memory_order_relaxed);
 
-    // Warm caches through the WHOLE board (pedals → amp → tone → cab).
-    for (int w = 0; w < 8; ++w) {
-        k->pedals.process(buf.data(), frames, 0);
-        k->processor.process(buf.data(), frames, 0, p);
-    }
+    // Warm caches through the WHOLE board, composed EXACTLY as the render block
+    // composes it — the three pedal spans around the amp, not one span in front
+    // of it. Measuring a different composition than the one that ships would
+    // make the reported CPU a fiction the moment a slot moved into the FX loop.
+    const int splitPre = k->pedals.splitPre();
+    const int splitPost = k->pedals.splitPost();
+    const int slots = streetrig::PedalChain::kMaxPedals;
+    auto board = [&]() noexcept {
+        k->pedals.processSpan(buf.data(), frames, 0, 0, splitPre);
+        k->processor.processPreamp(buf.data(), frames, 0, p);
+        k->pedals.processSpan(buf.data(), frames, 0, splitPre, splitPost);
+        k->processor.processPowerAmp(buf.data(), frames, 0, p);
+        k->processor.processCab(buf.data(), frames, 0, p);
+        k->pedals.processSpan(buf.data(), frames, 0, splitPost, slots);
+    };
+    for (int w = 0; w < 8; ++w) board();
     k->pedals.reset();
     k->processor.reset();
 
     const auto t0 = std::chrono::high_resolution_clock::now();
-    for (int it = 0; it < iterations; ++it) {
-        k->pedals.process(buf.data(), frames, 0);
-        k->processor.process(buf.data(), frames, 0, p);
-    }
+    for (int it = 0; it < iterations; ++it) board();
     const auto t1 = std::chrono::high_resolution_clock::now();
     k->pedals.reset();
     k->processor.reset();
@@ -378,8 +432,19 @@ void SRKernelProcess(SRKernelRef kernel,
     p.ampBypass = k->ampBypass.load(std::memory_order_relaxed);
     p.cabBypass = k->cabBypass.load(std::memory_order_relaxed);
     p.useNeural = k->useNeural.load(std::memory_order_relaxed);
-    p.drive     = k->ampDrive.target.load(std::memory_order_relaxed);
-    p.ampOut    = k->ampMakeup.target.load(std::memory_order_relaxed);
+    p.drive      = k->ampDrive.target.load(std::memory_order_relaxed);
+    p.ampOut     = k->ampMakeup.target.load(std::memory_order_relaxed);
+    // Volume and the power scale are de-zippered INSIDE the power amp (like
+    // drive and makeup), so the targets go across and the ~5 ms one-pole there
+    // is what keeps a power-switch flip click-free.
+    p.ampVolume  = k->ampVolume.target.load(std::memory_order_relaxed);
+    p.powerScale = k->ampPower.target.load(std::memory_order_relaxed);
+
+    // The three pedal spans. Read ONCE per buffer, not per channel, so the two
+    // channels can never straddle a split change mid-block.
+    const int splitPre = k->pedals.splitPre();
+    const int splitPost = k->pedals.splitPost();
+    const int slotCount = streetrig::PedalChain::kMaxPedals;
 
     for (int ch = 0; ch < channels; ++ch) {
         const int inIndex = (static_cast<int>(in->mNumberBuffers) == channels)
@@ -397,14 +462,28 @@ void SRKernelProcess(SRKernelRef kernel,
         float g0 = inStart;
         for (int i = 0; i < frameCount; ++i) { dst[i] = src[i] * g0; g0 += inStep; }
 
-        // 2. PEDAL CHAIN (ordered, pre-amp) — matches the on-screen chain order.
-        k->pedals.process(dst, frameCount, ch);
+        // 2. PEDAL CHAIN — PRE span: everything in front of the amp, in
+        //    on-screen chain order.
+        k->pedals.processSpan(dst, frameCount, ch, 0, splitPre);
 
-        // 3. Amp → tone stack → cab, in place on dst (only channels the processor
-        //    was prepared for; extra channels fall through as pedalboard output).
-        k->processor.process(dst, frameCount, ch, p);
+        // 3. Preamp cascade → tone stack. This is the tap point of a real amp's
+        //    FX loop, which is why the processor exposes it separately.
+        k->processor.processPreamp(dst, frameCount, ch, p);
 
-        // 4. Output level × chain fade ramp (fade covers structural swaps).
+        // 4. PEDAL CHAIN — MID span: the FX loop. Delay and reverb belong here,
+        //    so their tails go THROUGH the power amp and compress with the notes
+        //    instead of floating on top of a finished, cab-filtered signal.
+        k->pedals.processSpan(dst, frameCount, ch, splitPre, splitPost);
+
+        // 5. Power amp (+ master) → cabinet IR.
+        k->processor.processPowerAmp(dst, frameCount, ch, p);
+        k->processor.processCab(dst, frameCount, ch, p);
+
+        // 6. PEDAL CHAIN — POST span: after the speaker, the "post-loop"
+        //    position. Empty unless the rig asks for it.
+        k->pedals.processSpan(dst, frameCount, ch, splitPost, slotCount);
+
+        // 7. Output level × chain fade ramp (fade covers structural swaps).
         float g1 = outStart, cg = cgStart;
         for (int i = 0; i < frameCount; ++i) { dst[i] *= g1 * cg; g1 += outStep; cg += cgStep; }
     }

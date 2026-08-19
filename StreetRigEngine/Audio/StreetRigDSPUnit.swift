@@ -91,6 +91,10 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
     let ampMidParameter: AUParameter
     let ampTrebleParameter: AUParameter
     let ampPresenceParameter: AUParameter
+    // Per-amp voicing — the only two new addresses (12, 13). The voicing PROFILE
+    // itself is structural and travels in the serialized rig, not here.
+    let ampVolumeParameter: AUParameter
+    let ampPowerParameter: AUParameter
 
     // Phase 3 — the OWNED structural rig, serialized in `fullState` and rebuilt on
     // restore / preset select. Default = `RigStore.seed()`. It is NOT applied to
@@ -140,15 +144,41 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
         let field: Int; let id: String; let name: String
         let min: AUValue; let max: AUValue; let unit: AudioUnitParameterUnit; let def: AUValue
     }
+    //
+    // THE DOMAINS ARE GENERIC, and had to become so. A slot is a POOL position,
+    // not a pedal: the same address is a drive pedal's pre-gain in one rig and a
+    // delay's time in milliseconds in the next. The original three fields were
+    // typed for the only family that existed then (`.linearGain` 0.8…25.6,
+    // `.hertz` 700…8500, `.linearGain` 0.1…2.0), which silently CLAMPED every
+    // other family that reached the tree — a 226 ms delay time arrived at the
+    // kernel as 25.6, and an EQ's −12 dB as +0.8. Widening the range and
+    // dropping the unit fixes that for every family at once. Widening is safe
+    // for already-saved host sessions in exactly the sense Phase A used for
+    // `cabSelect`: every previously stored value is still inside the new range,
+    // and the address, identifier and ordering are untouched.
     private static let exposedPedalFields: [PedalFieldSpec] = [
         .init(field: Int(SRPedalFieldEnabled), id: "enabled", name: "Enabled",
               min: 0, max: 1, unit: .boolean, def: 1),                     // per-slot bypass
+        // Param0 — drive 0.8…25.6 · delay time 40…1280 ms · EQ low ±12 dB ·
+        //          gate threshold −70…−20 dB · mod rate 0.1…6.4 Hz · reverb decay
         .init(field: Int(SRPedalFieldDrive), id: "drive", name: "Drive",
-              min: 0.8, max: 25.6, unit: .linearGain, def: 4.53),          // ParameterMap.pedalDrive(0…10)
+              min: -70, max: 1300, unit: .generic, def: 4.53),             // ParameterMap.pedalDrive(0…10)
+        // Param1 — tone 700…8500 Hz · delay feedback 0…0.95 · reverb tone to 12 kHz
         .init(field: Int(SRPedalFieldTone), id: "tone", name: "Tone",
-              min: 700, max: 8500, unit: .hertz, def: 2437.5),             // ParameterMap.pedalToneHz(0…10)
+              min: -12, max: 12000, unit: .generic, def: 2437.5),          // ParameterMap.pedalToneHz(0…10)
+        // Param2 — level 0.1…2.0 · delay/reverb mix 0…0.8 · EQ high ±12 dB
         .init(field: Int(SRPedalFieldLevel), id: "level", name: "Level",
-              min: 0.1, max: 2.0, unit: .linearGain, def: 1.05),           // ParameterMap.pedalLevel(0…10)
+              min: -12, max: 12, unit: .generic, def: 1.05),               // ParameterMap.pedalLevel(0…10)
+        // The two fields the time-based blocks needed. Their ADDRESSES were
+        // already reserved by `SRPedalParamStride = 8`, so nothing moves and
+        // every persisted host automation lane still resolves — the tree simply
+        // grows from 44 parameters to 62. Delay is the only family that reads
+        // them today, hence the labels. Param3 accepts 0, which is the "use the
+        // circuit's own corner" sentinel a pedal with no Tone knob sends.
+        .init(field: Int(SRPedalFieldParam3), id: "param3", name: "Delay Tone",
+              min: 0, max: 12000, unit: .generic, def: 0),                 // ParameterMap.delayToneHz(0…10)
+        .init(field: Int(SRPedalFieldParam4), id: "param4", name: "Mod Depth",
+              min: 0, max: 1, unit: .generic, def: 0),                     // ParameterMap.delayModDepth(0…10)
     ]
 
     // MARK: - Init
@@ -205,10 +235,13 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
             address: AUParameterAddress(SRParamAmpUseNeural.rawValue),
             min: 0.0, max: 1.0, unit: .boolean, unitName: nil,
             flags: [.flag_IsReadable, .flag_IsWritable], valueStrings: nil, dependentParameters: nil)
+        // 0…7 since the engine grew to 8 cab slots. WIDENING a max is safe for
+        // already-saved host sessions — every previously stored value 0–3 is
+        // still in range; narrowing one would not be.
         let cabSelect = AUParameterTree.createParameter(
             withIdentifier: "cabSelect", name: "Cab Select",
             address: AUParameterAddress(SRParamCabSelect.rawValue),
-            min: 0.0, max: 3.0, unit: .indexed, unitName: nil,
+            min: 0.0, max: 7.0, unit: .indexed, unitName: nil,
             flags: [.flag_IsReadable, .flag_IsWritable], valueStrings: nil, dependentParameters: nil)
         // Defaults: amp + cab engaged, prefer the neural capture when one loads
         // (the kernel auto-falls back to the analog amp if none is available).
@@ -235,6 +268,26 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
         let ampMid      = makeEQ("ampMid",      "Amp Mid",      SRParamAmpMid,      12)
         let ampTreble   = makeEQ("ampTreble",   "Amp Treble",   SRParamAmpTreble,   12)
         let ampPresence = makeEQ("ampPresence", "Amp Presence", SRParamAmpPresence,  9)
+
+        // --- Per-amp voicing: Volume (into the power amp) and the power-amp
+        //     headroom scale. Appended at addresses 12/13; every existing address
+        //     is untouched, so persisted automation still resolves. The scale is a
+        //     ramping linear gain rather than an indexed switch on purpose — the
+        //     kernel de-zippers it, which is what makes the power control glide.
+        let ampVolume = AUParameterTree.createParameter(
+            withIdentifier: "ampVolume", name: "Amp Volume",
+            address: AUParameterAddress(SRParamAmpVolume.rawValue),
+            min: 0.0, max: 4.0, unit: .linearGain, unitName: nil,
+            flags: [.flag_IsReadable, .flag_IsWritable, .flag_CanRamp],
+            valueStrings: nil, dependentParameters: nil)
+        let ampPower = AUParameterTree.createParameter(
+            withIdentifier: "ampPower", name: "Amp Power",
+            address: AUParameterAddress(SRParamAmpPower.rawValue),
+            min: 0.05, max: 1.0, unit: .linearGain, unitName: nil,
+            flags: [.flag_IsReadable, .flag_IsWritable, .flag_CanRamp],
+            valueStrings: nil, dependentParameters: nil)
+        ampVolume.value = 1.0      // unity: no change for any amp without a Volume knob
+        ampPower.value = 1.0       // 100 W
 
         // --- Phase 3: fixed 8×4 pedal grid. For each of the kernel's 8 fixed slots
         //     expose ONLY the continuous fields {Enabled, Drive, Tone, Level} at the
@@ -265,7 +318,7 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
         // append-only, so persisted host automation always resolves.
         let ampGroup = AUParameterTree.createGroup(withIdentifier: "amp", name: "Amp", children: [
             inputGain, outputLevel, ampDrive, ampMakeup, ampBypass, cabBypass, useNeural, cabSelect,
-            ampBass, ampMid, ampTreble, ampPresence,
+            ampBass, ampMid, ampTreble, ampPresence, ampVolume, ampPower,
         ])
 
         self.inputGainParameter = inputGain
@@ -280,6 +333,8 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
         self.ampMidParameter = ampMid
         self.ampTrebleParameter = ampTreble
         self.ampPresenceParameter = ampPresence
+        self.ampVolumeParameter = ampVolume
+        self.ampPowerParameter = ampPower
         self._parameterTree = AUParameterTree.createTree(withChildren: [ampGroup] + pedalGroups)
 
         // Own the plugin's default rig for serialization. The plugin boots to a CLEAN
@@ -361,6 +416,10 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
         SRKernelSetParameter(k, ampMid.address, ampMid.value)
         SRKernelSetParameter(k, ampTreble.address, ampTreble.value)
         SRKernelSetParameter(k, ampPresence.address, ampPresence.value)
+        // Both default to unity / 100 W, matching the kernel's own defaults, so
+        // this changes no audio — it keeps the new tree params in sync with the bus.
+        SRKernelSetParameter(k, ampVolume.address, ampVolume.value)
+        SRKernelSetParameter(k, ampPower.address, ampPower.value)
     }
 
     deinit {
@@ -512,7 +571,7 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
     }
 
     /// Push one pedal-slot field (Drive/Tone/Level/…) live through the bus.
-    func setPedalParam(slot: Int, field: Int, value: Float) {
+    public func setPedalParam(slot: Int, field: Int, value: Float) {
         let address = UInt64(SRPedalParamBase) + UInt64(slot) * UInt64(SRPedalParamStride) + UInt64(field)
         SRKernelSetParameter(kernel, address, value)
     }
@@ -525,6 +584,32 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
     func configurePedal(slot: Int, type: Int, character: Int, enabled: Bool) {
         SRKernelConfigurePedal(kernel, Int32(slot), Int32(type), Int32(character), enabled)
     }
+
+    /// Where each slot runs relative to the amp: `[0, pre)` in front of the
+    /// preamp, `[pre, post)` in the amp's FX loop (after the tone stack, before
+    /// the power amp), `[post, count)` after the cabinet. Setup thread; call
+    /// inside the reconfigure barrier.
+    public func setPedalSplits(pre: Int, post: Int) {
+        SRKernelSetPedalSplits(kernel, Int32(pre), Int32(post))
+    }
+
+    /// Bytes reserved by the pedal chain's delay/reverb arena. Diagnostics — the
+    /// offline harness asserts the documented worst-case footprint.
+    public var pedalArenaBytes: UInt64 { SRKernelPedalArenaBytes(kernel) }
+
+    /// Install an amp VOICING PROFILE (`ParameterMap.amp*` ↔ `streetrig::AmpVoicing`)
+    /// — re-designs the preamp cascade, tone-stack centres and power amp. Setup
+    /// thread; call inside the reconfigure barrier.
+    public func configureAmp(profile: Int) { SRKernelConfigureAmp(kernel, Int32(profile)) }
+
+    /// The profile currently installed in the kernel (diagnostics / harness).
+    public var activeAmpProfile: Int { Int(SRKernelActiveAmpProfile(kernel)) }
+
+    /// The profile the OWNED rig resolves to. Differs from `activeAmpProfile`
+    /// while a rig has been applied but render resources do not exist yet — the
+    /// structure is deliberately deferred to `allocateRenderResources`, so an
+    /// untouched unit never mutates kernel structure. Diagnostics / harness.
+    public var configuredAmpProfile: Int { ownedPlan.ampProfile }
 
     /// Structural hot-swap barrier (setup thread; safe from a background queue).
     public func beginReconfigure() { SRKernelSetReconfiguring(kernel, true) }
@@ -605,7 +690,7 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
     public func setActiveCabSlot(_ slot: Int) { SRKernelSetActiveCabSlot(kernel, Int32(slot)) }
     var hasNeuralModel: Bool { SRKernelHasNeuralModel(kernel) }
     func cabIRLength(_ slot: Int) -> Int { Int(SRKernelCabIRLength(kernel, Int32(slot))) }
-    var cabLatencySamples: Int { Int(SRKernelCabLatencySamples(kernel)) }
+    public var cabLatencySamples: Int { Int(SRKernelCabLatencySamples(kernel)) }
     public func resetDSP() { SRKernelReset(kernel) }
 
     /// Average nanoseconds per sample of the active neural forward pass (0 if none).
@@ -711,6 +796,8 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
         set(UInt64(SRParamAmpMid.rawValue),       plan.ampMidDB)
         set(UInt64(SRParamAmpTreble.rawValue),    plan.ampTrebleDB)
         set(UInt64(SRParamAmpPresence.rawValue),  plan.ampPresenceDB)
+        set(UInt64(SRParamAmpVolume.rawValue),    plan.ampVolume)
+        set(UInt64(SRParamAmpPower.rawValue),     plan.ampPower)
         for (i, slot) in plan.pedals.enumerated() where i < Int(SRMaxPedals) {
             let base = UInt64(SRPedalParamBase) + UInt64(i) * UInt64(SRPedalParamStride)
             set(base + UInt64(SRPedalFieldEnabled), slot.enabled ? 1 : 0)
@@ -913,7 +1000,31 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
         let highGain = state(guitar: g3, amp: .stack(ampId: mesa.id, cabinetId: cabHG.id),
                              gear: [mesa, cabHG, ts2, muff], pedals: [ts2.id, muff.id])
 
-        return [("Clean Combo", clean), ("British Crunch", crunch), ("High-Gain Stack", highGain)]
+        // Katana channels. A channel memory on the hardware is "the whole panel,
+        // stored" — and `GearItem.values` already IS the whole panel, including
+        // Character / Variation / Power, so a channel needs no schema of its own.
+        // APPENDED, never inserted: a host may have stored `preset.number`, so the
+        // three presets above must keep numbers 0, 1 and 2 forever.
+        let g4 = GearItem(name: "Les Paul Standard", category: .guitar)
+        let katCrunch = GearItem(name: "VOSS Katana 100", category: .comboAmp,
+                                 values: ["Gain": 6, "Bass": 5, "Mid": 6, "Treble": 6,
+                                          "Presence": 5, "Volume": 6, "Master": 5,
+                                          "Character": 2, "Variation": 0, "Power": 2])
+        let katCrunchRig = state(guitar: g4, amp: .combo(comboId: katCrunch.id),
+                                 gear: [katCrunch], pedals: [])
+
+        // Brown B at 0.5 W: the power control doing the thing it exists for —
+        // output-stage saturation at a level you could rehearse at.
+        let g5 = GearItem(name: "Les Paul Standard", category: .guitar)
+        let katBrown = GearItem(name: "VOSS Katana 100", category: .comboAmp,
+                                values: ["Gain": 7, "Bass": 5, "Mid": 6, "Treble": 6,
+                                         "Presence": 6, "Volume": 8, "Master": 5,
+                                         "Character": 4, "Variation": 1, "Power": 0])
+        let katBrownRig = state(guitar: g5, amp: .combo(comboId: katBrown.id),
+                                gear: [katBrown], pedals: [])
+
+        return [("Clean Combo", clean), ("British Crunch", crunch), ("High-Gain Stack", highGain),
+                ("Katana Crunch", katCrunchRig), ("Katana Brown Lead", katBrownRig)]
     }
 }
 

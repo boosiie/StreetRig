@@ -546,6 +546,16 @@ extension AudioEngineController {
                 check("bridge: seed rig has amp + a drive pedal", false, "amp \(store.ampItem?.name ?? "nil")")
                 throw NSError(domain: "VerifyAUv3P4", code: -3)
             }
+            // THE PEDAL'S OWN NAME FOR ITS GAIN KNOB. A Tube Screamer calls it
+            // "Overdrive", a Big Muff "Sustain", a RAT "Distortion" — and the
+            // bridge now links whichever of those the model actually has, rather
+            // than linking a knob called "Drive" that most of them do not expose
+            // (which pushed knob-zero on every edit — the pedal-side twin of the
+            // amp-knob guard). Resolving the name the same way the bridge does
+            // keeps this test honest about what a player is really turning.
+            let gainKnob = ParameterMap.pedalLinks(for: ts.category)
+                .first(where: { $0.field == 0 })?
+                .roles.first(where: { role in ts.parameters.contains { $0.name == role } }) ?? "Drive"
             check("bridge: automatable knobs mapped (amp + drive pedal)",
                   bridge.automatableCount >= 9,
                   "count \(bridge.automatableCount); amp \(store.ampItem?.name ?? "nil"), pedals \(store.pedalItems.count)")
@@ -572,17 +582,17 @@ extension AudioEngineController {
                   bassDiff > 1e-3 && Self.peak(outHi) > 1e-4,
                   "audio diff \(Self.dbfs(bassDiff)) dBFS")
 
-            store.binding(itemId: ts.id, param: "Drive").wrappedValue = 10   // → 25.6 lin
+            store.binding(itemId: ts.id, param: gainKnob).wrappedValue = 10   // → 25.6 lin
             let p103hi = tree.parameter(withAddress: driveAddr)!.value
             let drvHiOut = render(10_000)
-            store.binding(itemId: ts.id, param: "Drive").wrappedValue = 0    // → 0.8 lin
+            store.binding(itemId: ts.id, param: gainKnob).wrappedValue = 0    // → 0.8 lin
             let p103lo = tree.parameter(withAddress: driveAddr)!.value
             let drvLoOut = render(10_000)
-            check("UI→host: slot-0 Drive knob → AUParameter records the move (addr 103 — same address)",
+            check("UI→host: slot-0 \(gainKnob) knob → AUParameter records the move (addr 103)",
                   approxF(p103hi, 25.6, 0.05) && approxF(p103lo, 0.8, 0.05),
                   "AUParameter knob10→\(fmt2(p103hi)), knob0→\(fmt2(p103lo)) (expect 25.6 / 0.8)")
             let drvDiff = Self.rms(Self.difference(drvHiOut, drvLoOut))
-            check("UI→host: slot-0 Drive knob changes the AUDIO (reaches the kernel)",
+            check("UI→host: slot-0 \(gainKnob) knob changes the AUDIO (reaches the kernel)",
                   drvDiff > 1e-3, "audio diff \(Self.dbfs(drvDiff)) dBFS")
 
             // ---- host → UI: automation moves the on-screen knob. The observer hops to
@@ -601,12 +611,12 @@ extension AudioEngineController {
                   approx(knobBassHi, 10, 0.2) && approx(knobBassLo, 0, 0.2),
                   "+12 dB→knob \(fmt2d(knobBassHi)), −12 dB→knob \(fmt2d(knobBassLo)); observed \(bridge.lastObserved[bassAddr].map(fmt2) ?? "nil") (expect 10 / 0)")
 
-            store.binding(itemId: ts.id, param: "Drive").wrappedValue = 5   // UI neutral (~4.53 lin)
+            store.binding(itemId: ts.id, param: gainKnob).wrappedValue = 5   // UI neutral (~4.53 lin)
             render(4_000); try? await Task.sleep(for: .milliseconds(80))
             tree.parameter(withAddress: driveAddr)!.value = 0.8           // host: min drive
             render(4_000); try? await Task.sleep(for: .milliseconds(120))
-            let knobDriveLo = store.item(ts.id)?.values["Drive"] ?? -1
-            check("host→UI: automation (addr 103) moves the Drive knob",
+            let knobDriveLo = store.item(ts.id)?.values[gainKnob] ?? -1
+            check("host→UI: automation (addr 103) moves the \(gainKnob) knob",
                   approx(knobDriveLo, 0, 0.2), "0.8 lin → knob \(fmt2d(knobDriveLo)) (expect 0)")
 
             // ---- no feedback oscillation: a host write settles and HOLDS ----

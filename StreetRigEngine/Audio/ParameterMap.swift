@@ -63,6 +63,43 @@ public enum ParameterMap {
         }
     }
 
+    /// Amp "Volume" → linear gain INTO the power amp (SRParamAmpVolume). Same
+    /// shape as `ampMaster`, unity at noon, because it is the same kind of
+    /// control — it just sits one stage earlier, which is the whole point: it
+    /// decides how hard the character drives the output valves, while Master
+    /// sets the room level. Knob 0 → 0.2, 5 → 1.0, 10 → 1.8.
+    public static func ampVolume(volumeKnob v: Double) -> Float {
+        0.2 + norm(v) * 1.6
+    }
+
+    // MARK: - Power control (0.5 W / 50 W / 100 W)
+
+    /// The three power settings, in panel order. Stored on the gear item as an
+    /// INDEX (0/1/2), not as watts: it is a 3-position selector, not a dial, so
+    /// the same treatment Character and Variation get is the honest one — and it
+    /// keeps the knob's stored domain the small integer range the UI renders.
+    public static let ampPowerWatts: [Double] = [0.5, 50, 100]
+    public static let ampPowerLabels: [String] = ["0.5 W", "50 W", "100 W"]
+
+    /// Power index → the power amp's HEADROOM SCALE on the bus. Physically the
+    /// voltage swing goes as √(W/100), i.e. 0.071 at 0.5 W; we ship 0.14, which
+    /// is deliberately conservative — a real Katana at 0.5 W is heavily
+    /// power-saturated but still musical, because the clipping is soft and the OT
+    /// plus speaker filter the result. Sag, bass rolloff and level compensation
+    /// are derived FROM this one value in C++ (see PowerAmp), so the bus carries
+    /// one continuous, rampable number and the switch never clicks.
+    ///
+    /// Ear-tuning: 0.5 W should sound like a small cranked amp, not a fuzz pedal.
+    /// Sounds like a fuzz → raise toward 0.25. Indistinguishable from 50 W →
+    /// lower toward the physical 0.071.
+    public static func ampPowerScale(powerIndex v: Double) -> Float {
+        switch Int(v.rounded()) {
+        case 0:  return 0.14     // 0.5 W  (physical √0.005 = 0.071)
+        case 1:  return 0.70     // 50 W   (physical √0.5   = 0.707)
+        default: return 1.00     // 100 W
+        }
+    }
+
     // MARK: - Drive pedals (Drive, Tone, Level)
 
     /// Pedal "Drive" → linear pre-gain into the clip. Wide range for clean-boost
@@ -101,19 +138,73 @@ public enum ParameterMap {
     /// Modulation "Rate" → LFO frequency in Hz, exponential: 0.1 → ≈6.4 Hz.
     static func modRateHz(_ v: Double) -> Float { 0.1 * powf(2.0, norm(v) * 6.0) }
 
+    // MARK: - Delay (Time / Feedback / Mix / Tone / Mod depth)
+
+    /// Delay "Time" → milliseconds, exponential so the musically useful settings
+    /// are spread evenly across the sweep rather than crammed at one end:
+    /// knob 0 → 40 ms (slapback), 5 → ≈226 ms, 8 → ≈640 ms (a dotted eighth at
+    /// ~94 bpm), 10 → 1280 ms. The engine's line is 2 s, so the whole range fits
+    /// with room to spare.
+    public static func delayTimeMs(_ v: Double) -> Float { 40.0 * powf(2.0, norm(v) * 5.0) }
+
+    /// Delay "Feedback" → the recirculating gain. Tops out at 0.95, which
+    /// self-oscillates the way the hardware does at full repeats and is
+    /// controllable just below; 1.0 would grow without bound.
+    public static func delayFeedback(_ v: Double) -> Float { norm(v) * 0.95 }
+
+    /// Delay "Mix" → the WET SEND. The dry path is never attenuated (the engine
+    /// adds `wet · echo` to it), because that is what a pedal in front of an amp
+    /// does — Mix at 10 should be drenched with the played note still present.
+    public static func delayMix(_ v: Double) -> Float { norm(v) * 0.8 }
+
+    /// Delay "Tone" → the feedback-path low-pass corner in Hz: 1.2 kHz → 9.6 kHz.
+    /// Only the models that actually HAVE a tone control send this; the other
+    /// three send 0, which tells the engine to use its own voicing's corner
+    /// (digital 8 kHz, tape 4 kHz, BBD 2.5 kHz — see DelayPedal::voiceFor).
+    public static func delayToneHz(_ v: Double) -> Float { 1200.0 * powf(2.0, norm(v) * 3.0) }
+
+    /// Delay "Depth" → modulation depth 0…1, scaling the voicing's own wobble
+    /// (the Memory Man's chorus section). Tape wow/flutter is NOT scaled by this
+    /// — a tape machine's speed variation is the machine, not an effect.
+    public static func delayModDepth(_ v: Double) -> Float { norm(v) }
+
+    // MARK: - Reverb (Decay / Tone / Mix)
+
+    /// Reverb "Decay" → the Dattorro tank's feedback coefficient.
+    ///
+    /// The range is chosen from the MEASURED RT60 of the tank at its shipped
+    /// line lengths, not copied from a reference implementation with different
+    /// ones: with a ~0.73 s loop and `decay` applied twice per branch, this maps
+    /// to roughly 0.55 s at knob 0 and ~6 s at knob 10, which is the musical
+    /// range the reverb is specified to cover. Cue: Decay 10 should be a long
+    /// wash but must still decay — ringing forever means lower the top.
+    public static func reverbDecay(_ v: Double) -> Float { 0.10 + norm(v) * 0.72 }
+
+    /// Reverb "Tone" → the tank's damping low-pass corner: 1.2 kHz → 12 kHz.
+    /// Tone 0 = a dark room, Tone 10 = a bright plate.
+    public static func reverbToneHz(_ v: Double) -> Float { 1200.0 * powf(2.0, norm(v) * 3.32) }
+
+    /// Reverb "Mix" → wet send, dry fixed at unity (same reasoning as delay).
+    public static func reverbMix(_ v: Double) -> Float { norm(v) * 0.7 }
+
     // MARK: - Structural routing (topology, chosen at compile time)
 
     /// DSP block type for a pedal category. Mirrors the C++ `PedalChain::Type`.
-    /// Categories without DSP yet (tuner / pitch / delay / reverb / looper) stay
-    /// transparent — they hold their chain position but pass audio through.
-    static let typeTransparent = 0
+    /// Categories without DSP yet (tuner / pitch / looper) stay transparent —
+    /// they hold their chain position but pass audio through. Pitch is deferred
+    /// because it is the only family that genuinely adds LATENCY (a phase
+    /// vocoder needs ~50 ms of history), which is a live-monitoring decision,
+    /// not a DSP one; tuner and looper are UI features with no tone.
+    public static let typeTransparent = 0
     public static let typeDrive = 1
-    static let typeEq          = 2
-    static let typeCompressor  = 3
-    static let typeGate        = 4
-    static let typeWah         = 5
-    static let typeVolume      = 6
-    static let typeModulation  = 7
+    public static let typeEq   = 2
+    public static let typeCompressor = 3
+    public static let typeGate = 4
+    public static let typeWah  = 5
+    public static let typeVolume = 6
+    public static let typeModulation = 7
+    public static let typeDelay  = 8
+    public static let typeReverb = 9
     public static func pedalType(for category: GearCategory) -> Int {
         switch category {
         case .overdrive:  return typeDrive
@@ -123,8 +214,17 @@ public enum ParameterMap {
         case .wah:        return typeWah
         case .volume:     return typeVolume
         case .modulation: return typeModulation
-        default:          return typeTransparent   // tuner/pitch/delay/reverb/looper (TBD)
+        case .delay:      return typeDelay
+        case .reverb:     return typeReverb
+        default:          return typeTransparent   // tuner / pitch / looper (deferred)
         }
+    }
+
+    /// True for the two families that draw a buffer from `PedalChain`'s arena.
+    /// Used by the harness to assert the memory story, and by the compiler to
+    /// keep the FX-loop span honest.
+    public static func isTimeBased(_ type: Int) -> Bool {
+        type == typeDelay || type == typeReverb
     }
 
     /// Slot "voicing" — the flavour within a family. For drive it is the specific
@@ -137,7 +237,15 @@ public enum ParameterMap {
                voiceKingOfTone = 6, voiceOCD = 7, voiceDS1 = 8, voiceMetalZone = 9,
                voiceRAT = 10, voiceBigMuff = 11, voiceFuzzFace = 12,
                voiceFuzzFactory = 13, voiceCleanBoost = 14
-    static let modChorus = 0, modFlanger = 1, modPhaser = 2, modTremolo = 3, modUnivibe = 4
+    public static let modChorus = 0, modFlanger = 1, modPhaser = 2, modTremolo = 3, modUnivibe = 4
+    /// Delay circuits (mirror `DelayPedal::Voicing`). These are three different
+    /// CIRCUITS, not one delay with three tone settings: digital crossfades on a
+    /// time change while tape and BBD glide (opposite correct behaviours), and
+    /// only the latter two colour the feedback path.
+    public static let delayDigital = 0, delayTape = 1, delayBBD = 2
+    /// Reverb voicings (mirror `ReverbPedal::Voicing`). One Dattorro tank, four
+    /// sizes/characters; Spring additionally runs a dispersion chain.
+    public static let reverbPlate = 0, reverbSpring = 1, reverbRoom = 2, reverbHall = 3
 
     /// Voicing chosen by model NAME (substring match, so it works for both the old
     /// seed names and the re-badged catalog — e.g. "electro-harmonium BIG MUFF π"
@@ -167,6 +275,21 @@ public enum ParameterMap {
             if n.contains("flang") || n.contains("mistress") { return modFlanger }
             if n.contains("phase") || n.contains("stone")    { return modPhaser }   // Small Stone = phaser
             return modChorus           // chorus / clone / CE-2
+        case .delay:
+            // Tape first (an Echoplex is also a "delay"), then bucket brigade,
+            // then the digital default — the same specific-before-generic order
+            // the drive table uses, so it survives the catalog re-badging.
+            if n.contains("echoplex") || n.contains("ep-3") || n.contains("ep3")
+                || n.contains("tape")                          { return delayTape }
+            if n.contains("memory") || n.contains("bbd")
+                || n.contains("analog") || n.contains("analogue") { return delayBBD }
+            return delayDigital        // VOSS Digital Delay / DD-8
+        case .reverb:
+            if n.contains("holy") || n.contains("grail")
+                || n.contains("spring")                        { return reverbSpring }
+            if n.contains("hall")                              { return reverbHall }
+            if n.contains("room")                              { return reverbRoom }
+            return reverbPlate         // VOSS Reverb / RV-6
         default:
             return 0
         }
@@ -213,9 +336,232 @@ public enum ParameterMap {
             return [norm(role(["Position"]))]
         case .volume:
             return [norm(role(["Position"]))]
+        case .delay:
+            // All five generic fields are used, and all five fit — no stride
+            // extension needed. Aliases cover the three real panels: a DD-8's
+            // Time/Feedback/Mix, an Echoplex's Delay/Sustain/Volume and a Memory
+            // Man's Delay/Feedback/Blend/Depth.
+            let time  = role(["Time", "Delay"])
+            let fb    = role(["Feedback", "Sustain", "Repeats", "Regen"])
+            let mix   = role(["Mix", "Blend", "E.Level", "Level", "Volume"])
+            let depth = role(["Depth", "Mod"], 0)
+            // A model with no Tone knob sends 0, which means "use the circuit's
+            // own corner". Keeping the per-voicing number in DelayPedal::voiceFor
+            // rather than duplicating it here is what stops the two drifting.
+            let toneHz: Float = values["Tone"].map { delayToneHz($0) } ?? 0
+            return [delayTimeMs(time), delayFeedback(fb), delayMix(mix), toneHz, delayModDepth(depth)]
+        case .reverb:
+            // The Holy Grail has ONE knob, called "Reverb" — it maps onto Mix,
+            // and Decay/Tone fall back to noon, which is what a single-knob
+            // pedal's fixed voicing amounts to.
+            let decay = role(["Decay", "Time", "Size"])
+            let tone  = role(["Tone", "Color", "Damping"])
+            let mix   = role(["Mix", "Reverb", "Blend", "Level"])
+            return [reverbDecay(decay), reverbToneHz(tone), reverbMix(mix)]
         default:
             return []   // transparent families carry no params yet
         }
+    }
+
+    // MARK: - The Katana's onboard FX section (Booster / Mod / FX / Delay / Reverb)
+    //
+    //  THE ROUTING IS THE POINT. A modelling amp's FX blocks are not "pedals in
+    //  front"; each sits at a specific place in the amp, and getting that wrong
+    //  is what most Katana emulations do:
+    //
+    //    guitar → [BOOSTER] → [MOD] → PREAMP → TONE STACK → [FX] → [DELAY]
+    //             └─────── PRE ─────┘                       └──── MID ────┘ → [REVERB]
+    //                                                                            │
+    //                                        CAB ← POWER AMP ← VOLUME ←──────────┘
+    //
+    //  Booster and Mod belong in FRONT of the preamp, where a real pedal sits, so
+    //  a boost DRIVES the character into saturation instead of just making it
+    //  louder. Delay and reverb belong after the tone stack and BEFORE the power
+    //  amp — the amp's FX loop — so their tails pass through the output stage and
+    //  compress with the notes rather than floating on top of a finished,
+    //  cab-filtered signal. `PedalChain`'s three spans exist for exactly this,
+    //  and as a side benefit the whole app gets a real FX loop, not just the
+    //  Katana.
+    //
+    //  EVERY BLOCK IS ORDINARY CHAIN MACHINERY. Nothing here is a private effect
+    //  inside the amp: each block resolves to the same `PedalChain` type and
+    //  voicing a standalone pedal would, so one implementation lights up both.
+
+    /// Where an amp FX block runs relative to the amp's own stages.
+    public enum AmpFXSpan: Sendable { case pre, mid }
+
+    /// One resolved block, ready to become a `PedalChain` slot.
+    public struct AmpFXSlot: Sendable {
+        public let name: String
+        public let type: Int
+        public let voicing: Int
+        public let enabled: Bool
+        public let params: [Float]
+        public let span: AmpFXSpan
+    }
+
+    /// The panel definition of one block: the key its type is stored under in
+    /// `GearItem.values`, the detents of its selector, its span, and the extra
+    /// dials it owns. The real hardware gives each block a SINGLE panel knob
+    /// (deeper editing lives in Boss's editor app), and that is what is modelled
+    /// — except Delay, which also gets Time, because the hardware sets delay time
+    /// by tap tempo and this app has no tap-tempo surface.
+    public struct AmpFXBlockSpec: Sendable {
+        public let name: String
+        public let options: [String]
+        public let dials: [String]      ///< suffixes appended to `name`
+        public let span: AmpFXSpan
+    }
+
+    /// `Off` is index 0 of every block's type selector, and it is the STRUCTURAL
+    /// control: it decides whether the block occupies a chain slot at all. The
+    /// separate On switch is CONTINUOUS — it rides `SRPedalFieldEnabled`, the
+    /// same lock-free path an AR footswitch stomp takes, so stomping a block
+    /// on and off never rebuilds the chain.
+    public static let ampFXOff = 0
+
+    public static let katanaFXBlocks: [AmpFXBlockSpec] = [
+        .init(name: "Booster", options: ["Off", "Clean", "Blues", "Crunch", "Tube", "Dist", "Metal", "Fuzz"],
+              dials: ["Level"], span: .pre),
+        .init(name: "Mod", options: ["Off", "Chorus", "Flanger", "Phaser", "Tremolo", "Vibrato"],
+              dials: ["Level"], span: .pre),
+        .init(name: "FX", options: ["Off", "Comp", "EQ", "Wah", "Tremolo", "Phaser"],
+              dials: ["Level"], span: .mid),
+        .init(name: "Delay", options: ["Off", "Digital", "Analog", "Tape"],
+              dials: ["Level", "Time"], span: .mid),
+        .init(name: "Reverb", options: ["Off", "Room", "Plate", "Spring", "Hall"],
+              dials: ["Level"], span: .mid),
+    ]
+
+    /// Does this amp model expose an onboard FX section? Only the Katana does
+    /// today; the mechanism is general, so a second modelling amp is a table
+    /// entry, not new machinery.
+    public static func ampHasFXSection(name: String) -> Bool {
+        name.lowercased().contains("katana")
+    }
+
+    /// Resolve an amp's FX panel into chain slots. Blocks whose type is `Off`
+    /// produce nothing (no slot, no CPU); every other block produces a slot
+    /// whose `enabled` comes from its On switch.
+    ///
+    /// ONE KNOB, THREE DSP PARAMETERS. Each block has a single panel dial, so
+    /// the two or three values its engine wants are derived from it here, with
+    /// the rest pinned at musically sensible fixed points. Which value the dial
+    /// drives is chosen per block to match what the hardware's knob does: on the
+    /// Booster it is the amount of drive, on Mod the depth, on Delay the echo
+    /// level and on Reverb the reverb level.
+    public static func ampFXSlots(name: String, values: [String: Double]) -> [AmpFXSlot] {
+        guard ampHasFXSection(name: name) else { return [] }
+        var out: [AmpFXSlot] = []
+        for block in katanaFXBlocks {
+            let typeIndex = Int((values[block.name] ?? Double(ampFXOff)).rounded())
+            guard typeIndex > ampFXOff, typeIndex < block.options.count else { continue }
+            let on = (values["\(block.name) On"] ?? 1) >= 0.5
+            let level = values["\(block.name) Level"] ?? 5
+
+            var type = typeTransparent
+            var voicing = 0
+            var params: [Float] = []
+
+            switch block.name {
+            case "Booster":
+                type = typeDrive
+                voicing = [0, voiceCleanBoost, voiceBluesbreaker, voiceTubeScreamer,
+                           voiceOCD, voiceDS1, voiceMetalZone, voiceFuzzFace][typeIndex]
+                // The panel knob is the boost AMOUNT; tone and output level sit
+                // where a pedal set for "in front of a modelling amp" would.
+                params = [pedalDrive(level), pedalToneHz(6), pedalLevel(6)]
+            case "Mod":
+                type = typeModulation
+                voicing = [0, modChorus, modFlanger, modPhaser, modTremolo, modUnivibe][typeIndex]
+                // Rate is fixed at a musical mid-sweep; the knob is depth AND
+                // mix, which is what a single "depth" control does on hardware.
+                params = [modRateHz(4), norm(level), norm(level)]
+            case "FX":
+                switch typeIndex {
+                case 1: type = typeCompressor; params = [norm(level), compMakeup(5)]
+                case 2: type = typeEq
+                        // One knob across three bands: a TILT. Knob 0 is a dark,
+                        // mid-forward setting and knob 10 a bright, scooped one,
+                        // which is the range a single "EQ" control can honestly
+                        // cover.
+                        params = [eqBandDB(10 - level), eqBandDB(5), eqBandDB(level)]
+                case 3: type = typeWah;  params = [norm(level)]
+                case 4: type = typeModulation; voicing = modTremolo
+                        params = [modRateHz(5), norm(level), norm(level)]
+                default: type = typeModulation; voicing = modPhaser
+                        params = [modRateHz(4), norm(level), norm(level)]
+                }
+            case "Delay":
+                type = typeDelay
+                voicing = [0, delayDigital, delayBBD, delayTape][typeIndex]
+                let time = values["Delay Time"] ?? 5
+                // Feedback is pinned just below "obviously repeating" — the
+                // hardware's panel knob is E.Level, and a fixed, musical repeat
+                // count is a better default than exposing a fourth control.
+                params = [delayTimeMs(time), delayFeedback(4), delayMix(level), 0, 0]
+            case "Reverb":
+                type = typeReverb
+                voicing = [0, reverbRoom, reverbPlate, reverbSpring, reverbHall][typeIndex]
+                // Decay comes from the MODE, not the knob: a room is short and a
+                // hall is long, which is what choosing between them means. The
+                // knob is the reverb level, as on the hardware.
+                let decayKnob: Double = [5, 3, 5, 4, 7][typeIndex]
+                params = [reverbDecay(decayKnob), reverbToneHz(5), reverbMix(level)]
+            default:
+                continue
+            }
+            out.append(AmpFXSlot(name: block.name, type: type, voicing: voicing,
+                                 enabled: on, params: params, span: block.span))
+        }
+        return out
+    }
+
+    // MARK: - Amp voicing profiles (mirrors streetrig::AmpVoicing — keep in lockstep)
+
+    //  These constants and the C++ `AmpVoicing` enum in AmpProfile.hpp are
+    //  mirrored BY HAND, exactly as `DrivePedal::Voicing` and `voice*` above
+    //  already are. Ids are APPEND-ONLY: they ride in `RigDSPPlan.signature`, and
+    //  an amp name resolves to one every time a rig is compiled.
+    public static let ampLegacy = 0
+    public static let ampJCM800 = 1, ampTwinReverb = 2, ampAC30 = 3,
+                      ampJC120  = 4, ampBassman59  = 5
+    /// Katana ids are `ampKatanaBase + character*2 + variation`, so the five
+    /// characters and the A/B switch collapse into ONE structural field. Turning
+    /// the Character selector changes the profile id, which changes the topology
+    /// signature, which triggers the rebuild — three controls, one field, no way
+    /// for them to drift apart.
+    public static let ampKatanaBase = 10
+    public static let ampKatanaCharacterCount = 5
+    public static let ampKatanaCharacters = ["Acoustic", "Clean", "Crunch", "Lead", "Brown"]
+    public static let ampVariationLabels = ["A", "B"]
+
+    /// Which voicing profile an amp MODEL uses. Substring match on the lowercased
+    /// name, specific models before generic keywords, exactly like
+    /// `pedalVoicing(name:category:)` — so it survives the catalog re-badging and
+    /// works for both the seed names and the shipped ones.
+    ///
+    /// Anything unrecognized resolves to `ampLegacy`, which reproduces the
+    /// pre-profile voicing bit-for-bit. That is the back-compat guarantee: every
+    /// already-owned rig, every factory preset (which references pre-rename names
+    /// like "Marshall JCM800" and "Fender Deluxe") and every saved host session
+    /// keeps sounding exactly as it did.
+    public static func ampProfile(name: String, values: [String: Double]) -> Int {
+        let n = name.lowercased()
+        if n.contains("katana") {
+            let character = Int((values["Character"] ?? 2).rounded())
+            let variation = Int((values["Variation"] ?? 0).rounded())
+            return ampKatanaBase
+                 + min(max(character, 0), ampKatanaCharacterCount - 1) * 2
+                 + min(max(variation, 0), 1)
+        }
+        if n.contains("jcm800") || n.contains("2203")   { return ampJCM800 }
+        if n.contains("twin")                           { return ampTwinReverb }
+        if n.contains("ac30")                           { return ampAC30 }
+        if n.contains("jc-120") || n.contains("jc120")
+            || n.contains("jazz chorus")                { return ampJC120 }
+        if n.contains("bassman")                        { return ampBassman59 }
+        return ampLegacy
     }
 
     /// Cab IR slot for a cabinet/combo model. Only two IRs are bundled today —
@@ -229,11 +575,42 @@ public enum ParameterMap {
         return 0
     }
 
-    /// Whether to prefer the neural capture for an amp. Only a single placeholder
-    /// capture is bundled (network fetches are forbidden), so this is "use neural
-    /// when a model is loaded"; per-amp captures drop in later without touching
-    /// this. Returns true — the kernel falls back to the analog amp if no model.
-    static func ampUsesNeural(name: String) -> Bool { true }
+    /// A PROFILED amp brings its own cab pairing (mirrors `AmpProfile::cabSlot`);
+    /// nil means "not profiled", and `cabSlot(name:)` keeps deciding.
+    ///
+    /// The engine has 8 slots but only 2 bundled IRs (this work may not download
+    /// assets), so the six amps currently share two boxes. They still differ
+    /// enormously — preamp cascade, tone stack, power amp — and the intended
+    /// pairing is recorded in research/amp-emulation-approaches.md §3.4 for when
+    /// the other IRs arrive.
+    static func ampProfileCabSlot(_ profile: Int) -> Int? {
+        switch profile {
+        case ampJCM800, ampBassman59: return 0        // 4×12 V30 · 4×10 tweed
+        case ampTwinReverb, ampAC30, ampJC120: return 1   // 2×12 Jensen · alnico · JC
+        case ampLegacy: return nil
+        default: return 1                              // every Katana voicing: 1×12
+        }
+    }
+
+    /// True when the profile models an amp with NO speaker — the Katana's
+    /// ACOUSTIC character, which is a DI preamp, not a guitar amp. Mirrors
+    /// `AmpProfile::bypassCab`.
+    public static func ampProfileBypassesCab(_ profile: Int) -> Bool {
+        profile == ampKatanaBase || profile == ampKatanaBase + 1
+    }
+
+    /// Whether to prefer the neural capture for an amp.
+    ///
+    /// A PROFILED amp runs algorithmically: its character is the profile, and
+    /// layering the single bundled placeholder capture on top would erase it.
+    /// Unprofiled amps keep the previous behaviour (`true` — the kernel falls
+    /// back to the analog path when no model loads). When a rights-cleared
+    /// per-amp capture exists, it goes in `AmpProfile::neuralModel` and this
+    /// becomes a lookup on that field; a capture then UPGRADES a profile rather
+    /// than replacing it, because it stands in for the preamp cascade only.
+    static func ampUsesNeural(name: String) -> Bool {
+        ampProfile(name: name, values: [:]) == ampLegacy
+    }
 
     // MARK: - Inverse maps (bus/DSP value → 0…10 knob) — Phase 4 host→UI bridge
 
@@ -256,6 +633,27 @@ public enum ParameterMap {
         clampKnob((Double(bus) - 0.2) / 1.6 * 10.0)
     }
 
+    /// Inverse of `ampVolume(volumeKnob:)`  (bus = 0.2 + norm·1.6).
+    public static func invAmpVolumeKnob(_ bus: Float) -> Double {
+        clampKnob((Double(bus) - 0.2) / 1.6 * 10.0)
+    }
+
+    /// Inverse of `ampPowerScale(powerIndex:)`.
+    ///
+    /// NEAREST-NEIGHBOUR, not a curve, and deliberately so: on screen this is a
+    /// 3-position selector, so the inverse is a lookup. The BUS value stays
+    /// continuous and ramped — which is what keeps the switch click-free — but
+    /// there is no meaningful knob position between two wattages to report back
+    /// to a host.
+    public static func invAmpPowerIndex(_ bus: Float) -> Double {
+        var best = 2, bestErr = Double.greatestFiniteMagnitude
+        for i in 0..<ampPowerWatts.count {
+            let err = abs(Double(bus) - Double(ampPowerScale(powerIndex: Double(i))))
+            if err < bestErr { bestErr = err; best = i }
+        }
+        return Double(best)
+    }
+
     /// Inverse of `ampBandDB(_:knob:)`  (dB = ((norm−0.5)·2)·range; ±12, Presence ±9).
     static func invAmpBandKnob(_ paramName: String, dB: Float) -> Double {
         let range: Double = paramName == "Presence" ? 9.0 : 12.0
@@ -275,5 +673,99 @@ public enum ParameterMap {
     /// Inverse of `pedalLevel(_:)`  (bus = 0.1 + norm·1.9).
     static func invPedalLevelKnob(_ bus: Float) -> Double {
         clampKnob((Double(bus) - 0.1) / 1.9 * 10.0)
+    }
+
+    // --- The time-based blocks. Every forward curve above has its analytic
+    //     inverse here, because `RigAUParameterBridge` cannot use half of one: a
+    //     bus-backed knob needs BOTH closures or host automation moves the sound
+    //     without moving the on-screen control. This has been a shipped bug once.
+
+    /// Inverse of `delayTimeMs(_:)`  (ms = 40·2^(norm·5)).
+    public static func invDelayTimeKnob(_ ms: Float) -> Double {
+        clampKnob(log2(Double(max(ms, 1e-6)) / 40.0) / 5.0 * 10.0)
+    }
+    /// Inverse of `delayFeedback(_:)`  (bus = norm·0.95).
+    public static func invDelayFeedbackKnob(_ bus: Float) -> Double {
+        clampKnob(Double(bus) / 0.95 * 10.0)
+    }
+    /// Inverse of `delayMix(_:)`  (bus = norm·0.8).
+    public static func invDelayMixKnob(_ bus: Float) -> Double {
+        clampKnob(Double(bus) / 0.8 * 10.0)
+    }
+    /// Inverse of `delayToneHz(_:)`  (hz = 1200·2^(norm·3)).
+    public static func invDelayToneKnob(_ hz: Float) -> Double {
+        clampKnob(log2(Double(max(hz, 1e-6)) / 1200.0) / 3.0 * 10.0)
+    }
+    /// Inverse of `delayModDepth(_:)`  (bus = norm).
+    public static func invDelayModDepthKnob(_ bus: Float) -> Double {
+        clampKnob(Double(bus) * 10.0)
+    }
+    /// Inverse of `reverbDecay(_:)`  (bus = 0.10 + norm·0.72).
+    public static func invReverbDecayKnob(_ bus: Float) -> Double {
+        clampKnob((Double(bus) - 0.10) / 0.72 * 10.0)
+    }
+    /// Inverse of `reverbToneHz(_:)`  (hz = 1200·2^(norm·3.32)).
+    public static func invReverbToneKnob(_ hz: Float) -> Double {
+        clampKnob(log2(Double(max(hz, 1e-6)) / 1200.0) / 3.32 * 10.0)
+    }
+    /// Inverse of `reverbMix(_:)`  (bus = norm·0.7).
+    public static func invReverbMixKnob(_ bus: Float) -> Double {
+        clampKnob(Double(bus) / 0.7 * 10.0)
+    }
+
+    // MARK: - Automatable pedal knobs (host → UI, per family)
+
+    /// One automatable pedal knob: which DSP ROLE it fills (matched against the
+    /// model's own knob names by alias, so a Big Muff's "Sustain" and a Klon's
+    /// "Gain" both find the gain stage), which generic slot field it drives, and
+    /// the forward/inverse pair.
+    ///
+    /// This exists so `RigAUParameterBridge` does not have to grow a hard-coded
+    /// branch per family — and so the curves stay in this one file, where they
+    /// can be ear-tuned, rather than being copied into the bridge.
+    public struct PedalLink {
+        public let roles: [String]
+        public let field: Int              // 0…4 → SRPedalFieldDrive + field
+        public let toBus: (Double) -> Float
+        public let toKnob: (Float) -> Double
+    }
+
+    /// The automatable knobs of each family, in field order. Families whose
+    /// blocks are still transparent return nothing.
+    public static func pedalLinks(for category: GearCategory) -> [PedalLink] {
+        switch category {
+        case .overdrive:
+            return [PedalLink(roles: ["Drive", "Overdrive", "Sustain", "Gain", "Distortion", "Dist", "Fuzz"],
+                              field: 0, toBus: { pedalDrive($0) }, toKnob: { invPedalDriveKnob($0) }),
+                    PedalLink(roles: ["Tone", "Treble", "Filter"],
+                              field: 1, toBus: { pedalToneHz($0) }, toKnob: { invPedalToneKnob($0) }),
+                    PedalLink(roles: ["Level", "Volume", "Output"],
+                              field: 2, toBus: { pedalLevel($0) }, toKnob: { invPedalLevelKnob($0) })]
+        case .delay:
+            return [PedalLink(roles: ["Time", "Delay"],
+                              field: 0, toBus: { delayTimeMs($0) }, toKnob: { invDelayTimeKnob($0) }),
+                    PedalLink(roles: ["Feedback", "Sustain", "Repeats", "Regen"],
+                              field: 1, toBus: { delayFeedback($0) }, toKnob: { invDelayFeedbackKnob($0) }),
+                    PedalLink(roles: ["Mix", "Blend", "E.Level", "Level", "Volume"],
+                              field: 2, toBus: { delayMix($0) }, toKnob: { invDelayMixKnob($0) }),
+                    PedalLink(roles: ["Tone"],
+                              field: 3, toBus: { delayToneHz($0) }, toKnob: { invDelayToneKnob($0) }),
+                    PedalLink(roles: ["Depth", "Mod"],
+                              field: 4, toBus: { delayModDepth($0) }, toKnob: { invDelayModDepthKnob($0) })]
+        case .reverb:
+            return [PedalLink(roles: ["Decay", "Time", "Size"],
+                              field: 0, toBus: { reverbDecay($0) }, toKnob: { invReverbDecayKnob($0) }),
+                    PedalLink(roles: ["Tone", "Color", "Damping"],
+                              field: 1, toBus: { reverbToneHz($0) }, toKnob: { invReverbToneKnob($0) }),
+                    PedalLink(roles: ["Mix", "Reverb", "Blend", "Level"],
+                              field: 2, toBus: { reverbMix($0) }, toKnob: { invReverbMixKnob($0) })]
+        default:
+            // The remaining audible families (EQ / dynamics / modulation / wah /
+            // volume) drive their fields from knobs whose bus domains do not
+            // match the AU tree's published Drive/Tone/Level ranges, so linking
+            // them would advertise automation lanes that clip. Recorded as a gap
+            // rather than half-wired.
+            return []
+        }
     }
 }

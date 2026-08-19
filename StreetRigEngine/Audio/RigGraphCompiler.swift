@@ -56,6 +56,26 @@ public struct RigDSPPlan: Sendable, Equatable {
     public var ampBypass: Bool = false
     public var cabBypass: Bool = false
 
+    /// THE THREE-SPAN SPLIT (mirrors `PedalChain::setSplits`). Slots
+    /// `[0, splitPre)` run in front of the preamp, `[splitPre, splitPost)` in the
+    /// amp's FX loop (after the tone stack, before the power amp) and
+    /// `[splitPost, count)` after the cabinet. The defaults put every slot in the
+    /// PRE span, which is the behaviour before an FX loop existed — so a rig with
+    /// no amp FX compiles to exactly the chain it always did.
+    ///
+    /// STRUCTURAL: moving a block between spans reorders the graph, so both are
+    /// in the topology signature.
+    public var splitPre: Int = Int(SRMaxPedals)
+    public var splitPost: Int = Int(SRMaxPedals)
+
+    /// Which amp VOICING PROFILE the kernel should install (`streetrig::AmpVoicing`,
+    /// mirrored by `ParameterMap.amp*`). STRUCTURAL: it redesigns the preamp
+    /// cascade, the tone-stack centres and the power amp, so it belongs in the
+    /// signature and travels through the fade/park barrier. 0 = the legacy
+    /// voicing, which is also the default, so a plan nobody sets this on behaves
+    /// exactly as it did before profiles existed.
+    public var ampProfile: Int = ParameterMap.ampLegacy
+
     // Amp continuous params.
     public var ampDrive: Float = 3.0
     public var ampMaster: Float = 1.0
@@ -63,6 +83,11 @@ public struct RigDSPPlan: Sendable, Equatable {
     public var ampMidDB: Float = 0
     public var ampTrebleDB: Float = 0
     public var ampPresenceDB: Float = 0
+    /// Volume into the power amp (unity) and the power-amp headroom scale
+    /// (1.0 = 100 W). Both CONTINUOUS — see the signature note below for why the
+    /// power scale in particular must never become structural.
+    public var ampVolume: Float = 1.0
+    public var ampPower: Float = 1.0
 
     /// Topology-only fingerprint (NOT knob values). A change here means a
     /// structural rebuild; identical signature + changed values = a continuous
@@ -122,10 +147,18 @@ public enum RigGraphCompiler {
 
         var plan = RigDSPPlan()
 
-        // Pedals in signal-chain order (rig.pedalIds is kept chain-sorted by the
-        // store; the snapshot preserves that order), capped at the fixed pool.
-        for gear in rig.pedalIds.compactMap(item).prefix(Int(SRMaxPedals)) {
-            plan.pedals.append(.init(
+        // --- THE THREE SPANS ---------------------------------------------
+        // PRE holds the player's own pedalboard (in signal-chain order — the
+        // store keeps `rig.pedalIds` sorted, and the snapshot preserves it) plus
+        // any of the amp's own input-stage blocks; MID holds the amp's FX loop.
+        // Both are assembled first and merged below, because the slot pool is
+        // fixed at eight and the split points are just the two boundaries in the
+        // merged list.
+        var preSlots: [RigDSPPlan.PedalSlot] = []
+        var midSlots: [RigDSPPlan.PedalSlot] = []
+
+        for gear in rig.pedalIds.compactMap(item) {
+            preSlots.append(.init(
                 type: ParameterMap.pedalType(for: gear.category),
                 character: ParameterMap.pedalVoicing(name: gear.name, category: gear.category),
                 enabled: footswitchEnabled(gear.id),
@@ -133,27 +166,86 @@ public enum RigGraphCompiler {
             ))
         }
 
-        // Amp section (head or combo — both expose the same 6 knobs).
+        // Amp section (head or combo). Most amps expose the shared six knobs; a
+        // Katana adds Volume, Character, Variation and Power, and a JC-120 drops
+        // Presence — so every read needs a default that is right FOR THAT KNOB,
+        // not the generic 5. A rig saved before those knobs existed simply has no
+        // entry for them, and `values` is `[String: Double]`, so the defaults
+        // below are the whole of the migration.
         let ampName = ampItem?.name ?? ""
-        let v: (String) -> Double = { ampItem?.values[$0] ?? 5 }
+        let vals = ampItem?.values ?? [:]
+        let v: (String) -> Double = { vals[$0] ?? 5 }
+        /// Index-valued selectors are NOT dials: 5 would be a nonsense default.
+        let idx: (String, Double) -> Double = { vals[$0] ?? $1 }
         plan.ampDrive       = ParameterMap.ampDrive(gainKnob: v("Gain"))
         plan.ampMaster      = ParameterMap.ampMaster(masterKnob: v("Master"))
         plan.ampBassDB      = ParameterMap.ampBandDB("Bass",     knob: v("Bass"))
         plan.ampMidDB       = ParameterMap.ampBandDB("Mid",      knob: v("Mid"))
         plan.ampTrebleDB    = ParameterMap.ampBandDB("Treble",   knob: v("Treble"))
         plan.ampPresenceDB  = ParameterMap.ampBandDB("Presence", knob: v("Presence"))
+        plan.ampVolume      = ParameterMap.ampVolume(volumeKnob: v("Volume"))
+        plan.ampPower       = ParameterMap.ampPowerScale(powerIndex: idx("Power", 2))   // 2 = 100 W
+        plan.ampProfile     = ParameterMap.ampProfile(name: ampName, values: vals)
         plan.useNeural      = ParameterMap.ampUsesNeural(name: ampName)
 
         // Cabinet: for a stack the paired cab, for a combo the combo's own box.
+        // A profiled amp brings its own pairing; an unprofiled one still matches
+        // on the cabinet's name, exactly as before.
         let cabName = isCombo ? ampName : (cabinetItem?.name ?? "")
-        plan.cabSlot = ParameterMap.cabSlot(name: cabName)
+        plan.cabSlot = ParameterMap.ampProfileCabSlot(plan.ampProfile)
+            ?? ParameterMap.cabSlot(name: cabName)
+        // The Katana's ACOUSTIC character has no speaker in the model at all.
+        if ParameterMap.ampProfileBypassesCab(plan.ampProfile) { plan.cabBypass = true }
+
+        // --- The amp's own FX section (the Katana's five blocks) -----------
+        // These are NOT a private effect inside the amp: each resolves to the
+        // same PedalChain type and voicing a standalone pedal would, and each
+        // lands in the span its real position dictates — Booster and Mod in
+        // front of the preamp so a boost drives the character, FX/Delay/Reverb
+        // in the loop so their tails go THROUGH the power amp.
+        for fx in ParameterMap.ampFXSlots(name: ampName, values: vals) {
+            let slot = RigDSPPlan.PedalSlot(type: fx.type, character: fx.voicing,
+                                            enabled: fx.enabled, params: fx.params)
+            switch fx.span {
+            case .pre: preSlots.append(slot)
+            case .mid: midSlots.append(slot)
+            }
+        }
+
+        // THE SLOT BUDGET. Eight slots, and a full pedalboard plus a fully
+        // loaded FX panel can ask for more. The player's own board wins — it is
+        // the thing on screen — and the amp's blocks fill whatever is left, in
+        // panel order. Anything past eight is dropped rather than silently
+        // reordered, and the drop is deterministic so it can be explained.
+        let capacity = Int(SRMaxPedals)
+        let pre = Array(preSlots.prefix(capacity))
+        let mid = Array(midSlots.prefix(max(0, capacity - pre.count)))
+        plan.pedals = pre + mid
+        plan.splitPre = pre.count
+        plan.splitPost = pre.count + mid.count
 
         // Topology fingerprint — TYPE + VOICING per slot, NOT `enabled`. Enablement
         // rides the continuous bus (`SRPedalFieldEnabled`, pushed by `pushValues`),
         // so a footswitch stomp keeps the signature identical and takes the cheap
         // lock-free path instead of a fade/park rebuild of the whole chain.
+        //
+        // `ampProfile` joins it because a profile change redesigns filters, which
+        // cannot be interpolated: Character and Variation are 5- and 2-position
+        // selectors nobody sweeps, and they are already folded into the profile id.
+        // `ampPower` deliberately does NOT join it — if the power scale entered
+        // the signature, flipping the power switch would fade the amp to silence,
+        // park the render thread, rebuild and fade back in: a ~60 ms dropout in
+        // place of a 5 ms glide, on a control the hardware switches silently.
+        //
+        // `split` joins it because moving a block between spans REORDERS the
+        // graph — a reverb in front of the preamp is a different circuit from
+        // the same reverb in the loop, not the same circuit at a different
+        // setting. A block's on/off deliberately stays OUT, for the same reason
+        // `enabled` does: it must take the cheap continuous path.
         let pedalSig = plan.pedals.map { "\($0.type)/\($0.character)" }.joined(separator: ",")
-        plan.signature = "P[\(pedalSig)]|amp:\(plan.useNeural ? "n" : "a")|cab:\(plan.cabSlot)|combo:\(isCombo)"
+        plan.signature = "P[\(pedalSig)]|split:\(plan.splitPre)/\(plan.splitPost)"
+            + "|amp:\(plan.ampProfile)/\(plan.useNeural ? "n" : "a")"
+            + "|cab:\(plan.cabSlot)\(plan.cabBypass ? "x" : "")|combo:\(isCombo)"
         return plan
     }
 
@@ -167,6 +259,11 @@ public enum RigGraphCompiler {
         for (i, slot) in plan.pedals.enumerated() {
             dsp.configurePedal(slot: i, type: slot.type, character: slot.character, enabled: slot.enabled)
         }
+        // WHERE each slot runs, not just what it is. Set after the slots are
+        // configured and before anything renders, so a block never processes one
+        // buffer in the wrong span.
+        dsp.setPedalSplits(pre: plan.splitPre, post: plan.splitPost)
+        dsp.configureAmp(profile: plan.ampProfile)                          // re-designs the amp's filters
         dsp.setActiveCabSlot(plan.cabSlot)                                  // re-partitions the convolver
         dsp.setParameter(SRParamAmpUseNeural, value: plan.useNeural ? 1 : 0)
         dsp.setParameter(SRParamAmpBypass,    value: plan.ampBypass ? 1 : 0)
@@ -175,7 +272,7 @@ public enum RigGraphCompiler {
 
     /// Push every CONTINUOUS parameter onto the lock-free bus (no rebuild). Safe
     /// to call from the main thread on a knob move.
-    nonisolated static func pushValues(_ plan: RigDSPPlan, to dsp: StreetRigDSPUnit) {
+    nonisolated public static func pushValues(_ plan: RigDSPPlan, to dsp: StreetRigDSPUnit) {
         for (i, slot) in plan.pedals.enumerated() {
             dsp.setPedalParam(slot: i, field: Int(SRPedalFieldEnabled), value: slot.enabled ? 1 : 0)
             // Continuous knobs → generic param fields (Param0 == SRPedalFieldDrive == 3),
@@ -191,6 +288,8 @@ public enum RigGraphCompiler {
         dsp.setParameter(SRParamAmpMid,      value: plan.ampMidDB)
         dsp.setParameter(SRParamAmpTreble,   value: plan.ampTrebleDB)
         dsp.setParameter(SRParamAmpPresence, value: plan.ampPresenceDB)
+        dsp.setParameter(SRParamAmpVolume,   value: plan.ampVolume)
+        dsp.setParameter(SRParamAmpPower,    value: plan.ampPower)
     }
 
     /// Apply a whole plan with NO barrier. Correct when the render thread is not

@@ -32,6 +32,12 @@ struct DSPKernel {
     RampedGain outputLevel;
     RampedGain ampDrive{ };       // default set in create()
     RampedGain ampMakeup;
+    /// Channel volume into the power amp, and the power-amp headroom scale. Both
+    /// are RampedGains for the same reason drive and makeup are: the power
+    /// control in particular must glide, never step — a rebuild on a power-switch
+    /// flip would be a ~60 ms dropout where the hardware is instant and silent.
+    RampedGain ampVolume;
+    RampedGain ampPower;
     std::atomic<bool> ampBypass{false};
     std::atomic<bool> cabBypass{false};
     std::atomic<bool> useNeural{false};

@@ -43,12 +43,29 @@ typedef enum : uint64_t {
     SRParamAmpBypass    = 4, ///< 0 = amp engaged, >=0.5 = amp stage bypassed.
     SRParamCabBypass    = 5, ///< 0 = cab engaged, >=0.5 = cabinet IR bypassed.
     SRParamAmpUseNeural = 6, ///< >=0.5 = use the loaded neural capture; 0 = analog fallback.
-    SRParamCabSelect    = 7, ///< Active cab IR slot index (0..3). Step 3 sets this per amp.
+    SRParamCabSelect    = 7, ///< Active cab IR slot index (0..7). Step 3 sets this per amp.
     // --- Prompt 003: amp passive tone stack (values are gains in dB, ~-18..+18) ---
     SRParamAmpBass      = 8,  ///< Tone-stack Bass shelf gain (dB). 0 = flat.
     SRParamAmpMid       = 9,  ///< Tone-stack Mid peak gain (dB). 0 = flat.
     SRParamAmpTreble    = 10, ///< Tone-stack Treble shelf gain (dB). 0 = flat.
-    SRParamAmpPresence  = 11  ///< Tone-stack Presence shelf gain (dB). 0 = flat.
+    /// Presence shelf gain (dB). 0 = flat. The PROFILE decides which stage owns
+    /// it — tone band 3 for the legacy voicing, the power amp's negative-feedback
+    /// shelf for every profiled amp (which is where presence lives in a real
+    /// amp). Same address, same domain, same de-zippering either way; the routing
+    /// happens inside AmpCabProcessor, so this bus stays profile-agnostic.
+    SRParamAmpPresence  = 11,
+    // --- Per-amp voicing: two new addresses, and only two. Everything else the
+    //     profile system needs is STRUCTURAL and goes through a setup call below,
+    //     exactly as pedal Type / Character already do.
+    /// Channel volume INTO the power amp (unity = 1.0). The Katana's "Volume":
+    /// how hard the character drives the output stage, as distinct from Master
+    /// (SRParamAmpMakeup), which is the room level.
+    SRParamAmpVolume    = 12,
+    /// Power-amp headroom scale: 1.0 = 100 W, 0.70 = 50 W, 0.14 = 0.5 W. A
+    /// RAMPED GAIN, not a switch, so flipping the power control is a ~5 ms glide
+    /// rather than a fade/park rebuild — a rebuild here would be audibly worse
+    /// than the hardware, which switches instantly and silently.
+    SRParamAmpPower     = 13
 } SRParameterAddress;
 
 // --- Prompt 003: structured pedal parameter range (still the SAME lock-free bus) ---
@@ -108,7 +125,7 @@ bool SRKernelLoadAmpModelJSON(SRKernelRef kernel, const char *path, char *errBuf
 /// True if a valid neural capture is currently installed.
 bool SRKernelHasNeuralModel(SRKernelRef kernel);
 
-/// Store a cabinet IR (mono float samples) into `slot` (0..3). If `irSampleRate`
+/// Store a cabinet IR (mono float samples) into `slot` (0..7). If `irSampleRate`
 /// differs from the kernel's prepared rate the IR is linearly resampled first.
 void SRKernelLoadCabIR(SRKernelRef kernel, int slot, const float *samples, int count, double irSampleRate);
 
@@ -143,6 +160,41 @@ void SRKernelSetActivePedalCount(SRKernelRef kernel, int count);
 /// 2=fuzz) and (re)voice + clear its DSP. `type`: 0=transparent, 1=drive.
 /// Setup thread only (call inside the reconfigure barrier).
 void SRKernelConfigurePedal(SRKernelRef kernel, int slot, int type, int character, bool enabled);
+
+/// THE THREE-SPAN SPLIT — where each pedal slot sits relative to the amp.
+///
+/// Slots [0, splitPre) run BEFORE the preamp (a pedal in front of the amp);
+/// slots [splitPre, splitPost) run after the tone stack and BEFORE the power
+/// amp — which is where a real amp's FX loop is, and the only placement where a
+/// reverb tail is compressed by the output stage along with the notes instead of
+/// floating above them; slots [splitPost, active) run AFTER the cabinet, the
+/// "post-loop" position. Defaults put every slot in the PRE span, i.e. exactly
+/// the behaviour before this call existed.
+///
+/// STRUCTURAL: it reorders the graph, so it belongs in the topology signature
+/// and travels through the reconfigure barrier. Setup thread only.
+void SRKernelSetPedalSplits(SRKernelRef kernel, int splitPre, int splitPost);
+
+/// Bytes reserved by the pedal chain's delay/reverb arena (0 before prepare).
+/// Diagnostics only — the offline harness asserts the documented footprint.
+uint64_t SRKernelPedalArenaBytes(SRKernelRef kernel);
+
+/// Select the amp's VOICING PROFILE (`streetrig::AmpVoicing`) and (re)design its
+/// preamp cascade, tone-stack centres and power-amp stage.
+///
+/// The profile is NOT a parameter address, deliberately: it redesigns filters,
+/// which means trigonometry, which must never happen on or near the audio
+/// thread. It is a setup call mirroring `SRKernelConfigurePedal`, for exactly the
+/// reason pedal Type and Character are. The Katana's Character and Variation
+/// selectors need no separate plumbing — they are already baked into the profile
+/// id by the Swift-side name/value resolver, so one field carries three controls
+/// and they cannot drift apart. Setup thread only (call inside the barrier).
+void SRKernelConfigureAmp(SRKernelRef kernel, int profile);
+int  SRKernelActiveAmpProfile(SRKernelRef kernel);
+
+/// True when the active profile models an amp with no speaker (the Katana's
+/// ACOUSTIC character), so the caller can bypass the cab. Setup/main thread.
+bool SRKernelAmpProfileBypassesCab(SRKernelRef kernel);
 
 /// Begin/end a structural reconfiguration. Between these the render thread fades
 /// to silence and parks (skips all DSP), so setup-thread mutation of pedal/cab/

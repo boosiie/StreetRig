@@ -111,19 +111,66 @@ public enum GearCategory: String, Codable, CaseIterable, Hashable {
     }
 }
 
-/// A tweakable knob definition (0–10, Marshall-style dial).
+/// A tweakable control: a 0–10 Marshall-style dial by default, or — when
+/// `options` is set — a DISCRETE SELECTOR whose stored value is an index into
+/// those options.
+///
+/// The distinction is real hardware, not decoration. A Katana's Character is a
+/// five-position rotary and its Power switch has three detents; drawing either as
+/// a 0–10 dial would invite the player to set "Character 6.3", which is not a
+/// thing. `options` lets the same knob list describe both kinds, so every surface
+/// that already iterates `GearItem.parameters` picks the right control up for
+/// free instead of growing an amp-specific branch.
+///
+/// `Codable` only for symmetry with the rest of the model — the persisted form of
+/// a control is its VALUE in `GearItem.values`, so adding this field changes no
+/// saved JSON.
 public struct GearParameter: Codable, Hashable, Identifiable {
     public var name: String
     public var min: Double
     public var max: Double
     public var defaultValue: Double
+    /// Labels for a discrete selector, in index order. `nil` = a continuous dial.
+    public var options: [String]?
+    /// Which SECTION of the panel this control belongs to. `nil` = the main
+    /// panel (the knob row and the switch strip, exactly as before). A non-nil
+    /// group is a named sub-panel — the Katana's five FX blocks are one group
+    /// each — so a surface that already iterates `GearItem.parameters` can lay
+    /// them out as blocks instead of stringing twenty-six controls across one
+    /// row. Adding this changes no saved JSON: the persisted form of a control
+    /// is its VALUE in `GearItem.values`, keyed by name.
+    public var group: String?
+    /// Short label to show inside a group, where the group name already carries
+    /// the context ("Level" rather than "Booster Level"). Falls back to `name`.
+    public var shortName: String?
     public var id: String { name }
 
-    public init(_ name: String, min: Double = 0, max: Double = 10, defaultValue: Double = 5) {
+    /// True when this is a switch/selector rather than a dial.
+    public var isDiscrete: Bool { options != nil }
+    /// What a surface should print next to the control.
+    public var displayName: String { shortName ?? name }
+
+    public init(_ name: String, min: Double = 0, max: Double = 10, defaultValue: Double = 5,
+                group: String? = nil, shortName: String? = nil) {
         self.name = name
         self.min = min
         self.max = max
         self.defaultValue = defaultValue
+        self.options = nil
+        self.group = group
+        self.shortName = shortName
+    }
+
+    /// A discrete selector: `min` 0 … `max` options.count − 1, stored as an index.
+    public init(_ name: String, options: [String], defaultIndex: Int,
+                group: String? = nil, shortName: String? = nil) {
+        self.name = name
+        self.min = 0
+        self.max = Double(Swift.max(0, options.count - 1))
+        self.defaultValue = Double(Swift.min(Swift.max(defaultIndex, 0), Swift.max(0, options.count - 1)))
+        self.options = options
+        self.group = group
+        self.shortName = shortName
     }
 }
 
@@ -266,7 +313,55 @@ enum PedalSpec {
         case .reverb:
             if n.contains("holy") || n.contains("grail")           { return p(["Reverb"]) }
             return p(["Decay", "Tone", "Mix"])
-        case .wah, .volume, .tuner, .looper, .guitar, .cabinet, .amp, .comboAmp:
+        // AMPS. The shared six knobs are the fallback, but an amp's panel is as
+        // model-specific as a pedal's, and the per-item mechanism that already
+        // handles that for pedals handles it here with no new machinery.
+        case .amp, .comboAmp:
+            // The Katana's real panel: the shared EQ, plus a Volume that drives
+            // the power section (distinct from Master, which is the room level),
+            // plus three DISCRETE selectors. Character and Variation choose the
+            // voicing PROFILE — a structural change — while Power is continuous
+            // under the hood even though it looks like a switch.
+            if n.contains("katana") {
+                var p: [GearParameter] = [
+                    GearParameter("Gain"), GearParameter("Bass"), GearParameter("Mid"),
+                    GearParameter("Treble"), GearParameter("Presence"),
+                    GearParameter("Volume"), GearParameter("Master"),
+                    GearParameter("Character", options: ["Acoustic", "Clean", "Crunch", "Lead", "Brown"],
+                                  defaultIndex: 2),
+                    GearParameter("Variation", options: ["A", "B"], defaultIndex: 0),
+                    GearParameter("Power", options: ["0.5 W", "50 W", "100 W"], defaultIndex: 2)]
+                // THE FX SECTION. Five blocks, each a named group: a type
+                // selector (index 0 = Off, and the only STRUCTURAL control here,
+                // because it decides whether the block occupies a chain slot at
+                // all), an On switch (CONTINUOUS — it rides the same lock-free
+                // enable an AR footswitch stomp uses, so toggling a block never
+                // rebuilds the chain), and the block's own dial(s).
+                //
+                // Every default is "Off", so a Katana loaded from a rig saved
+                // before this existed compiles to exactly the chain it did
+                // before — no keys, no slots, no change.
+                for block in ParameterMap.katanaFXBlocks {
+                    p.append(GearParameter(block.name, options: block.options, defaultIndex: 0,
+                                           group: block.name, shortName: "Type"))
+                    p.append(GearParameter("\(block.name) On", options: ["Off", "On"], defaultIndex: 1,
+                                           group: block.name, shortName: "On"))
+                    for dial in block.dials {
+                        p.append(GearParameter("\(block.name) \(dial)", group: block.name, shortName: dial))
+                    }
+                }
+                return p
+            }
+            // The JC-120 genuinely has no presence control, so its profile sets
+            // `presenceScale = 0` and the knob is not offered. Showing an inert
+            // dial would be worse than showing none. (The real amp has a Bright
+            // switch instead; whether to model that is a product decision, not a
+            // DSP one — see research/amp-emulation-approaches.md §13 Q5.)
+            if n.contains("jc-120") || n.contains("jc120") || n.contains("jazz chorus") {
+                return p(["Gain", "Bass", "Mid", "Treble", "Master"])
+            }
+            return category.parameters
+        case .wah, .volume, .tuner, .looper, .guitar, .cabinet:
             return category.parameters
         }
     }
