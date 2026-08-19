@@ -400,7 +400,8 @@ private struct ARFloorSlotView: View {
         .opacity(held ? 0 : 1)
         .frame(width: 132)
         .contentShape(Rectangle())
-        .arSlotInteraction(index: index, pedal: pedal, cornerRadius: 16,
+        .arSlotInteraction(index: index, pedal: pedal, cornerRadius: 14,
+                           ringInsets: EdgeInsets(top: 2, leading: 12, bottom: 19, trailing: 12),
                            held: $held, targeted: $targeted, onAssign: onAssign)
     }
 }
@@ -484,7 +485,8 @@ private struct ARSlotView: View {
         .frame(maxWidth: .infinity)
         .opacity(held ? 0 : 1)
         .contentShape(Rectangle())
-        .arSlotInteraction(index: index, pedal: pedal, cornerRadius: 18,
+        .arSlotInteraction(index: index, pedal: pedal, cornerRadius: 15,
+                           ringInsets: EdgeInsets(top: 3, leading: 3, bottom: 25, trailing: 3),
                            held: $held, targeted: $targeted, onAssign: onAssign)
     }
 
@@ -506,10 +508,12 @@ extension View {
     /// identically to the bottom row and to a pedal on the floor. Shared so the two
     /// presentations cannot drift into behaving differently.
     func arSlotInteraction(index: Int, pedal: GearItem?, cornerRadius: CGFloat,
-                           held: Binding<Bool>, targeted: Binding<Bool>,
+                           ringInsets: EdgeInsets, held: Binding<Bool>,
+                           targeted: Binding<Bool>,
                            onAssign: @escaping () -> Void) -> some View {
         modifier(ARSlotInteraction(index: index, pedal: pedal, cornerRadius: cornerRadius,
-                                   held: held, targeted: targeted, onAssign: onAssign))
+                                   ringInsets: ringInsets, held: held,
+                                   targeted: targeted, onAssign: onAssign))
     }
 }
 
@@ -526,6 +530,11 @@ private struct ARSlotInteraction: ViewModifier {
     /// Corner radius of the ring drawn around this slot while it charges — the
     /// bottom row is a rounded box, a floor pedal's label is a capsule.
     let cornerRadius: CGFloat
+    /// How far to pull the ring in from the hit area's edge. The hit area covers the
+    /// slot AND the ON/OFF caption under it, so an un-inset ring traces a rectangle
+    /// well outside the thing it is meant to be charging. These bring it onto the
+    /// border itself, just inside the edge.
+    let ringInsets: EdgeInsets
     @Binding var held: Bool
     @Binding var targeted: Bool
     let onAssign: () -> Void
@@ -608,6 +617,7 @@ private struct ARSlotInteraction: ViewModifier {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .trim(from: 0, to: charge)
             .stroke(RigTheme.amber, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            .padding(ringInsets)
             .opacity(held ? 0 : 1)
             .animation(.easeOut(duration: 0.14), value: held)
             .allowsHitTesting(false)
@@ -635,7 +645,7 @@ private struct ARSlotInteraction: ViewModifier {
                 guard held, let drag else { return }
                 held = false
                 lift.armed = false
-                endCharge()
+                defer { endCharge() }
                 guard drag.item?.id == pedal?.id else { return }
                 drag.move(to: drag.appRootPoint(fromWindow: move.location))
                 drag.end()
@@ -660,13 +670,16 @@ private struct ARSlotInteraction: ViewModifier {
         }
     }
 
-    /// The abort/finish path. A successful hold keeps its charge up until the pedal
-    /// is put down, so nothing springs back at the instant of success.
+    /// The end of a hold, however it ended. UNCONDITIONAL, deliberately: it used to
+    /// bail out while `held` was still set, and on the release path it runs before
+    /// `held` is cleared — so a pedal put back in its slot kept a fully drawn ring
+    /// around it for good. Nothing needs the charge to survive here; the slot is
+    /// already invisible while the pedal is in the air, and the ring hides itself
+    /// on `held` regardless.
     private func endCharge() {
         chargeTask?.cancel()
         chargeTask = nil
         charged = false
-        guard !held else { return }
         withAnimation(.easeOut(duration: 0.12)) { charge = 0 }
     }
 }
