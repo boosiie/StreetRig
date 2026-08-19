@@ -560,14 +560,24 @@ enum RigDiorama {
                           (cameraPosition.z - lookTarget.z) / d)
     }()
 
-    /// Bounds the preserved distance is clamped into before easing, so no gear can
-    /// leave the frame at any allowed zoom. `max` = the default framing (never push
-    /// past the pose the diorama was designed around). `min` keeps the widest gear —
-    /// the guitar + stand at world-x ≈ 2.2 — fully inside the 42° horizontal FOV
-    /// (its right edge clips at d ≈ 4.0, so 4.5 leaves a small margin). First-pass
-    /// values, fine to tune on-device.
+    /// Bounds the zoom is clamped into, so no gear can leave the frame at any
+    /// allowed distance. `max` = the default framing (never push past the pose the
+    /// diorama was composed around).
+    ///
+    /// `min` is the closest you may zoom. It used to be reasoned about as a WIDTH
+    /// problem — the guitar being the widest thing on the stage — but measuring it
+    /// at the enlarged scales showed the real binding constraint is HEIGHT, and it
+    /// is the PEDALBOARD: the board sits closest to the camera (z = 0.4), so as you
+    /// zoom in it runs off the bottom of the frame well before the guitar reaches
+    /// either side.
+    ///
+    /// Measured by parking the default camera at a candidate distance and looking:
+    /// at d = 4.8 the board was cut off mid-pedal; at 6.5 the pedals still touched
+    /// the edge; at 7.0 the pedal bodies were fully clear with only the board's
+    /// front lip at the boundary. 7.2 keeps a little margin on that. **Raising
+    /// `bScale` or moving the board forward means re-measuring this.**
     static let maxCameraDistance = defaultCameraDistance
-    static let minCameraDistance: Float = 4.5
+    static let minCameraDistance: Float = 7.2
 
     /// Straight-line distance between two points (the camera↔lookTarget zoom radius).
     static func distance(from p: SCNVector3, to q: SCNVector3) -> Float {
@@ -639,7 +649,7 @@ enum RigDiorama {
         // ---- Pedalboard: in front of the amp (toward the camera).
         if !pedals.isEmpty {
             let board = PedalboardScene.boardNode(pedals: pedals)
-            let bScale: Float = 0.44                     // slightly smaller board
+            let bScale: Float = 0.54                     // scaled up with the guitar
             board.scale = SCNVector3(bScale, bScale, bScale)
             board.position = SCNVector3(-0.1, 0.16 * bScale, 0.4)   // close in front of the amp
             board.eulerAngles.x = -0.12                 // slight rake toward the camera
@@ -659,7 +669,10 @@ enum RigDiorama {
         } else {
             ProceduralGuitar.buildStand(into: guitarRoot)
         }
-        let gScale: Float = 0.34
+        // Bigger, which pushes the guitar's right edge out — and that edge is what
+        // sets `minCameraDistance`, since it is the widest thing on the stage. The
+        // two numbers move together; see the note there.
+        let gScale: Float = 0.42
         guitarRoot.scale = SCNVector3(gScale, gScale, gScale)
         guitarRoot.position = SCNVector3(1.8, 2.1 * gScale, -0.3)   // in closer to the amp
         guitarRoot.eulerAngles.y = -0.5
