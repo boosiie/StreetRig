@@ -233,7 +233,9 @@ struct GearCardView: View {
         DragGesture(minimumDistance: isHeld ? 24 : unreachable, coordinateSpace: .named("appRoot"))
             .onChanged { move in
                 guard isHeld else { return }
-                if drag.item == nil { drag.begin(item, at: move.location) }
+                // `.rail` origin: dropping this on the trash DELETES the gear
+                // (a piece lifted off the stage only leaves the rig).
+                if drag.item == nil { drag.begin(item, at: move.location, from: .rail) }
                 else { drag.move(to: move.location) }
             }
             .onEnded { move in

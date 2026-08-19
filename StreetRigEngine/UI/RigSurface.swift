@@ -42,6 +42,8 @@ public extension View {
     ///   - lifted: `true` for something genuinely floating ABOVE the UI (the drag
     ///     ghost, a modal offer). It deepens the shadow rather than the fill, so the
     ///     tone ladder stays three steps instead of quietly growing a fourth.
+    ///     NOT a way to mark state: on this near-black ground a deeper shadow is
+    ///     close to invisible, so it cannot carry a distinction on its own.
     func rigCard(cornerRadius: CGFloat = 14,
                  stroke: Color = RigTheme.surfaceEdge,
                  lineWidth: CGFloat = 1,

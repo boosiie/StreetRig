@@ -442,8 +442,15 @@ private struct SlotDropArea: View {
                     // Pedals only. Refusing an amp here means it never highlights
                     // the slot and never lands in it — a footswitch onto an amp is
                     // not a thing the audio path can express.
-                    area.accepts = { $0.category.isPedal }
-                    area.onHover = { _, _ in
+                    // Pedals only, and only a drag that is looking for somewhere
+                    // to land — including one lifted off another slot, which is
+                    // how a footswitch gets moved.
+                    area.accepts = { item, origin in
+                        guard item.category.isPedal else { return false }
+                        if case .stage = origin { return false }
+                        return true
+                    }
+                    area.onHover = { _, _, _ in
                         guard !targeted else { return }
                         withAnimation(.easeOut(duration: 0.12)) { targeted = true }
                     }
@@ -454,7 +461,7 @@ private struct SlotDropArea: View {
                     // `setARSlot` owns the rules — binding defaults the slot ON, and
                     // a pedal that isn't in the chain is added to it first. Both are
                     // load-bearing for the audio path, so they are not restated here.
-                    area.onDrop = { item in
+                    area.onDrop = { item, _ in
                         withAnimation(.easeInOut(duration: 0.2)) {
                             store.setARSlot(index, pedalId: item.id)
                         }
