@@ -122,6 +122,77 @@ enum PedalboardScene {
         CGFloat(Float(max(pedalCount, 1) - 1) * 1.5 + 1.7)
     }
 
+    /// Local x of the slot AFTER the last pedal — where a new one would land.
+    /// An empty board has no row to sit beside, so the slot takes the middle.
+    static func nextSlotX(pedalCount: Int) -> Float {
+        guard pedalCount > 0 else { return 0 }
+        let spacing: Float = 1.5
+        return -Float(pedalCount - 1) * spacing / 2 + Float(pedalCount) * spacing
+    }
+
+    /// The "drop a pedal here" marker that sits beside the board.
+    ///
+    /// It exists because a pedal dragged onto the stage could only ever REPLACE
+    /// the pedal nearest the finger — with a board already occupied there was no
+    /// point on screen that meant "and one more", so a fourth pedal was
+    /// unreachable. This is that point, and it has to be visible to be usable.
+    ///
+    /// Unlit and billboarded: it is an instruction rather than a piece of gear, so
+    /// it should read identically from every angle the stage can be orbited to,
+    /// and should not pick up the studio lighting that makes the real models look
+    /// like objects.
+    static func addSlotNode() -> SCNNode {
+        let container = SCNNode()
+        container.name = addSlotName
+        container.constraints = [SCNBillboardConstraint()]
+
+        let plane = SCNPlane(width: 1.7, height: 1.7)
+        let m = SCNMaterial()
+        m.diffuse.contents = addSlotImage()
+        m.lightingModel = .constant
+        m.isDoubleSided = true
+        m.writesToDepthBuffer = false
+        m.blendMode = .alpha
+        plane.materials = [m]
+
+        let face = SCNNode(geometry: plane)
+        face.name = addSlotFaceName
+        face.renderingOrder = 20          // in front of the board, never buried in it
+        container.addChildNode(face)
+        return container
+    }
+
+    static let addSlotName = "addPedalSlot"
+    static let addSlotFaceName = "addPedalSlotFace"
+
+    /// A dashed amber square with a plus through it. Amber because on this stage
+    /// amber already means "let go here and it lands" — the same thing the glow on
+    /// a hovered pedal means. Red is the bin, and must not appear next to it.
+    private static func addSlotImage() -> UIImage {
+        let side: CGFloat = 256
+        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { ctx in
+            let c = ctx.cgContext
+            let amber = UIColor(red: 0.878, green: 0.400, blue: 0.118, alpha: 1)
+            let inset: CGFloat = 26
+            let rect = CGRect(x: inset, y: inset, width: side - inset * 2, height: side - inset * 2)
+
+            c.setStrokeColor(amber.withAlphaComponent(0.9).cgColor)
+            c.setLineWidth(7)
+            c.setLineDash(phase: 0, lengths: [17, 13])
+            c.addPath(UIBezierPath(roundedRect: rect, cornerRadius: 26).cgPath)
+            c.strokePath()
+
+            c.setLineDash(phase: 0, lengths: [])
+            c.setLineCap(.round)
+            c.setLineWidth(15)
+            c.setStrokeColor(amber.cgColor)
+            let mid = side / 2, arm: CGFloat = 42
+            c.move(to: CGPoint(x: mid - arm, y: mid));  c.addLine(to: CGPoint(x: mid + arm, y: mid))
+            c.move(to: CGPoint(x: mid, y: mid - arm));  c.addLine(to: CGPoint(x: mid, y: mid + arm))
+            c.strokePath()
+        }
+    }
+
     static func make(pedals: [GearItem]) -> SCNScene {
         let scene = SCNScene()
         let root = boardNode(pedals: pedals)
@@ -142,6 +213,10 @@ enum PedalboardScene {
 // MARK: - Procedural stompbox (generic, colored per pedal)
 
 enum ProceduralPedal {
+    /// The status LED's node name. Named so a caller can light it: the AR floor
+    /// pedals turn it on when the footswitch is engaged.
+    static let ledNodeName = "led"
+
     static func build(for pedal: GearItem) -> SCNNode {
         let group = SCNNode()
         let spec = spec(for: pedal)
@@ -178,6 +253,7 @@ enum ProceduralPedal {
         let led = SCNSphere(radius: 0.045)
         led.materials = [Studio3D.pbr(spec.led, metalness: 0, roughness: 0.3, emission: spec.led)]
         let ledNode = SCNNode(geometry: led)
+        ledNode.name = ledNodeName
         ledNode.position = SCNVector3(0, 0.44, 0.08)
         group.addChildNode(ledNode)
 

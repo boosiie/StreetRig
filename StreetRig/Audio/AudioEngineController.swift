@@ -136,8 +136,24 @@ final class AudioEngineController: ObservableObject {
     /// Configure the session + graph and start live monitoring. On the Simulator
     /// there is no input device, so this will surface an error — that is expected
     /// and the offline harness is the Simulator verification path.
+    /// Why Proceed refuses when the rig has no amp. Reported through the normal
+    /// `.error` channel so the device bar's status line renders it in the
+    /// established error colour (it upper-cases the message itself).
+    static let noAmpStatus = "No amp in rig"
+
     func engage() async {
         guard !isEngaged else { return }
+
+        // A rig whose `ampSection` no longer resolves has no amp to compile into
+        // the graph, so engaging would start the engine and monitor an amp-less
+        // signal with no explanation of why it sounds wrong. Refused HERE, not
+        // only at the button, so every caller — the device bar AND the signal
+        // check's retry — gets the same answer. Nothing has been touched yet:
+        // no session, no permission prompt, no engine.
+        if let rigStore, !rigStore.hasAmp {
+            status = .error(Self.noAmpStatus)
+            return
+        }
 
         let granted = await Self.requestMicPermission()
         micPermission = granted ? .granted : .denied

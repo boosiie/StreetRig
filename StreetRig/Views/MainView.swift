@@ -30,8 +30,15 @@ enum AppPage: Int, CaseIterable, Hashable {
 
 struct MainView: View {
     @EnvironmentObject var store: RigStore
+    /// Observed only to freeze the pager while an AR pedal is being lifted off its
+    /// switch — see `ARSlotLift`. Two renders per lift, not one per finger move.
+    @EnvironmentObject private var slotLift: ARSlotLift
+    @EnvironmentObject var drag: RigDragController
     @State private var focused: RigComponent?
     @State private var page: AppPage = .main
+    /// Where the library should open when something sends the player there — the
+    /// no-amp warning, so far. Consumed by LibraryContentView.
+    @State private var libraryDestination: LibraryContentView.Drill?
 
     var body: some View {
         ZStack {
@@ -42,14 +49,31 @@ struct MainView: View {
                 HStack(spacing: 0) {
                     CollectionTabView()
                     TabView(selection: $page) {
-                        LibraryContentView()
+                        LibraryContentView(openAt: $libraryDestination)
                             .tag(AppPage.library)
-                        RigStageView(focused: $focused)
+                        RigStageView(focused: $focused, onFindAmp: showAmpLibrary)
                             .tag(AppPage.main)
                         ARPedalSetupView()
                             .tag(AppPage.ar)
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
+                    // A held AR pedal has to be draggable across the page it sits
+                    // on, and the pager would otherwise take that movement as a
+                    // swipe. Same switch the rail throws for the same reason.
+                    .scrollDisabled(slotLift.armed)
+                    // The trash lives HERE — top-left of the centre area, just
+                    // past the MY GEAR rail — so it is somewhere you drag TO,
+                    // equally reachable from the rail and from the rig stage.
+                    //
+                    // An overlay ON the TabView, not a page inside it: it has to
+                    // stay put while the pages swipe under it, and it must sit
+                    // outside the UIPageViewController bridge, where measurements
+                    // still mean what they say (see RigDragController.appRootOrigin).
+                    .overlay(alignment: .topLeading) {
+                        GearTrashTarget()
+                            .padding(.leading, 10)
+                            .padding(.top, 8)
+                    }
                 }
                 ControlPanelView()
             }
@@ -70,6 +94,29 @@ struct MainView: View {
         // Shared coordinate space so the rail's drag, the ghost, and the rig
         // stage all measure the finger position against the same origin.
         .coordinateSpace(.named("appRoot"))
+        // …and where that origin actually sits in UIKit window coordinates, for
+        // the one drag that starts in UIKit: a piece lifted off the SceneKit
+        // stage. Measured HERE, on the appRoot view itself, because that is the
+        // only place the answer can't be wrong (see RigDragController.appRootOrigin).
+        .background(appRootOriginReader)
+    }
+
+    /// The no-amp warning's destination: the amp models, not merely the library's
+    /// front page. Someone who has just been told they have no amp should land on
+    /// the list of amps, not on a menu that asks them to find it.
+    private func showAmpLibrary() {
+        libraryDestination = .ampStack
+        withAnimation(.easeInOut(duration: 0.28)) { page = .library }
+    }
+
+    private var appRootOriginReader: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear { drag.appRootOrigin = proxy.frame(in: .global).origin }
+                .onChange(of: proxy.frame(in: .global).origin) { _, origin in
+                    drag.appRootOrigin = origin
+                }
+        }
     }
 
     // MARK: - Top navigation (arrows + current page title)
@@ -139,7 +186,11 @@ struct MainView: View {
 /// The floating preview of the card being dragged, tracking the finger in the
 /// shared "appRoot" space. Observes only the drag controller, so the rest of the
 /// shell doesn't re-render while the finger moves.
-private struct DragGhostView: View {
+///
+/// Internal rather than private because the play page is a full-screen cover — a
+/// separate hierarchy that the shell's ghost cannot reach over — and a drag with
+/// no ghost is a finger dragging nothing.
+struct DragGhostView: View {
     @EnvironmentObject private var drag: RigDragController
 
     var body: some View {
@@ -169,5 +220,18 @@ private struct DragGhostView: View {
     MainView()
         .environmentObject(RigStore.preview)
         .environmentObject(RigDragController())
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Drag in progress") {
+    // The shell mid-drag: ghost on the finger, trash target docked in the rail.
+    let drag = RigDragController()
+    let store = RigStore.preview
+    if let pedal = store.collection.first(where: { $0.category.isPedal }) {
+        drag.begin(pedal, at: CGPoint(x: 300, y: 200))
+    }
+    return MainView()
+        .environmentObject(store)
+        .environmentObject(drag)
         .preferredColorScheme(.dark)
 }

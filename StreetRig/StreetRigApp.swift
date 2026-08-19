@@ -12,6 +12,7 @@ import StreetRigEngine
 struct StreetRigApp: App {
     @StateObject private var store = RigStore()
     @StateObject private var dragController = RigDragController()
+    @StateObject private var slotLift = ARSlotLift()
 
     init() {
         #if DEBUG
@@ -28,6 +29,7 @@ struct StreetRigApp: App {
             ContentView()
                 .environmentObject(store)
                 .environmentObject(dragController)
+                .environmentObject(slotLift)
         }
     }
 }
