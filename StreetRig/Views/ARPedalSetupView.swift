@@ -26,19 +26,29 @@
 //  the pager page right of the rig in MainView. Signal levels are no longer shown
 //  over it — they sit in the control panel at the bottom of the shell instead.
 //
+//  TAKING A PEDAL OFF is a hold-and-drag onto the trash, the same gesture the rail
+//  and the rig board use, and it replaced a ✕ button — a 20pt target on a page read
+//  from standing height, on a phone lying on the floor. What the trash MEANS here is
+//  narrower than anywhere else: it clears the FOOTSWITCH only. The pedal stays owned
+//  and stays in the chain, which is exactly what the ✕ did (`RigDragOrigin.arSlot`).
+//
 //  PLACEMENT READINESS. The slots outline GREEN once ARKit reports a real floor
 //  below the phone, in view, with steady tracking — a promise that stomps will land.
-//  Tapping the floor then pins the row to a world anchor and the slots move OFF the
-//  fixed bottom row onto the spot the player chose. Green never means "engaged";
-//  engaged is amber, and the two have to be tellable apart from standing height.
-//  All of it is driven by ONE value, `detector.state` — see ARPlacementCoordinator.
+//  Tapping the floor then pins the row to a world anchor, and the bottom row is
+//  replaced by real pedals lying on the spot the player chose (`ARFloorPedals`).
+//  Green never means "engaged"; engaged is amber, and the two have to be tellable
+//  apart from standing height. All of it is driven by ONE value, `detector.state`.
 //
 //  LAYOUT, IN LANDSCAPE, WITH NO VERTICAL ROOM. The banner and the placeholder live
 //  IN the layout flow rather than floating over it: as top-anchored overlays they
 //  landed on the slots whenever the available height shifted, because a `Spacer` can
-//  only absorb slack it can see. The anchored slots are the ONE thing that floats,
-//  because their whole purpose is to sit where the floor is — and they are clamped
-//  away from the banner rather than trusted not to reach it.
+//  only absorb slack it can see.
+//
+//  ONCE ANCHORED, NOTHING IS CLAMPED, and that is a reversal. The old screen-space
+//  slots were pulled back inside the viewport so they stayed tappable. A pedal that
+//  is a real object on a real floor cannot be: its label would slide off it and sit
+//  over empty carpet, which is a worse lie than being out of frame. Aim the phone
+//  back at your feet and it comes back, the way the pedal does.
 //
 
 import SwiftUI
@@ -69,6 +79,11 @@ struct ARPedalContentView: View {
     /// never hangs off a view the anchored layout is repositioning 30×/second.
     @State private var picking: SlotIndex?
 
+    /// The pedals as objects on the real floor. Held here for the life of the page
+    /// so the node graph survives the camera view being handed over on every
+    /// SwiftUI update pass — see `ARFloorPedals.attach(to:)`.
+    @State private var floorPedals = ARFloorPedals()
+
     /// Room the banner needs at the top, so an anchored slot can never be clamped up
     /// underneath it.
     private static let bannerReserve: CGFloat = 54
@@ -82,7 +97,6 @@ struct ARPedalContentView: View {
             // Below this there is no room for the big camera-status block without
             // it landing on top of the slots — it becomes a line under the banner.
             let compact = geo.size.height < 300
-            let slotWidth = max(80, (geo.size.width - 40 - 32) / 3)
             let anchored = detector.state == .locked
 
             ZStack {
@@ -118,13 +132,13 @@ struct ARPedalContentView: View {
                     }
                 }
 
+                // The pedals themselves are SceneKit nodes on the floor (see
+                // ARFloorPedals); what is drawn here is only the writing about them.
+                FloorPedalsDriver(layout: detector.layout, pedals: floorPedals)
                 if anchored {
-                    AnchoredSlots(layout: detector.layout,
-                                  slotWidth: slotWidth,
-                                  slotHeight: slotHeight,
-                                  viewport: geo.size,
-                                  topLimit: Self.bannerReserve,
-                                  onAssign: { picking = SlotIndex(id: $0) })
+                    FloorSlotChrome(layout: detector.layout,
+                                    viewport: geo.size,
+                                    onAssign: { picking = SlotIndex(id: $0) })
                 }
             }
         }
@@ -138,7 +152,13 @@ struct ARPedalContentView: View {
             }
             detector.start()
         }
-        .onDisappear { detector.stop() }
+        .onDisappear {
+            detector.stop()
+            // The session outlives this page — the other host may still be showing
+            // it — so the nodes have to come out rather than be left parented to a
+            // scene the next host will reuse.
+            floorPedals.detach()
+        }
     }
 
     @ViewBuilder
@@ -151,7 +171,10 @@ struct ARPedalContentView: View {
             // wrong slot.
             ARCameraView(session: detector.session,
                          onGeometry: { detector.setViewGeometry(orientation: $0, size: $1) },
-                         onView: { detector.attach(feedView: $0) })
+                         onView: {
+                             detector.attach(feedView: $0)
+                             floorPedals.attach(to: $0)
+                         })
                 .contentShape(Rectangle())
                 // Tap-to-place lives on the BACKGROUND, so a tap that lands on a slot
                 // toggles that slot instead — tap-to-toggle stays available in every
@@ -259,43 +282,126 @@ struct ARPedalContentView: View {
 
 // MARK: - The row, once it belongs to the floor
 
-/// The three slots drawn where ARKit says the anchored row is.
+/// Keeps the SceneKit floor pedals in step with the anchor and the slot contents.
+///
+/// A view purely so it can observe: it draws nothing. The alternative — updating
+/// the nodes from the page's own body — would tie a 3D refresh to every banner
+/// change and every camera-state flip, and would miss the updates that matter
+/// (the anchor being refined) because the page does not observe the layout.
+private struct FloorPedalsDriver: View {
+    @EnvironmentObject var store: RigStore
+    @ObservedObject var layout: ARSlotLayout
+    let pedals: ARFloorPedals
+
+    var body: some View {
+        Color.clear
+            .allowsHitTesting(false)
+            .onChange(of: layout.floor) { _, _ in push() }
+            .onChange(of: store.arSlots) { _, _ in push() }
+            .onAppear { push() }
+    }
+
+    private func push() {
+        pedals.update(floor: layout.floor,
+                      pedals: (0..<3).map { store.arPedal($0) },
+                      engaged: (0..<3).map { store.arSlots[$0].isOn })
+    }
+}
+
+/// The writing about each floor pedal, tracking where that pedal is on screen.
 ///
 /// Its own view observing its own object: the projected positions update up to
 /// 30×/second, and routing that through the page's own state would re-render the
 /// banner, the background and the placeholder alongside them — on the main thread,
 /// next to a live neural amp.
-private struct AnchoredSlots: View {
+///
+/// NOT CLAMPED, deliberately, and this is a reversal of what it used to do. The
+/// old screen-space slots were pulled back to the edge of the viewport so they
+/// stayed tappable. A pedal that is a real object on a real floor cannot be: the
+/// label would slide off the thing it names and sit over empty carpet, which is a
+/// worse lie than being out of frame. Aim the phone back at your feet and it comes
+/// back, the way the pedal itself does.
+private struct FloorSlotChrome: View {
     @ObservedObject var layout: ARSlotLayout
-    let slotWidth: CGFloat
-    let slotHeight: CGFloat
     let viewport: CGSize
-    let topLimit: CGFloat
     let onAssign: (Int) -> Void
 
     var body: some View {
         if let points = layout.slots, points.count == 3 {
             ForEach(0..<3, id: \.self) { index in
-                ARSlotView(index: index, height: slotHeight, placementIsGood: true,
-                           onAssign: { onAssign(index) })
-                    .frame(width: slotWidth)
-                    .position(clamped(points[index]))
+                if visible(points[index]) {
+                    ARFloorSlotView(index: index, onAssign: { onAssign(index) })
+                        .position(points[index])
+                }
             }
         }
     }
 
-    /// Keep a slot on screen and clear of the banner. ARKit will happily project a
-    /// point past the edge of the viewport — the anchor is a real spot on a real
-    /// floor and the player can aim the phone away from it — and a footswitch that
-    /// has slid off the screen cannot be tapped, which is the fallback that is
-    /// supposed to always work.
-    private func clamped(_ point: CGPoint) -> CGPoint {
-        // Height plus the ON/OFF caption underneath it.
-        let half = (slotHeight + 22) / 2
-        return CGPoint(
-            x: min(max(point.x, slotWidth / 2), max(slotWidth / 2, viewport.width - slotWidth / 2)),
-            y: min(max(point.y, topLimit + half), max(topLimit + half, viewport.height - half))
-        )
+    /// Drawn only while its pedal is actually in frame. A little slack past the
+    /// edge, so a label does not blink out the instant its pedal touches the bezel.
+    private func visible(_ point: CGPoint) -> Bool {
+        let slack: CGFloat = 60
+        return point.x > -slack && point.x < viewport.width + slack
+            && point.y > -slack && point.y < viewport.height + slack
+    }
+}
+
+/// One floor pedal's chrome: what it is, whether it is on, and a handle to grab.
+///
+/// Compact on purpose. The pedal itself is a 3D object a foot or two away, so this
+/// sits just above it and carries only what the object cannot say for itself at
+/// that distance and that angle.
+private struct ARFloorSlotView: View {
+    @EnvironmentObject private var store: RigStore
+    let index: Int
+    let onAssign: () -> Void
+
+    @State private var targeted = false
+    @State private var held = false
+
+    var body: some View {
+        let pedal = store.arPedal(index)
+        let on = store.arSlots[index].isOn && pedal != nil
+
+        VStack(spacing: 5) {
+            if let pedal {
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(on ? RigTheme.amber : Color(white: 0.3))
+                        .frame(width: 8, height: 8)
+                        .shadow(color: on ? RigTheme.amber : .clear, radius: 4)
+                    Text(pedal.name)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(RigTheme.textPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(.black.opacity(0.6)))
+                .overlay(Capsule().strokeBorder(targeted ? RigTheme.amber : .clear, lineWidth: 2))
+
+                Text(on ? "ON" : "OFF")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(on ? RigTheme.amber : RigTheme.textMuted)
+                    .shadow(color: .black, radius: 3)
+            } else {
+                // An empty switch has a ring on the floor but nothing above it, so
+                // the invitation has to be here.
+                Label("Add pedal", systemImage: "plus.circle")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(targeted ? RigTheme.amber : RigTheme.textMuted)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(.black.opacity(0.6)))
+                    .overlay(Capsule().strokeBorder(targeted ? RigTheme.amber : .clear, lineWidth: 2))
+            }
+        }
+        .opacity(held ? 0 : 1)
+        .frame(width: 132)
+        .contentShape(Rectangle())
+        .arSlotInteraction(index: index, pedal: pedal, held: $held, targeted: $targeted,
+                           onAssign: onAssign)
     }
 }
 
@@ -311,6 +417,9 @@ private struct ARSlotView: View {
     /// Tapped while EMPTY — the page opens its pedal picker.
     var onAssign: () -> Void = {}
     @State private var targeted = false
+    /// Held, and therefore in the air on its way to the trash: the slot goes
+    /// invisible so the ghost under the finger is the only copy of it.
+    @State private var held = false
 
     var body: some View {
         let pedal = store.arPedal(index)
@@ -366,16 +475,6 @@ private struct ARSlotView: View {
                         .padding(10)
                 }
             }
-            .overlay(alignment: .topLeading) {
-                if pedal != nil {
-                    Button { store.setARSlot(index, pedalId: nil) } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(RigTheme.textMuted)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(8)
-                }
-            }
             .shadow(color: on ? RigTheme.amber.opacity(0.45) : .clear, radius: 12)
 
             Text(pedal == nil ? "\(index + 1)" : (on ? "ON" : "OFF"))
@@ -383,22 +482,10 @@ private struct ARSlotView: View {
                 .foregroundStyle(on ? RigTheme.amber : RigTheme.textMuted)
         }
         .frame(maxWidth: .infinity)
+        .opacity(held ? 0 : 1)
         .contentShape(Rectangle())
-        .onTapGesture {
-            // An empty slot has nothing to toggle — `toggleARSlot` already no-ops
-            // on one — so its tap is free to mean "put something here". An occupied
-            // slot keeps the single tap that is the footswitch.
-            if pedal == nil { onAssign() }
-            else { withAnimation(.easeInOut(duration: 0.15)) { store.toggleARSlot(index) } }
-        }
-        // The drop target, registered while this slot is on screen. It replaces a
-        // `.dropDestination(for: GearItem.self)` that had never once fired: the only
-        // `.draggable` in the app is the library catalog card, and the library is a
-        // sibling pager page that cannot be on screen at the same time as this one.
-        // Keeping it would have left two drop paths on one view — a live one and an
-        // unreachable one, both writing `targeted` — and the unreachable one is the
-        // one that would quietly drift out of step.
-        .background { SlotDropArea(index: index, targeted: $targeted) }
+        .arSlotInteraction(index: index, pedal: pedal, held: $held, targeted: $targeted,
+                           onAssign: onAssign)
     }
 
     /// Amber wins, always. It is the PEDAL's state — engaged, or being dropped onto —
@@ -409,6 +496,99 @@ private struct ARSlotView: View {
         if targeted { return RigTheme.amber }
         if placementIsGood { return RigTheme.ready }
         return RigTheme.trim.opacity(0.5)
+    }
+}
+
+// MARK: - What you can do to a slot, wherever it is drawn
+
+extension View {
+    /// Tap, drop-onto, and lift-off — the three things a footswitch does, attached
+    /// identically to the bottom row and to a pedal on the floor. Shared so the two
+    /// presentations cannot drift into behaving differently.
+    func arSlotInteraction(index: Int, pedal: GearItem?, held: Binding<Bool>,
+                           targeted: Binding<Bool>, onAssign: @escaping () -> Void) -> some View {
+        modifier(ARSlotInteraction(index: index, pedal: pedal, held: held,
+                                   targeted: targeted, onAssign: onAssign))
+    }
+}
+
+/// TAP toggles an occupied switch and opens the picker on an empty one. HOLD lifts
+/// the pedal off, which is how it now comes off — the ✕ button this replaced was a
+/// 20pt target on a page read from standing height, and the app already had one
+/// gesture for "pick gear up and put it somewhere else".
+private struct ARSlotInteraction: ViewModifier {
+    @EnvironmentObject private var store: RigStore
+    @EnvironmentObject private var lift: ARSlotLift
+    @Environment(\.rigDrag) private var drag: RigDragController?
+    let index: Int
+    let pedal: GearItem?
+    @Binding var held: Bool
+    @Binding var targeted: Bool
+    let onAssign: () -> Void
+
+    /// Parked out of reach until the pedal is held, so this gesture never claims a
+    /// touch and the page swipe always wins — the same trick, for the same reason,
+    /// as the rail card's lift. See GearCardView.liftDrag.
+    private let unreachable: CGFloat = 10_000
+
+    func body(content: Content) -> some View {
+        content
+            .onTapGesture {
+                guard !held else { return }
+                if pedal == nil {
+                    onAssign()
+                } else {
+                    withAnimation(.easeInOut(duration: 0.15)) { store.toggleARSlot(index) }
+                }
+            }
+            // Only an OCCUPIED slot can be lifted: there is nothing to carry off an
+            // empty one, and arming the gesture there would just make its tap late.
+            .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 10) {
+                guard pedal != nil else { return }
+                held = true
+                // Freeze the pager BEFORE the finger moves — by the time the drag
+                // has travelled far enough to recognise, the swipe it would be
+                // mistaken for has already started.
+                lift.armed = true
+            } onPressingChanged: { pressing in
+                // A hold that never became a drag has to let go again, or the slot
+                // stays invisible and untappable — and the pager stays frozen.
+                if !pressing && drag?.item == nil {
+                    held = false
+                    lift.armed = false
+                }
+            }
+            // HIGH priority, unlike the rail card's simultaneous one, and for a
+            // structural reason: this slot lives inside the shell's paged TabView,
+            // whose pan will happily claim the movement and swipe the page instead
+            // of lifting the pedal. The rail solves the same fight by switching its
+            // ScrollView off while a card is held; a TabView has no such switch, so
+            // the gesture has to win on priority instead.
+            //
+            // Safe because of the threshold below: parked at `unreachable` until the
+            // pedal is actually held, this gesture cannot recognise, so it cannot
+            // claim a touch, and an ordinary swipe across the AR page still pages.
+            .highPriorityGesture(liftDrag)
+            .background { SlotDropArea(index: index, targeted: $targeted) }
+    }
+
+    private var liftDrag: some Gesture {
+        DragGesture(minimumDistance: held ? 20 : unreachable, coordinateSpace: .named("appRoot"))
+            .onChanged { move in
+                guard held, let drag, let pedal else { return }
+                // `.arSlot` origin: the trash takes this OFF THE SWITCH and nothing
+                // more — the pedal keeps its place in the chain and stays owned.
+                if drag.item == nil { drag.begin(pedal, at: move.location, from: .arSlot(index)) }
+                else { drag.move(to: move.location) }
+            }
+            .onEnded { move in
+                guard held, let drag else { return }
+                held = false
+                lift.armed = false
+                guard drag.item?.id == pedal?.id else { return }
+                drag.move(to: move.location)
+                drag.end()
+            }
     }
 }
 

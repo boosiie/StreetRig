@@ -217,6 +217,24 @@ final class RigDragController: ObservableObject {
     }
 }
 
+/// Whether a pedal on the AR page is held and about to be lifted.
+///
+/// Its own tiny object rather than a flag on `RigDragController`, and that is the
+/// whole point: the controller republishes on every finger move, so a shell that
+/// observed it to answer this question would re-render the entire app — the rail,
+/// the pager, the control panel — dozens of times per drag. This changes twice per
+/// lift.
+///
+/// It exists because an AR slot lives INSIDE the shell's paged TabView, whose pan
+/// will claim the drag and swipe the page instead of lifting the pedal. The rail
+/// settles the same fight by switching its ScrollView off while a card is held
+/// (see CollectionTabView) and the 3D stage by using a UIKit recogniser; this is
+/// the same move for the pager.
+@MainActor
+final class ARSlotLift: ObservableObject {
+    @Published var armed = false
+}
+
 extension EnvironmentValues {
     /// The live drag controller, passed down as an environment VALUE rather than
     /// read back as an `@EnvironmentObject`, on purpose: observing the controller

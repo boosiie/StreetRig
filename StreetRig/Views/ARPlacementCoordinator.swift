@@ -46,6 +46,27 @@ import Synchronization
 import UIKit
 import simd
 
+/// Where the anchored pedal row sits on the real floor, in the form the SceneKit
+/// nodes need: the anchor's world transform plus the slot centres in the ANCHOR's
+/// own space, so a refinement to the anchor carries the whole row with it.
+///
+/// Distinct from the projected `[CGPoint]` the SwiftUI chrome uses. The 3D pedals
+/// need no projection at all — SceneKit renders them through the same AR camera
+/// that draws the feed, which is the entire reason they look like they are on the
+/// floor rather than pasted over it.
+struct ARFloorPose: Equatable {
+    var anchor: simd_float4x4
+    var offsets: [simd_float4]
+    /// Yaw, in radians about the anchor's up axis, that turns a pedal to face where
+    /// the camera was standing when the player tapped. Fixed at lock time rather
+    /// than tracked: pedals on a floor do not swivel to follow you around the room.
+    var facing: Float
+
+    static func == (a: Self, b: Self) -> Bool {
+        a.anchor == b.anchor && a.offsets == b.offsets && a.facing == b.facing
+    }
+}
+
 // MARK: - What the page is doing right now
 
 /// Why `.searching` is still searching — the difference between "keep waiting" and
@@ -176,6 +197,10 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
 
     private let emitState: @Sendable (ARPlacementState) -> Void
     private let emitSlots: @Sendable ([CGPoint]?) -> Void
+    /// The anchored row's pose on the floor. Emitted on lock, on every anchor
+    /// refinement, and nil'd on unlock — NOT per frame: the nodes live in world
+    /// space, so between refinements there is nothing to tell anyone.
+    private let emitFloor: @Sendable (ARFloorPose?) -> Void
     /// (slot index, normalized x of the foot across the viewport).
     private let emitStomp: @Sendable (Int, CGFloat) -> Void
 
@@ -189,10 +214,12 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
     init(placementEnabled: Bool,
          onState: @escaping @Sendable (ARPlacementState) -> Void,
          onSlots: @escaping @Sendable ([CGPoint]?) -> Void,
+         onFloor: @escaping @Sendable (ARFloorPose?) -> Void,
          onStomp: @escaping @Sendable (Int, CGFloat) -> Void) {
         self.placementEnabled = placementEnabled
         self.emitState = onState
         self.emitSlots = onSlots
+        self.emitFloor = onFloor
         self.emitStomp = onStomp
         super.init()
     }
@@ -270,6 +297,9 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
     /// origin, and a world-space comparison would read that correction as the player
     /// kicking the phone and drop a perfectly good lock.
     private var lockPose: simd_float4x4?
+    /// See `ARFloorPose.facing`. Held here so a refinement can re-publish without
+    /// recomputing it from a camera pose that has since moved.
+    private var facing: Float = 0
 
     /// Screen x of each slot centre, for binning a stomp. Three scalars rather than
     /// an array because this is read on every processed frame and rewritten on every
@@ -313,6 +343,12 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
         self.lockPose = simd_mul(simd_inverse(anchorTransform), cameraTransform)
         self.degradedSince = nil
         self.interrupted = false
+        // Which way the pedals face: toward wherever the phone was when the player
+        // tapped. Yaw only, and taken once — a pedal lying on a floor keeps its
+        // orientation when you walk around it.
+        let camInAnchor = self.lockPose!.columns.3
+        self.facing = atan2(camInAnchor.x, camInAnchor.z)
+        publishFloor()
         let origin = anchorTransform.columns.3.xyz
         ARDiagnostics.log("LOCK at world(\(ARDiagnostics.f(origin.x)), \(ARDiagnostics.f(origin.y)), "
                         + "\(ARDiagnostics.f(origin.z))) camY=\(ARDiagnostics.f(cameraTransform.columns.3.y)) "
@@ -343,6 +379,14 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
         lockPose = nil
         slotCentersX = nil
         lastPublishedSlots = nil
+        facing = 0
+        emitFloor(nil)
+    }
+
+    /// Hand the current floor pose out, if there is one to hand out.
+    private func publishFloor() {
+        guard let anchorTransform, let slotOffsets else { return emitFloor(nil) }
+        emitFloor(ARFloorPose(anchor: anchorTransform, offsets: slotOffsets, facing: facing))
     }
 
     // MARK: - ARSessionDelegate
@@ -430,6 +474,7 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
                 // transform: the slot offsets are relative to it, so the row follows
                 // the correction instead of drifting off the real floor.
                 anchorTransform = anchor.transform
+                publishFloor()
             }
         }
     }

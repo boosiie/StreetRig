@@ -52,7 +52,13 @@ import UIKit
 @MainActor
 final class ARSlotLayout: ObservableObject {
     /// View-space centres of slots 0, 1, 2 — or nil when the row is not anchored.
+    /// Drives the SwiftUI chrome (name, lamp, ON/OFF) that tracks each pedal.
     @Published var slots: [CGPoint]?
+
+    /// Where the row sits on the real floor, for the SceneKit pedals. Changes only
+    /// on lock and on anchor refinement, so it costs nothing to keep beside the
+    /// 30 Hz points.
+    @Published var floor: ARFloorPose?
 }
 
 // MARK: - The detector
@@ -116,6 +122,9 @@ final class CameraStompDetector: ObservableObject {
             },
             onSlots: { [weak self] points in
                 DispatchQueue.main.async { MainActor.assumeIsolated { self?.layout.slots = points } }
+            },
+            onFloor: { [weak self] pose in
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.layout.floor = pose } }
             },
             onStomp: { [weak self] slot, x in
                 DispatchQueue.main.async { MainActor.assumeIsolated { self?.dispatchStomp(slot, at: x) } }

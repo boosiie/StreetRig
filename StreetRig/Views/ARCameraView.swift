@@ -8,12 +8,20 @@
 //  exists; the part of it that mattered, sampling the orientation from the layout
 //  pass, is carried forward below.)
 //
-//  NOTHING 3D IS DRAWN HERE. The scene stays empty. `ARSCNView` is used purely
-//  because it is the shortest correct path to "show me the session's camera feed,
-//  right way up, in this rect" — SceneKit renders the background and no content.
-//  Everything the player sees on top of it is SwiftUI. If a future change starts
-//  adding nodes to this scene, the design decision behind this whole feature has been
-//  reversed and the readiness system should be revisited with it.
+//  THE SCENE HAS CONTENT NOW, and that is a reversal. This file used to say the
+//  scene stays empty — ARKit for tracking, every pixel of gear in SwiftUI — and
+//  warned that anything adding nodes here had reversed the design. `ARFloorPedals`
+//  does exactly that, deliberately: the pedals are SceneKit models parented to the
+//  world anchor, so they lie on the real floor in real perspective instead of being
+//  rectangles pasted at a projected point. The chrome that has to be READ from
+//  standing height — name, ON/OFF, the lamp — is still SwiftUI on top.
+//
+//  The two render settings below moved with that decision. Both were off because
+//  there was nothing to light or to smooth; leaving them off now would give a pedal
+//  lit for a different room (which reads as a sticker on the lens) and hard aliased
+//  edges on a 7cm object several feet away. Motion blur and camera grain stay off:
+//  they cost the same frame time and buy realism the player is not looking for
+//  while trying to find a footswitch with their foot.
 //
 //  IT REPORTS ITS GEOMETRY, AND THAT IS THE POINT. The interface orientation AND the
 //  viewport size are handed onward on every layout pass, because both are inputs to
@@ -46,14 +54,14 @@ struct ARCameraView: UIViewRepresentable {
         let view = FeedView(frame: .zero)
         view.session = session
         view.backgroundColor = .black
-        // Everything below is work with nothing to work on: there is no virtual
-        // content to light, to grain-match, to motion-blur or to antialias. Left at
-        // ARKit's defaults it would all still run, next to a neural amp on the audio
-        // thread and world tracking on the CPU.
-        view.automaticallyUpdatesLighting = false
+        // Lighting and antialiasing are ON because there is now content that needs
+        // them (see the header). Grain and motion blur stay off: they run next to a
+        // neural amp on the audio thread and world tracking on the CPU, and buy
+        // nothing a player hunting for a footswitch with their foot will notice.
+        view.automaticallyUpdatesLighting = true
         view.rendersCameraGrain = false
         view.rendersMotionBlur = false
-        view.antialiasingMode = .none
+        view.antialiasingMode = .multisampling2X
         view.onGeometry = onGeometry
         onView(view)
         return view

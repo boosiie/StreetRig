@@ -30,6 +30,9 @@ enum AppPage: Int, CaseIterable, Hashable {
 
 struct MainView: View {
     @EnvironmentObject var store: RigStore
+    /// Observed only to freeze the pager while an AR pedal is being lifted off its
+    /// switch — see `ARSlotLift`. Two renders per lift, not one per finger move.
+    @EnvironmentObject private var slotLift: ARSlotLift
     @EnvironmentObject var drag: RigDragController
     @State private var focused: RigComponent?
     @State private var page: AppPage = .main
@@ -54,6 +57,10 @@ struct MainView: View {
                             .tag(AppPage.ar)
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
+                    // A held AR pedal has to be draggable across the page it sits
+                    // on, and the pager would otherwise take that movement as a
+                    // swipe. Same switch the rail throws for the same reason.
+                    .scrollDisabled(slotLift.armed)
                     // The trash lives HERE — top-left of the centre area, just
                     // past the MY GEAR rail — so it is somewhere you drag TO,
                     // equally reachable from the rail and from the rig stage.
@@ -179,7 +186,11 @@ struct MainView: View {
 /// The floating preview of the card being dragged, tracking the finger in the
 /// shared "appRoot" space. Observes only the drag controller, so the rest of the
 /// shell doesn't re-render while the finger moves.
-private struct DragGhostView: View {
+///
+/// Internal rather than private because the play page is a full-screen cover — a
+/// separate hierarchy that the shell's ghost cannot reach over — and a drag with
+/// no ghost is a finger dragging nothing.
+struct DragGhostView: View {
     @EnvironmentObject private var drag: RigDragController
 
     var body: some View {

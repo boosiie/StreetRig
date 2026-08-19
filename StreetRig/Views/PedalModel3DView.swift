@@ -213,6 +213,10 @@ enum PedalboardScene {
 // MARK: - Procedural stompbox (generic, colored per pedal)
 
 enum ProceduralPedal {
+    /// The status LED's node name. Named so a caller can light it: the AR floor
+    /// pedals turn it on when the footswitch is engaged.
+    static let ledNodeName = "led"
+
     static func build(for pedal: GearItem) -> SCNNode {
         let group = SCNNode()
         let spec = spec(for: pedal)
@@ -249,6 +253,7 @@ enum ProceduralPedal {
         let led = SCNSphere(radius: 0.045)
         led.materials = [Studio3D.pbr(spec.led, metalness: 0, roughness: 0.3, emission: spec.led)]
         let ledNode = SCNNode(geometry: led)
+        ledNode.name = ledNodeName
         ledNode.position = SCNVector3(0, 0.44, 0.08)
         group.addChildNode(ledNode)
 
