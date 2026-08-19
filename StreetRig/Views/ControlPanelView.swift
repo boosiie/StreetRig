@@ -65,6 +65,9 @@ private enum PanelMetrics {
 /// opens the PLAY page when the player engages.
 struct ControlPanelView: View {
     @EnvironmentObject var store: RigStore
+    /// Held only to hand onward to the play page's cover — see the injection below.
+    @EnvironmentObject private var drag: RigDragController
+    @EnvironmentObject private var slotLift: ARSlotLift
     @StateObject private var audio = AudioEngineController()
     @State private var showingPlay = false
 
@@ -83,8 +86,15 @@ struct ControlPanelView: View {
             // if engaging fails the error lands on the page you are already looking
             // at rather than behind it.
             .fullScreenCover(isPresented: $showingPlay) {
+                // Every object the play page and its AR slots read, re-injected by
+                // hand. A cover is presented from a detached hierarchy, which is why
+                // `store` was already passed explicitly — and a missing
+                // `@EnvironmentObject` is not a degraded page, it is a crash the
+                // moment PROCEED is pressed.
                 PlayView(audio: audio)
                     .environmentObject(store)
+                    .environmentObject(drag)
+                    .environmentObject(slotLift)
             }
             // The new-hardware question, for when something is plugged in while the
             // player is on the rig screen — which is usually WHERE the iRig gets
@@ -431,4 +441,6 @@ private struct RouteZone: View {
     .background(RigTheme.background)
     .preferredColorScheme(.dark)
     .environmentObject(RigStore.preview)
+    .environmentObject(RigDragController())
+    .environmentObject(ARSlotLift())
 }

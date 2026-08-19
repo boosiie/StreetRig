@@ -994,6 +994,23 @@ extension AudioEngineController {
         }
         checks.append(("dropping an unracked pedal adds it to the rig", addedOK, addedDetail))
 
+        // 7. ONE PEDAL, ONE FOOTSWITCH. Assigning a pedal that already holds a slot
+        //    releases the old one, so the enabled-state rule keeps a single source —
+        //    and the pedal comes out enabled rather than stranded by the slot it left.
+        //    The AR page's picker now shows this coming ("ON SWITCH n · MOVES HERE"),
+        //    which is only honest while this holds.
+        var movedOK = false, movedDetail = "no spare pedal in the collection"
+        if let spare {
+            store.setARSlot(2, pedalId: spare.id)
+            let planMoved = RigGraphCompiler.compile(store: store)
+            movedOK = store.arSlots[1].pedalId == nil
+                && store.arSlots[2].pedalId == spare.id
+                && store.arSlots[2].isOn
+                && enabled(planMoved, spare.id) == true
+            movedDetail = "\(spare.name): slot 1 released, now on slot 2 only, still enabled"
+        }
+        checks.append(("re-binding releases the pedal's old slot", movedOK, movedDetail))
+
         let allPass = checks.allSatisfy { $0.1 }
         var out = """
         === AR FOOTSWITCHES — stomp slots drive the real chain ===

@@ -125,6 +125,11 @@ struct GearTrashTarget: View {
     @State private var rejectionShake: CGFloat = 0
     @State private var rejectionTimeout: Task<Void, Never>?
 
+    /// The trash's registration with the drag controller. Priority above every
+    /// other target: a destructive drop must never double as a "replace this
+    /// piece" hover (see the precedence note in RigDragController).
+    @State private var area = RigDropArea()
+
     private let diameter: CGFloat = 58
 
     var body: some View {
@@ -172,23 +177,37 @@ struct GearTrashTarget: View {
         // Never eats a tap, a scroll or a page swipe: the drag controller
         // hit-tests it by frame, so it needs no hit-testing of its own.
         .allowsHitTesting(false)
-        .onAppear { drag.onTrash = { item, origin in handleTrash(item, from: origin) } }
+        .onAppear {
+            area.priority = 100
+            area.space = .window
+            area.onHover = { _, _, _ in drag.setOverTrash(true) }
+            area.onExit = { drag.setOverTrash(false) }
+            area.onDrop = { item, origin in handleTrash(item, from: origin) }
+            drag.register(area)
+        }
+        .onDisappear { drag.deregister(area) }
         .gearRemovalConfirmation($pendingRemoval, store: store)
     }
 
     /// A rail drag DELETES; a stage drag only unloads the piece from the rig.
     /// Saying which keeps one red circle from meaning two different things.
-    private var caption: String { drag.origin == .stage ? "OFF RIG" : "DELETE" }
+    private var caption: String {
+        switch drag.origin {
+        case .rail:   return "DELETE"
+        case .stage:  return "OFF RIG"
+        case .arSlot: return "OFF SWITCH"
+        }
+    }
 
     /// Publishes the target's frame in WINDOW coordinates — see
-    /// `RigDragController.trashFrameInWindow` for why it isn't "appRoot" space.
+    /// `RigDropArea.Space` for why it isn't "appRoot" space.
     /// Slightly generous: a 58pt circle is a small thing to hit with a moving finger.
     private var frameReader: some View {
         GeometryReader { proxy in
             Color.clear
-                .onAppear { drag.trashFrameInWindow = proxy.frame(in: .global).insetBy(dx: -12, dy: -12) }
+                .onAppear { area.frame = proxy.frame(in: .global).insetBy(dx: -12, dy: -12) }
                 .onChange(of: proxy.frame(in: .global)) { _, frame in
-                    drag.trashFrameInWindow = frame.insetBy(dx: -12, dy: -12)
+                    area.frame = frame.insetBy(dx: -12, dy: -12)
                 }
         }
     }
@@ -222,6 +241,13 @@ struct GearTrashTarget: View {
             default:
                 withAnimation(.easeInOut(duration: 0.28)) { store.removePedal(item.id) }
             }
+
+        case .arSlot(let index):
+            // Pulled off a footswitch, and that is ALL it means: the pedal keeps
+            // its place in the chain and stays owned, exactly as the ✕ button this
+            // gesture replaced did. Clearing a slot leaves the pedal unbound and
+            // therefore enabled — it is never stranded in bypass.
+            withAnimation(.easeInOut(duration: 0.2)) { store.setARSlot(index, pedalId: nil) }
         }
     }
 
