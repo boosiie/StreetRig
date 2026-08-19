@@ -46,15 +46,21 @@ struct PlayView: View {
             // own drag source — which is why this page carries a ghost and a trash
             // of its own below.
             ARPedalContentView()
+                // The bin belongs to the PEDAL half of this page, not to the page.
+                // Hung off the whole thing it landed on the control panel, which
+                // lives across the top here rather than along the bottom as it does
+                // in the shell — so "top-left of the page" is the one place it must
+                // not be. Top-left of the pedals is the same corner the shell puts
+                // it in, measured from the right thing.
+                .overlay(alignment: .topLeading) { GearTrashTarget() }
         }
         .environment(\.rigDrag, drag)
         .background(RigTheme.background)
-        // Its own space, its own ghost, its own bin. A full-screen cover is a
-        // separate hierarchy: the shell's "appRoot" does not resolve inside it and
-        // the shell's overlays cannot draw over it.
+        // Its own space, its own ghost. A full-screen cover is a separate hierarchy:
+        // the shell's "appRoot" does not resolve inside it and the shell's overlays
+        // cannot draw over it.
         .coordinateSpace(.named("appRoot"))
         .background(appRootOriginReader)
-        .overlay(alignment: .topLeading) { GearTrashTarget() }
         .overlay { DragGhostView() }
         .overlay {
             // Asked here rather than as a system alert so the "don't ask again"
