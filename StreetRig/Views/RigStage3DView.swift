@@ -95,15 +95,19 @@ struct RigStage3DView: UIViewRepresentable {
         orbit.maximumNumberOfTouches = 1
         view.addGestureRecognizer(orbit)
 
-        // Same for the pinch: the built-in controller does the zooming, this only
-        // watches for the release so the zoom rubber-bands home like the orbit does.
+        // The pinch is ours end to end — it does the zooming AND the spring-back,
+        // with the built-in controller switched off for the duration so there is no
+        // second owner of the camera. See `handlePinch` for why it is not an
+        // observer of the built-in zoom (two attempts at that did not come back).
         let pinch = UIPinchGestureRecognizer(target: context.coordinator,
                                              action: #selector(Coordinator.handlePinch(_:)))
         pinch.delegate = context.coordinator
-        // Purely an observer: never swallow the touches the built-in controller is
-        // using to do the actual zooming, or the pinch would stop working entirely.
-        pinch.cancelsTouchesInView = false
+        pinch.cancelsTouchesInView = false      // leave the tap/orbit recognizers alone
         view.addGestureRecognizer(pinch)
+
+        // Backstop: even if none of the above fires, this notices the camera sitting
+        // away from home and brings it back. See `startZoomWatchdog`.
+        context.coordinator.startZoomWatchdog()
 
         // Wire the custom drag controller into this live scene. As the rail's
         // drag moves, `onMove` hit-tests the models under the finger and glows the
@@ -288,6 +292,50 @@ struct RigStage3DView: UIViewRepresentable {
 
         // MARK: Orbit → gentle spring back to center
 
+        /// Camera→lookTarget radius at the instant a pinch began; the pinch's scale
+        /// is applied against it. Zero means no pinch is in flight.
+        private var pinchStartDistance: Float = 0
+
+        // MARK: Zoom watchdog — the backstop that does not trust gesture plumbing
+
+        private var zoomWatchdog: Timer?
+
+        /// Watches the CAMERA rather than any gesture, and pulls it home whenever it
+        /// is parked away from the default distance with nothing being touched.
+        ///
+        /// This exists because two recognizer-based attempts at the zoom rubber band
+        /// both failed on device, and the Simulator could not be driven reliably
+        /// enough to tell me which link in the chain was broken. Watching the result
+        /// instead of the cause sidesteps the question entirely: it does not matter
+        /// whether our pinch handler ran, whether SceneKit's built-in controller did
+        /// the zooming, or whether the two fought — if the camera ends up somewhere
+        /// other than home and the user is not touching the screen, it comes back.
+        ///
+        /// Deliberately cheap and deliberately dumb: 10 Hz, a distance compare, and
+        /// an early-out while any recognizer is mid-gesture so it can never yank the
+        /// view out from under a live pinch.
+        func startZoomWatchdog() {
+            zoomWatchdog?.invalidate()
+            zoomWatchdog = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                self?.springBackIfCameraDrifted()
+            }
+        }
+
+        private func springBackIfCameraDrifted() {
+            guard focusedNow == nil, !animatingForward, let view, let cam = view.pointOfView else { return }
+            // Never interrupt a gesture that is still in progress.
+            if let gestures = view.gestureRecognizers,
+               gestures.contains(where: { $0.state == .began || $0.state == .changed }) { return }
+            // Compare the MODEL position, not the presentation one: the spring sets
+            // the model value immediately, so an in-flight return already reads as
+            // "home" here and cannot re-trigger itself every tick.
+            let d = RigDiorama.distance(from: cam.position, to: RigDiorama.lookTarget)
+            guard abs(d - RigDiorama.defaultCameraDistance) > 0.02 else { return }
+            springBackToCenter()
+        }
+
+        deinit { zoomWatchdog?.invalidate() }
+
         @objc func handleOrbitPan(_ g: UIPanGestureRecognizer) {
             guard focusedNow == nil, let view, let cam = view.pointOfView else { return }
             switch g.state {
@@ -309,25 +357,51 @@ struct RigStage3DView: UIViewRepresentable {
 
         // MARK: Pinch → spring the ZOOM back too
 
-        /// The zoom half of the same rubber band. `allowsCameraControl` runs the
-        /// pinch itself, and nothing was watching it — so orbiting sprang back but
-        /// zooming just stayed wherever it was let go, which read as the gesture
-        /// being broken rather than deliberate. Releasing a pinch now returns the
-        /// camera to the default framing distance, the one the stage is composed
-        /// around and the one guaranteed to fit every amp.
+        /// The zoom half of the rubber band — and this handler does the ZOOMING as
+        /// well as the spring-back, deliberately.
+        ///
+        /// Two earlier attempts left this as a passive observer of
+        /// `allowsCameraControl`'s built-in pinch, and neither made the camera come
+        /// back. Rather than keep guessing which half was at fault — the observer
+        /// never firing, or the built-in controller restoring its own cached pose
+        /// once control was handed back and undoing the ease — the zoom is now ours
+        /// end to end. The built-in controller is switched OFF for the duration of
+        /// the pinch, so there is no second owner of the camera to fight, and this
+        /// handler cannot silently fail to run: if the view zooms at all, it ran.
         @objc func handlePinch(_ g: UIPinchGestureRecognizer) {
             guard focusedNow == nil, let view, let cam = view.pointOfView else { return }
             switch g.state {
             case .began:
-                // Same hand-off as orbit: catch the camera mid-return so the pinch
-                // resumes from where it actually is instead of jumping.
+                // Catch the camera mid-return so the pinch resumes from where it
+                // actually is instead of jumping.
                 cam.position = cam.presentation.position
                 cam.orientation = cam.presentation.orientation
                 cam.removeAllAnimations()
                 cam.removeAllActions()
-                view.allowsCameraControl = true
+                view.allowsCameraControl = false        // we own the camera now
+                pinchStartDistance = RigDiorama.distance(from: cam.position,
+                                                         to: RigDiorama.lookTarget)
+            case .changed:
+                guard pinchStartDistance > 0 else { return }
+                // Fingers apart (scale > 1) = zoom in = a SMALLER radius. Clamped to
+                // the same bounds `framedPose` uses, so a pinch can never crop the
+                // pedalboard (see `minCameraDistance`).
+                let raw = pinchStartDistance / Float(max(g.scale, 0.01))
+                let d = min(max(raw, RigDiorama.minCameraDistance), RigDiorama.maxCameraDistance)
+                let t = RigDiorama.lookTarget, p = cam.position
+                let v = SCNVector3(p.x - t.x, p.y - t.y, p.z - t.z)
+                let len = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+                guard len > 1e-5 else { return }
+                // Change ONLY the radius — the user keeps whatever angle they orbited to.
+                SCNTransaction.begin()
+                SCNTransaction.animationDuration = 0     // track the fingers exactly
+                cam.position = SCNVector3(t.x + v.x / len * d,
+                                          t.y + v.y / len * d,
+                                          t.z + v.z / len * d)
+                SCNTransaction.commit()
             case .ended, .cancelled, .failed:
-                springBackToCenter()
+                pinchStartDistance = 0
+                springBackToCenter()                     // hands control back on landing
             default:
                 break
             }
