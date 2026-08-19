@@ -400,8 +400,8 @@ private struct ARFloorSlotView: View {
         .opacity(held ? 0 : 1)
         .frame(width: 132)
         .contentShape(Rectangle())
-        .arSlotInteraction(index: index, pedal: pedal, cornerRadius: 14,
-                           ringInsets: EdgeInsets(top: 2, leading: 12, bottom: 19, trailing: 12),
+        .arSlotInteraction(index: index, pedal: pedal, cornerRadius: 17,
+                           ringInsets: EdgeInsets(top: -5, leading: 5, bottom: 12, trailing: 5),
                            held: $held, targeted: $targeted, onAssign: onAssign)
     }
 }
@@ -485,8 +485,8 @@ private struct ARSlotView: View {
         .frame(maxWidth: .infinity)
         .opacity(held ? 0 : 1)
         .contentShape(Rectangle())
-        .arSlotInteraction(index: index, pedal: pedal, cornerRadius: 15,
-                           ringInsets: EdgeInsets(top: 3, leading: 3, bottom: 25, trailing: 3),
+        .arSlotInteraction(index: index, pedal: pedal, cornerRadius: 23,
+                           ringInsets: EdgeInsets(top: -5, leading: -5, bottom: 17, trailing: -5),
                            held: $held, targeted: $targeted, onAssign: onAssign)
     }
 
@@ -530,10 +530,12 @@ private struct ARSlotInteraction: ViewModifier {
     /// Corner radius of the ring drawn around this slot while it charges — the
     /// bottom row is a rounded box, a floor pedal's label is a capsule.
     let cornerRadius: CGFloat
-    /// How far to pull the ring in from the hit area's edge. The hit area covers the
-    /// slot AND the ON/OFF caption under it, so an un-inset ring traces a rectangle
-    /// well outside the thing it is meant to be charging. These bring it onto the
-    /// border itself, just inside the edge.
+    /// Where the ring sits relative to the hit area's edge. NEGATIVE values push it
+    /// outward, which is what the sides and top use: the ring rides just OUTSIDE the
+    /// slot's own border with a couple of points of dark between them, where nothing
+    /// competes with it. Drawn on the border it was fighting the slot's stroke and
+    /// its artwork and barely registered. The bottom stays positive because the hit
+    /// area deliberately extends over the ON/OFF caption, which the ring must clear.
     let ringInsets: EdgeInsets
     @Binding var held: Bool
     @Binding var targeted: Bool
@@ -616,7 +618,11 @@ private struct ARSlotInteraction: ViewModifier {
     private var holdRing: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .trim(from: 0, to: charge)
-            .stroke(RigTheme.amber, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            .stroke(RigTheme.amber, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+            // Read at arm's length on a phone propped on the floor, over a live
+            // camera feed — a hairline is not enough. The glow is what separates it
+            // from whatever the camera happens to be pointing at.
+            .shadow(color: RigTheme.amber.opacity(0.7), radius: 6)
             .padding(ringInsets)
             .opacity(held ? 0 : 1)
             .animation(.easeOut(duration: 0.14), value: held)
