@@ -224,8 +224,14 @@ final class CameraStompDetector: ObservableObject {
         // Everything below is a cost this page does not need, stated rather than
         // assumed — ARKit's defaults are tuned for apps that render 3D content, and
         // this one renders none of it.
-        configuration.environmentTexturing = .none      // no virtual surfaces to light
-        configuration.isLightEstimationEnabled = false
+        // There ARE virtual surfaces to light now — the floor pedals — so the
+        // estimate is back on. `ARCameraView` sets `automaticallyUpdatesLighting`,
+        // and without this the session produces no estimate for it to apply, which
+        // leaves the pedals lit by nothing but ARFloorPedals' small ambient floor.
+        // Texturing stays off: that is for reflective surfaces, and a stompbox on a
+        // carpet reflects nothing worth the frame time.
+        configuration.environmentTexturing = .none
+        configuration.isLightEstimationEnabled = true
         configuration.frameSemantics = []               // no segmentation, no body mesh
         // The one that is not merely a cost: enabling audio data lets ARKit
         // reconfigure the AVAudioSession, which is currently carrying the player's

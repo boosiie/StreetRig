@@ -558,17 +558,14 @@ private struct ARSlotInteraction: ViewModifier {
                     lift.armed = false
                 }
             }
-            // HIGH priority, unlike the rail card's simultaneous one, and for a
-            // structural reason: this slot lives inside the shell's paged TabView,
-            // whose pan will happily claim the movement and swipe the page instead
-            // of lifting the pedal. The rail solves the same fight by switching its
-            // ScrollView off while a card is held; a TabView has no such switch, so
-            // the gesture has to win on priority instead.
-            //
-            // Safe because of the threshold below: parked at `unreachable` until the
-            // pedal is actually held, this gesture cannot recognise, so it cannot
-            // claim a touch, and an ordinary swipe across the AR page still pages.
-            .highPriorityGesture(liftDrag)
+            // SIMULTANEOUS, exactly as the rail card attaches its own lift, and not
+            // high-priority. A high-priority drag was tried and is wrong here: a
+            // synthetic tap has zero travel so it looked fine, but a real finger
+            // always moves a few points, and the high-priority drag can claim that
+            // touch and swallow the tap — taking tap-to-toggle and tap-to-pick with
+            // it. The pager is kept off this drag by `ARSlotLift` instead, which is
+            // the same move the rail makes by disabling its ScrollView.
+            .simultaneousGesture(liftDrag)
             .background { SlotDropArea(index: index, targeted: $targeted) }
     }
 
