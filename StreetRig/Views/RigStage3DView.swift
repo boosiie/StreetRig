@@ -19,7 +19,9 @@
 //  that dresses the cards and the library, mapped onto the front of the box —
 //  so swapping either piece visibly changes the stack. A piece with no artwork
 //  falls back to the generic build, whose knobs turn live from GearItem.values.
-//  Gated by FeatureFlags.amp3D (stacks only; combo → vector).
+//  Gated by FeatureFlags.amp3D. EVERY amp section renders here, a combo included:
+//  a combo is simply a one-box amp in the same scene, so choosing one no longer
+//  drops the whole stage — board and guitar with it — back to the flat layout.
 //
 
 import SwiftUI
@@ -341,9 +343,17 @@ struct RigStage3DView: UIViewRepresentable {
                 localNormal = SCNVector3(0, 0.85, 0.5)   // knob panel (top), tilted toward the front
                 dist = 1.15
             case .amp, .cabinet, .combo:
-                localFocus = SCNVector3(0, 1.12, 0.68)   // center of the amp's knob row on the faceplate
-                localNormal = SCNVector3(0, 0, 1)        // straight-on to the faceplate → flat to the screen
-                dist = 3.6
+                // Measured, not baked. The amp root is now any of three shapes —
+                // a generic stack, an art-fitted stack of different proportions,
+                // or a single squat combo — so a fixed focal point (it used to be
+                // the original head's knob row) framed empty air above a combo.
+                // Centre on whatever is actually there, at its front face.
+                let (lo, hi) = node.boundingBox
+                localFocus = SCNVector3((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, hi.z)
+                localNormal = SCNVector3(0, 0, 1)        // straight-on to the front → flat to the screen
+                // Pull back in proportion to the piece's real world height so a
+                // combo and a full stack fill about the same fraction of frame.
+                dist = max(1.8, (hi.y - lo.y) * node.scale.y * 1.6)
             case .guitar:
                 localFocus = SCNVector3(0, 0, 0)
                 localNormal = SCNVector3(0, 0, 1)        // body front
@@ -548,7 +558,10 @@ enum RigDiorama {
         } else {
             ProceduralAmp.build(into: ampRoot, amp: amp, cabinet: cabinet)
         }
-        let ampScale: Float = 0.55
+        // The amp is the centrepiece and was reading small next to the board and
+        // the guitar — it is the piece you actually chose. Scaled up so it holds
+        // the middle of the stage; the lift keeps its base on the floor either way.
+        let ampScale: Float = 0.62
         ampRoot.scale = SCNVector3(ampScale, ampScale, ampScale)
         ampRoot.position = SCNVector3(-0.1, 2.15 * ampScale, -0.9)   // aligned in x with the pedalboard
         world.addChildNode(ampRoot)
@@ -586,7 +599,7 @@ enum RigDiorama {
 
         // ---- Lighting + grounding shadows + camera.
         Studio3D.addLighting(to: scene)
-        Studio3D.addContactShadow(to: scene.rootNode, width: 3.4, height: 2.5, at: SCNVector3(-0.1, 0.02, -0.85))
+        Studio3D.addContactShadow(to: scene.rootNode, width: 3.8, height: 2.8, at: SCNVector3(-0.1, 0.02, -0.85))
         if !pedals.isEmpty {
             Studio3D.addContactShadow(to: scene.rootNode, width: 3.6, height: 1.6, at: SCNVector3(-0.1, 0.02, 0.4))
         }

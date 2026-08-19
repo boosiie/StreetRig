@@ -225,6 +225,15 @@ enum ProceduralAmp {
     /// camera in and opens `ComponentDetailView`, whose knobs and sliders are
     /// the actual control surface — but the at-a-glance readout is gone.
     static func build(into root: SCNNode, amp: GearItem?, cabinet: GearItem?) {
+        // A combo is amp and speaker in ONE box, so it gets one box — not a
+        // head sitting on a cab. There is no cabinet item to consult: for a
+        // combo rig `RigStore.cabinetItem` is nil by construction.
+        if amp?.category == .comboAmp {
+            let art = GearIconLoader.uiImage(for: amp)
+            addCombo(Layout.forCombo(art: art), art: art, to: root)
+            return
+        }
+
         let headArt = GearIconLoader.uiImage(for: amp)
         let cabArt  = GearIconLoader.uiImage(for: cabinet)
         let layout  = Layout.forStack(headArt: headArt, cabArt: cabArt)
@@ -259,6 +268,29 @@ enum ProceduralAmp {
         /// tells a designer to author their `.usdz` against.
         static let genericHead = Box(width: 3.4, height: 1.15, depth: 1.25, centerY: 1.0)
         static let genericCab  = Box(width: 3.7, height: 2.5,  depth: 1.45, centerY: -0.85)
+
+        /// A combo's height budget. It is deliberately NOT the full `span`: a
+        /// combo is one box, and standing it as tall as a half-stack would read
+        /// as a mislabelled cabinet. Real proportions are roughly a third of a
+        /// stack's height at nearly its full width; a third looks lost on the
+        /// stage, so this splits the difference and keeps the amp substantial.
+        static let comboSpan: Float = span * 0.55
+
+        /// The generic combo, used when a combo has no artwork — squat and a
+        /// little wider than tall, the shape of a 2x12 combo.
+        static let genericCombo = Box(width: 2.62, height: comboSpan, depth: 1.32,
+                                      centerY: floorY + comboSpan / 2)
+
+        /// One box, sized from the drawing but held to `comboSpan` so every
+        /// combo stands at a consistent height whatever its aspect.
+        static func forCombo(art: UIImage?) -> Box {
+            guard let a = aspect(art) else { return genericCombo }
+            let height = comboSpan
+            let width  = height * a
+            let k = width / genericCombo.width       // depth tracks width, as in the stack
+            return Box(width: width, height: height, depth: genericCombo.depth * k,
+                       centerY: floorY + height / 2)
+        }
 
         static func forStack(headArt: UIImage?, cabArt: UIImage?) -> (head: Box, cab: Box) {
             guard headArt != nil || cabArt != nil else { return (genericHead, genericCab) }
@@ -367,6 +399,48 @@ enum ProceduralAmp {
                 capNode.position = SCNVector3(sx, sy, z + 0.045)
                 root.addChildNode(capNode)
             }
+        }
+    }
+
+    /// A combo: one box, grille below and a control panel across the top, which
+    /// is what separates it at a glance from a cabinet of the same silhouette.
+    /// Art path is identical to the other two pieces — the drawing already has
+    /// the grille, the panel and the knobs on it.
+    private static func addCombo(_ box: Box, art: UIImage?, to root: SCNNode) {
+        if let art {
+            addArtBox(box, art: art, to: root)
+            return
+        }
+
+        Studio3D.addBox(CGFloat(box.width), CGFloat(box.height), CGFloat(box.depth),
+                        chamfer: 0.05, mat: tolexMat, at: SCNVector3(0, box.centerY, 0), to: root)
+        let z = box.frontZ
+
+        // Control panel across the top third, then the grille below it.
+        let panelY = box.centerY + box.height * 0.34
+        Studio3D.addBox(CGFloat(box.width * 0.88), CGFloat(box.height * 0.2), 0.05,
+                        chamfer: 0.02, mat: creamMat, at: SCNVector3(0, panelY, z + 0.005), to: root)
+
+        let grilleY = box.centerY - box.height * 0.12
+        Studio3D.addBox(CGFloat(box.width * 0.9), CGFloat(box.height * 0.56), 0.04,
+                        chamfer: 0.03, mat: goldMat, at: SCNVector3(0, grilleY, z - 0.045), to: root)
+        Studio3D.addBox(CGFloat(box.width * 0.845), CGFloat(box.height * 0.5), 0.05,
+                        chamfer: 0.02, mat: clothMat, at: SCNVector3(0, grilleY, z - 0.025), to: root)
+
+        // Two speakers side by side — a combo, not a 4x12.
+        for sx in [-box.width * 0.2, box.width * 0.2] {
+            let cone = SCNCylinder(radius: CGFloat(box.width * 0.16), height: 0.05)
+            cone.materials = [coneMat]
+            let coneNode = SCNNode(geometry: cone)
+            coneNode.eulerAngles.x = .pi / 2             // face forward (+Z)
+            coneNode.position = SCNVector3(sx, grilleY, z + 0.005)
+            root.addChildNode(coneNode)
+
+            let cap = SCNSphere(radius: CGFloat(box.width * 0.035))
+            cap.materials = [Studio3D.pbr(UIColor(white: 0.22, alpha: 1), metalness: 0.1, roughness: 0.5)]
+            let capNode = SCNNode(geometry: cap)
+            capNode.position = SCNVector3(sx, grilleY, z + 0.045)
+            root.addChildNode(capNode)
         }
     }
 

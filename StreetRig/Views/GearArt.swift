@@ -35,9 +35,9 @@ extension GearCategory {
     /// keep their footprint; only the drawing inside it changes shape.
     var artSize: CGSize {
         switch self {
-        case .amp:      return CGSize(width: 74, height: 36)
-        case .cabinet:  return CGSize(width: 47, height: 54)
-        case .comboAmp: return CGSize(width: 62, height: 52)
+        case .amp:      return CGSize(width: 100, height: 48)
+        case .cabinet:  return CGSize(width: 48,  height: 55)
+        case .comboAmp: return CGSize(width: 62,  height: 55)
         case .guitar:   return CGSize(width: 42, height: 54)
         case .wah:      return CGSize(width: 64, height: 50)
         default:        return CGSize(width: 38, height: 54) // pedals

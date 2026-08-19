@@ -281,9 +281,9 @@ private struct LibraryTile: View {
     /// height doesn't move when these change.
     private var artSize: CGSize {
         switch item.category {
-        case .amp:      return CGSize(width: 84, height: 41)
-        case .cabinet:  return CGSize(width: 52, height: 60)
-        case .comboAmp: return CGSize(width: 70, height: 58)
+        case .amp:      return CGSize(width: 112, height: 55)
+        case .cabinet:  return CGSize(width: 55,  height: 63)
+        case .comboAmp: return CGSize(width: 70,  height: 62)
         case .wah:      return CGSize(width: 72, height: 56)
         default:        return CGSize(width: 44, height: 62)
         }

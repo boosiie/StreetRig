@@ -29,8 +29,11 @@ struct RigStageView: View {
 
     private let maxAngle: CGFloat = 20
 
-    /// One 3D diorama for a head+cab stack; the vector layout otherwise.
-    private var use3DStage: Bool { FeatureFlags.amp3D && !store.isCombo }
+    /// The 3D diorama, for every amp section. A combo used to fall back here to
+    /// the flat vector layout, which meant picking a combo dropped the WHOLE
+    /// stage — pedalboard and guitar included — out of 3D. The combo is now just
+    /// a one-box amp in the same scene, so only the amp's shape changes.
+    private var use3DStage: Bool { FeatureFlags.amp3D }
 
     var body: some View {
         ZStack {
