@@ -189,14 +189,18 @@ enum AmpVoicing : int {
     AC30        = 3,
     JC120       = 4,
     Bassman59   = 5,
-    // 6..9 reserved for four of the five remaining catalog amps (Marswell Plexi
-    // Super Lead 1959, Freedman BE-100, Mesa Boogey Dual Rectifier, Tangerine
-    // Rockerverb 100); Marswell DSL40C and anything later take 20+, which is open.
+    // 6..9 were reserved for four of the five remaining catalog amps and are now
+    // filled. Marswell DSL40C took 20; 21+ is open for anything later.
+    Plexi1959   = 6,
+    BE100       = 7,
+    DualRect    = 8,
+    Rockerverb  = 9,
     KatanaAcousticA = 10, KatanaAcousticB = 11,
     KatanaCleanA    = 12, KatanaCleanB    = 13,
     KatanaCrunchA   = 14, KatanaCrunchB   = 15,
     KatanaLeadA     = 16, KatanaLeadB     = 17,
-    KatanaBrownA    = 18, KatanaBrownB    = 19
+    KatanaBrownA    = 18, KatanaBrownB    = 19,
+    DSL40C          = 20
 };
 
 /// THE ONE AUDITABLE TABLE — the exact shape of `DrivePedal::voiceFor(int)`.

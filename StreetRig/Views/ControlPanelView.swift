@@ -17,11 +17,21 @@
 //  size you had to lean in to read. Everything here is sized to be read from
 //  standing height with a guitar on, which is the only distance that matters.
 //
-//  SIMPLER ROUTES. INPUT is the only route you can actually choose, so it is the
-//  only one drawn as a control: tap the name, pick a port. OUTPUT is iOS's call
-//  (Control Center, plugging in headphones), so it is plain text — no chevron and
-//  no dropdown chrome promising a menu that never opens. The old bar drew both
-//  identically, which made the output look broken every time it was tapped.
+//  BOTH ROUTES ARE CONTROLS, by two different mechanisms. INPUT is ours to set,
+//  so it is a menu: tap the name, pick a port. OUTPUT cannot be set by an app at
+//  all — `AVAudioSession` has no "use this output" call, and iOS has already
+//  switched by the time a route-change notification lands — but it can be HANDED
+//  OFF: `AVRoutePickerView` opens the system's own route sheet, the same one
+//  Control Center shows, and the user picks there. So OUTPUT wears the chevron
+//  too, and the pair reads as a pair again.
+//
+//  This zone was plain text for a while, on the reasoning that "iOS owns output,
+//  so there is nothing to draw." Half right: the *route* is iOS's to set, but the
+//  *choice* was always offerable and we simply were not offering it. The original
+//  lesson still stands, though, and is why the hand-off had to be a real system
+//  picker — an earlier bar drew output exactly like input and tapping it did
+//  nothing, which made the whole panel look broken. Draw a control, or draw text;
+//  never draw a control that does nothing.
 //
 //  LEVELS LIVE HERE NOW. Each route carries its own lamp (dark → green when
 //  signal arrives → red on clip) and segment bar. That read-out is what the
@@ -39,6 +49,7 @@
 //
 
 import SwiftUI
+import AVKit
 import StreetRigEngine
 
 /// ONE GRID FOR ALL FOUR ZONES. Every zone is a caption row of the same height
@@ -184,14 +195,18 @@ struct ControlPanelSurface: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// Read-only: iOS owns the output route, so this reports rather than commands.
+    /// The route we cannot set but CAN hand off. The zone still reports the live
+    /// output (iOS switches it out from under us whenever headphones arrive); the
+    /// invisible picker on top turns the whole zone into the system route sheet,
+    /// so the tap that used to do nothing now opens the one UI that can honour it.
     private var outputZone: some View {
         RouteZone(title: "OUTPUT",
                   name: audio.currentOutputName,
                   channel: .output,
                   monitor: audio.levels,
                   isLive: audio.isEngaged,
-                  selectable: false)
+                  selectable: true)
+            .overlay(SystemRoutePicker())
             .frame(maxWidth: .infinity)
     }
 
@@ -381,6 +396,29 @@ struct ControlPanelSurface: View {
     }
 }
 
+// MARK: - The system route sheet, as a whole-zone hit target
+
+/// `AVRoutePickerView` is the only sanctioned way to let a player choose an audio
+/// output: the app never sets the route, it just opens iOS's sheet and iOS does.
+///
+/// It is drawn INVISIBLE (clear tint, clear background) and stretched over the
+/// output zone, because the zone underneath already says everything — route name,
+/// lamp, meter, chevron — and the stock AirPlay glyph would be a second, smaller
+/// control sitting on top of it. Clearing the tint hides the glyph without
+/// touching hit-testing, so the whole zone stays the button, exactly like INPUT.
+private struct SystemRoutePicker: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.prioritizesVideoDevices = false      // audio routes, not screens
+        picker.tintColor = .clear                   // hide the glyph, keep the tap
+        picker.activeTintColor = .clear
+        picker.backgroundColor = .clear
+        return picker
+    }
+
+    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
+}
+
 // MARK: - A route: what it is, what it's called, what's coming through it
 
 /// One routing zone. Identical for input and output on purpose — the two read as
@@ -391,7 +429,8 @@ private struct RouteZone: View {
     let channel: LevelMeterView.Channel
     let monitor: AudioLevelMonitor
     let isLive: Bool
-    /// Draws the "there is a menu behind this" chevron. INPUT only.
+    /// Draws the "tapping this opens something" chevron. Both routes now do —
+    /// INPUT an in-app menu, OUTPUT the system route sheet.
     let selectable: Bool
 
     var body: some View {

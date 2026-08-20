@@ -830,3 +830,61 @@ Spend the iRig session in this order. Everything below lives in `DelayPedal::voi
 | **The Katana's "post-reverb loop" as a user control** | The POST span exists, is exercised by the routing check and measurably differs — but nothing in the UI moves a block into it. §13 Q9 flags exposing the three-span routing as an undecided product decision |
 | **Slot overflow surfacing** | Eight slots. A full pedalboard plus a fully-loaded FX panel can ask for more; the player's own board wins and the amp's blocks fill what is left, in panel order. The drop is deterministic but **silent** — nothing tells the player a block did not fit |
 | **A stereo reverb** | Every pedal engine in this app is per-channel with no cross-channel state, deliberately (a stereo path must never crosstalk). The tank is therefore mono-in/mono-out per channel, using Dattorro's left tap set |
+
+---
+
+# Phase C — the rest of the catalog (2026-08-19)
+
+Five profiles added, which completes the amp catalog: **Plexi Super Lead 1959** (6), **BE-100** (7),
+**Dual Rectifier** (8), **Rockerverb 100** (9), **DSL40C** (20). Eleven amps now resolve to eleven
+distinct profiles; nothing falls through to `Legacy`.
+
+This was the first real test of the "one id, one table row, one name match" claim, and it held —
+no new class, no parameter address, no signature change, no UI, no migration, no `catalogVersion`
+bump. The only non-table edits were the offline suite's catalog array and one test premise (below).
+
+## The interesting rows
+
+- **Plexi vs JCM800** is the schema separating two amps of the *same lineage*: two preamp stages
+  instead of three, a bigger bright cap, a softer crunch shelf (470/+7 vs 480/+8), less headroom
+  because there is no master volume. Closest measured pair in the whole table is 6/9 at 20.5%
+  residual, so lineage did not collapse into sameness.
+- **BE-100** expresses "hot-rodded" as *four stages and tighter coupling* (45/55/62/70 Hz, the
+  tightest cascade in the table) rather than as more gain on the same circuit.
+- **Dual Rectifier** is the AC30's opposite pole: no bright cap, the deepest mid scoop of any amp
+  (−13 dB, deeper than the Twin's −11), sag 0.30 with the least negative feedback of any tube amp
+  here (−1.5).
+- **DSL40C** is the only profiled amp that is a 1×12 combo, so it is the one row where `cabSlot`
+  carries real voicing weight.
+
+## One test premise changed — and why it was not a detune
+
+`AC30 is the only mid-FORWARD amp` **failed**: BE-100 45.2% vs AC30 44.6% in the 300–1.2 kHz band.
+
+The BE-100's tone stack is *scooped* (−6.5 dB at noon). Its mid energy is manufactured by four
+cascaded gain stages with cathode shelves at 520 and 700 Hz — a different mechanism from a
+mid-forward passive stack, and true to the real amp. The check's own comment says its purpose is a
+**sign check on the AC30's mid `noonDB`**, a premise that held while all six amps were stack-voiced
+and stopped holding the moment a hot-rodded four-stage amp existed.
+
+Lowering the BE-100's mids would have meant making an amp wrong to make a test green. Instead the
+check now compares the AC30 against the **stack-voiced** amps (JCM800, Twin, JC-120, Bassman,
+Plexi, Rockerverb) — where it wins 44.6% vs 38.8% — and a second, separate check *asserts* that the
+gain-staged amps out-mid them, so the BE-100's number is visible rather than hidden. The
+`Set(ids).count == 6` count check was also made to derive from the catalog array, so adding an amp
+can no longer silently stop covering the newest one.
+
+**Rockerverb note for the ear-tuning pass:** it is voiced thick via the least-scooped
+Marshall-family mid (−4 dB) sitting lower (560 Hz), *not* via a positive mid — deliberately, so the
+AC30 keeps the only mid-forward stack. If a real Rockerverb wants a genuine mid push, that is a
+defensible change, but it will move the stack-voiced peak and the AC30 check must be re-read then.
+
+## Verification
+
+Simulator Debug, full harness: **every suite PASS, zero FAIL lines** — amp profiles, time blocks,
+pedal families, rig chain, meters, footswitch, and `baseline null test: BIT-EXACT (103200 samples,
+max |Δ| 0.000e+00)`. All 55 amp pairs distinct; closest 20.5% residual after level matching, closest
+spectral gap 1.7 pp. Release device build compiles and signs for iPhone 17e.
+
+**Not verified:** no listening pass. The five new amps are the least-heard rows in a system nobody
+has heard yet, and four of the five (all but the Rockerverb) are Conf: M at best.

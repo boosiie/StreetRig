@@ -526,6 +526,11 @@ public enum ParameterMap {
     public static let ampLegacy = 0
     public static let ampJCM800 = 1, ampTwinReverb = 2, ampAC30 = 3,
                       ampJC120  = 4, ampBassman59  = 5
+    public static let ampPlexi1959 = 6, ampBE100 = 7, ampDualRect = 8,
+                      ampRockerverb = 9
+    /// 10…19 are the Katana (see `ampKatanaBase`), so the DSL40C — added after
+    /// that block was reserved — takes 20. Ids are append-only; 21+ is open.
+    public static let ampDSL40C = 20
     /// Katana ids are `ampKatanaBase + character*2 + variation`, so the five
     /// characters and the A/B switch collapse into ONE structural field. Turning
     /// the Character selector changes the profile id, which changes the topology
@@ -556,6 +561,14 @@ public enum ParameterMap {
                  + min(max(variation, 0), 1)
         }
         if n.contains("jcm800") || n.contains("2203")   { return ampJCM800 }
+        // The DSL is checked BEFORE the generic Marshall-family keywords below so
+        // a future "Marswell DSL … Plexi-voiced" style name cannot fall through to
+        // the Plexi row. Specific model, then family — the same rule as the pedals.
+        if n.contains("dsl")                            { return ampDSL40C }
+        if n.contains("plexi") || n.contains("super lead") { return ampPlexi1959 }
+        if n.contains("be-100") || n.contains("be100")  { return ampBE100 }
+        if n.contains("rectifier") || n.contains("recto") { return ampDualRect }
+        if n.contains("rockerverb")                     { return ampRockerverb }
         if n.contains("twin")                           { return ampTwinReverb }
         if n.contains("ac30")                           { return ampAC30 }
         if n.contains("jc-120") || n.contains("jc120")

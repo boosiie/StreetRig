@@ -1181,6 +1181,17 @@ extension AudioEngineController {
             ("Rolund JC-120 Jazz Chorus", .comboAmp),
             ("Fandor Bassman '59",   .comboAmp),
             ("VOSS Katana 100",      .comboAmp),
+            // Every amp in the catalog is profiled now, so this array is the
+            // whole shipped set — the pairwise-distinctness check below is
+            // therefore a check on the ENTIRE catalog, not a sample of it. Four
+            // of these five are Marshall-lineage (Plexi, BE-100, DSL40C, and the
+            // JCM800 above), which is the hardest case for distinctness and the
+            // reason to keep them all in one run.
+            ("Marswell Plexi Super Lead 1959", .amp),
+            ("Freedman BE-100",      .amp),
+            ("Mesa Boogey Dual Rectifier", .amp),
+            ("Tangerine Rockerverb 100", .amp),
+            ("Marswell DSL40C",      .comboAmp),
         ]
         var rendered: [(name: String, profile: Int, samples: [Float], fp: [Double])] = []
         for (name, cat) in catalog {
@@ -1200,9 +1211,14 @@ extension AudioEngineController {
         }
 
         // Every amp resolved to a DISTINCT profile — the name matcher works.
+        // Derived from the catalog, not hardcoded: adding an amp to the array
+        // above must not require editing a count down here, or the check quietly
+        // stops covering the newest amp — which is the one most likely to be
+        // wrong.
         let ids = rendered.map(\.profile)
-        checks.append(("six amps resolve to six profiles", Set(ids).count == 6 && !ids.contains(0),
-                       "ids \(ids) (0 = legacy fallback, must not appear)"))
+        checks.append(("every catalog amp resolves to its own profile",
+                       Set(ids).count == catalog.count && !ids.contains(0),
+                       "\(catalog.count) amps → ids \(ids) (0 = legacy fallback, must not appear)"))
 
         // Pairwise: audibly different AND spectrally different. The second half
         // is what rules out "they are the same amp at different volumes".
@@ -1226,10 +1242,38 @@ extension AudioEngineController {
         // hinges on: a passive stack is not flat at noon, and each amp's scoop is
         // its own. Everything here is at IDENTICAL knob settings.
         func byId(_ id: Int) -> [Float] { rendered.first { $0.profile == id }?.samples ?? [] }
+        // WHAT THIS CHECK IS ACTUALLY FOR: the sign of the AC30's mid `noonDB`. It
+        // is the only positive one in the table, and if it ever flips the AC30
+        // stops being an AC30 — that is the regression worth catching.
+        //
+        // It used to assert the AC30 out-mids EVERY amp, which held while all six
+        // amps were stack-voiced. It stopped holding the moment a hot-rodded
+        // four-stage amp existed: the BE-100 measures 45.2% against the AC30's
+        // 44.6% while its stack is SCOOPED (−6.5 dB at noon). That mid energy is
+        // manufactured by four cascaded gain stages with cathode shelves at 520
+        // and 700 Hz, not by the tone stack — a different mechanism, and true to
+        // the real amp. Detuning the BE-100 to keep the old assertion green would
+        // have meant making an amp wrong to make a test pass.
+        //
+        // So the comparison is against the STACK-VOICED amps — the ones whose mid
+        // energy really is their tone stack. The high-gain rows are reported below
+        // rather than asserted on, so the numbers stay visible either way.
+        let stackVoiced = [ParameterMap.ampJCM800, ParameterMap.ampTwinReverb,
+                           ParameterMap.ampJC120, ParameterMap.ampBassman59,
+                           ParameterMap.ampPlexi1959, ParameterMap.ampRockerverb]
         let ac30Mid = mid(byId(ParameterMap.ampAC30))
-        let othersMid = rendered.filter { $0.profile != ParameterMap.ampAC30 }.map { mid($0.samples) }
-        checks.append(("AC30 is the only mid-FORWARD amp", ac30Mid > (othersMid.max() ?? 0),
-                       String(format: "AC30 %.1f%% vs next-highest %.1f%%", ac30Mid, othersMid.max() ?? 0)))
+        let peerMid = stackVoiced.map { mid(byId($0)) }.max() ?? 0
+        checks.append(("AC30 has the only mid-FORWARD stack", ac30Mid > peerMid,
+                       String(format: "AC30 %.1f%% vs next stack-voiced amp %.1f%%", ac30Mid, peerMid)))
+        // Reported, not asserted: cascaded gain stages raise mid energy on their
+        // own. If one of these ever drops BELOW the stack-voiced peak, its gain
+        // staging has quietly gone flat.
+        let gainStaged = [("BE-100", ParameterMap.ampBE100),
+                          ("DSL40C", ParameterMap.ampDSL40C)]
+        checks.append(("high-gain amps out-mid the vintage stacks by gain staging",
+                       gainStaged.contains { mid(byId($0.1)) > peerMid },
+                       gainStaged.map { String(format: "%@ %.1f%%", $0.0, mid(byId($0.1))) }
+                           .joined(separator: ", ") + String(format: " vs stack peak %.1f%%", peerMid)))
         let twinMid = mid(byId(ParameterMap.ampTwinReverb)), jcmMid = mid(byId(ParameterMap.ampJCM800))
         checks.append(("Twin is more mid-scooped than the JCM800", twinMid < jcmMid,
                        String(format: "mid 300–1.2k: Twin %.1f%% < JCM800 %.1f%% (noonDB −11 vs −7)",

@@ -361,6 +361,170 @@ AmpProfile profileFor(int voicing) noexcept {
         break;
 
     // ---------------------------------------------------------------------
+    // Marswell Plexi Super Lead 1959 — the JCM800's ancestor, and the row that
+    // shows the schema separating two amps of the SAME lineage. TWO stages, not
+    // three: that missing gain stage is the whole difference in feel. A Plexi
+    // does not have a master volume, so it is loud or it is clean, and it cleans
+    // up when you roll the guitar back — which falls out of the two-stage
+    // cascade plus the bigger bright cap, not out of any special case.
+    // Conf: H (two stages, bright cap, no master), M (gains, noonDB).
+    // ---------------------------------------------------------------------
+    case Plexi1959:
+        p.inputHz  = 68.0;
+        // Cue: the famous bright cap, BIGGER than the JCM800's (1500/+4). Roll
+        // the guitar volume to 6 — it must clean up and stay bright, not go dull.
+        // Dull → raise the dB toward +7.
+        p.brightHz = 1600.0; p.brightDB = 5.0f;
+        p.stageCount = 2;
+        // Cue (470 Hz / +7 dB): a softer, lower crunch shelf than the 800's
+        // 480/+8 — the Plexi should sound OPEN where the 800 sounds tight.
+        p.stage[0] = st(30.0, 470.0, 7.0f, 16000.0, 2.0f, 0.10f);
+        p.stage[1] = st(38.0,   0.0, 0.0f, 11000.0, 1.8f, 0.10f);
+        // Cue (mid noonDB −6 vs the 800's −7): less scooped, and the mid centre
+        // sits higher (680 vs 650). A/B against the JCM800 — the Plexi should be
+        // rounder and less barky at identical knobs. Indistinguishable → widen.
+        p.tone = tone3( 95.0, 0.70, 1.0f, -1.0f,
+                       680.0, 0.85, 0.9f, -6.0f,
+                      2400.0, 0.70, 1.1f, +1.0f,
+                      -14.0f, 0.35f);
+        // Cue (headroom 0.60, below the 800's 0.75): a Super Lead breaks up
+        // EARLIER because there is no master to hold the output stage back.
+        // Cue (nfbDB −2.5 vs the 800's −3.0): looser, more bloom.
+        p.power = PowerAmpVoicing{
+            0.60f, AmpClip::ClassAB, 0.06f,
+            0.22f, 50.0,
+            2000.0, -2.5f,
+            3200.0, 1.0f,
+            60.0, 9500.0
+        };
+        p.cabSlot = 0;                 // 4×12 V30
+        p.outTrim = 1.00f;
+        break;
+
+    // ---------------------------------------------------------------------
+    // Freedman BE-100 — a hot-rodded Plexi, which makes it the sharpest test of
+    // whether the schema can separate an amp from its own ancestor. Everything
+    // that makes it modern is expressed as MORE STAGES and TIGHTER COUPLING, not
+    // as more gain on the same circuit: four stages, every interstage high-pass
+    // moved up, a stiffer supply. Conf: M (topology is public, values derived).
+    // ---------------------------------------------------------------------
+    case BE100:
+        // Cue (inputHz 80, the highest of the Marshall family): the BE-100's
+        // signature is that it stays TIGHT at gain settings where a Plexi turns
+        // to mud. Flubby on the low string → raise toward 95.
+        p.inputHz  = 80.0;
+        p.brightHz = 1800.0; p.brightDB = 3.0f;    // less bright cap — the gain carries it
+        p.stageCount = 4;
+        // Cue (520 Hz / +9 dB): a HOTTER, HIGHER crunch shelf than any stock
+        // Marshall — this is the "hot-rod" in one field.
+        p.stage[0] = st(45.0, 520.0, 9.0f, 15000.0, 2.4f, 0.10f);
+        p.stage[1] = st(55.0, 700.0, 7.0f, 13000.0, 2.6f, 0.13f);
+        p.stage[2] = st(62.0,   0.0, 0.0f, 11000.0, 2.2f, 0.11f);
+        // Cue: the last stage is a follower, not another gain stage. If the amp
+        // fizzes on the top end, lower this Miller toward 8500.
+        p.stage[3] = st(70.0,   0.0, 0.0f,  9500.0, 1.5f, 0.07f);
+        // Cue (couplings 45/55/62/70, the tightest cascade in the table): chugs
+        // must stay separated under high gain. Smearing → raise all four ~8 Hz.
+        p.tone = tone3(100.0, 0.70, 1.00f, -1.5f,
+                       700.0, 0.85, 0.90f, -6.5f,
+                      2500.0, 0.70, 1.15f, +2.0f,
+                      -14.0f, 0.32f);
+        // Cue (sagDepth 0.10, the stiffest of the tube amps): a BE-100 should NOT
+        // duck and bloom the way the Plexi and the Bassman do. If it sags
+        // audibly, this is why.
+        // Cue (nfbDB −3.5): the tightest feel of the Marshall family.
+        p.power = PowerAmpVoicing{
+            0.70f, AmpClip::ClassAB, 0.05f,
+            0.10f, 35.0,
+            2400.0, -3.5f,
+            3600.0, 1.1f,
+            70.0, 9500.0
+        };
+        p.cabSlot = 0;
+        p.outTrim = 0.95f;
+        break;
+
+    // ---------------------------------------------------------------------
+    // Mesa Boogey Dual Rectifier — the schema's opposite pole from the AC30, and
+    // the darkest, loosest, most scooped row in the table. Three fields carry
+    // almost all of it: NO bright cap, a −13 dB mid scoop, and sagDepth 0.30 with
+    // the LEAST negative feedback of any tube amp here (the tube-rectifier
+    // looseness). Conf: M (scoop and sag are H by reputation, values derived).
+    // ---------------------------------------------------------------------
+    case DualRect:
+        // Cue (inputHz 55, the lowest of the high-gain amps): the Recto low end
+        // is the point. Do NOT tighten this to fix flub — lower the gain instead,
+        // or the amp stops being a Recto.
+        p.inputHz  = 55.0;
+        p.brightHz = 0.0; p.brightDB = 0.0f;       // no bright cap — it is a DARK amp
+        p.stageCount = 4;
+        p.stage[0] = st(25.0, 400.0, 6.0f, 13000.0, 2.5f, 0.09f);
+        p.stage[1] = st(30.0,   0.0, 0.0f, 11000.0, 2.8f, 0.12f);
+        p.stage[2] = st(35.0,   0.0, 0.0f,  9500.0, 2.4f, 0.10f);
+        p.stage[3] = st(40.0,   0.0, 0.0f,  8500.0, 1.6f, 0.06f);
+        // Cue (Millers 13k→8.5k, the darkest cascade in the table): if it sounds
+        // fizzy rather than dark, these are too high.
+        //
+        // Cue (mid noonDB −13, the deepest scoop of any amp here — deeper even
+        // than the Twin's −11): palm mutes at noon must sound SCOOPED and modern.
+        // If it sounds like a Marshall, this value is the first suspect.
+        p.tone = tone3( 80.0, 0.70, 1.20f,  +3.0f,
+                       500.0, 0.95, 0.85f, -13.0f,
+                      3000.0, 0.70, 1.20f,  +2.5f,
+                      -15.0f, 0.50f);
+        // Cue (sagDepth 0.30 / nfbDB −1.5): the Recto should feel LOOSE and
+        // rubbery under the pick — the opposite of the BE-100. If it feels tight,
+        // check the NFB first: −1.5 is deliberately the least of any tube amp.
+        p.power = PowerAmpVoicing{
+            0.85f, AmpClip::ClassAB, 0.04f,
+            0.30f, 60.0,
+            1600.0, -1.5f,
+            3000.0, 1.2f,
+            50.0, 8500.0
+        };
+        p.cabSlot = 0;                 // Mesa Boogey oversized 4×12
+        p.outTrim = 0.92f;
+        break;
+
+    // ---------------------------------------------------------------------
+    // Tangerine Rockerverb 100 — thick and midrange-RICH, and a useful check
+    // that "thick" and "mid-forward" are different things in this schema. The
+    // AC30 is the only amp with a POSITIVE mid noonDB and must stay that way; the
+    // Rockerverb gets its weight from the least-scooped Marshall-family mid
+    // (−4 dB) sitting LOWER (560 Hz), plus a dark top — not from a mid boost.
+    // Conf: M.
+    // ---------------------------------------------------------------------
+    case Rockerverb:
+        p.inputHz  = 60.0;
+        p.brightHz = 1400.0; p.brightDB = 2.0f;    // a small, low bright cap
+        p.stageCount = 3;
+        p.stage[0] = st(28.0, 420.0, 6.5f, 14000.0, 2.2f, 0.11f);
+        p.stage[1] = st(34.0, 600.0, 5.0f, 11500.0, 2.3f, 0.13f);
+        p.stage[2] = st(42.0,   0.0, 0.0f,  9500.0, 1.7f, 0.09f);
+        // Cue (mid 560 Hz / noonDB −4): the LEAST scooped of the gain amps. Open
+        // chords should sound thick and woody. If it sounds honky, raise the Hz;
+        // if it sounds scooped, this row and the JCM800's have drifted together.
+        // Cue: it must still measure BELOW the AC30 in the 300–1.2k band. If the
+        // "AC30 is the only mid-forward amp" check fails, this is the amp that
+        // broke it — lower the noonDB, do not raise the AC30.
+        p.tone = tone3( 95.0, 0.70, 1.00f,  0.0f,
+                       560.0, 0.80, 0.95f, -4.0f,
+                      2200.0, 0.70, 1.00f,  0.0f,
+                      -13.0f, 0.28f);
+        // Cue (asym 0.06 + OT 8800): warm and slightly compressed, between the
+        // Plexi's openness and the Recto's darkness.
+        p.power = PowerAmpVoicing{
+            0.72f, AmpClip::ClassAB, 0.06f,
+            0.20f, 48.0,
+            2000.0, -2.8f,
+            3300.0, 1.0f,
+            60.0, 8800.0
+        };
+        p.cabSlot = 0;                 // Tangerine PPC412
+        p.outTrim = 0.97f;
+        break;
+
+    // ---------------------------------------------------------------------
     // VOSS Katana 100 — five characters × two variations. All Conf: L.
     // Cue (inputHz 40 → 105 across the characters): higher-gain characters need
     // a higher input high-pass. If Brown is flubby on the low string, raise
@@ -423,6 +587,43 @@ AmpProfile profileFor(int voicing) noexcept {
         break;
 
     // ---------------------------------------------------------------------
+    // Marswell DSL40C — the modern Marshall, and the only profiled amp that is a
+    // 1×12 COMBO rather than a head into a 4×12, so it is the one row where
+    // `cabSlot` carries real voicing weight (slot 1, the brighter small box).
+    // Four stages against the JCM800's three: more gain, smoother, a little
+    // darker. Conf: M.
+    // ---------------------------------------------------------------------
+    case DSL40C:
+        p.inputHz  = 75.0;
+        p.brightHz = 1600.0; p.brightDB = 3.5f;
+        p.stageCount = 4;
+        // Cue (500 Hz / +8 dB): the same crunch shelf idea as the JCM800, one
+        // stage earlier in a longer cascade — which is what makes the DSL smoother
+        // at high gain rather than just louder.
+        p.stage[0] = st(35.0, 500.0, 8.0f, 15000.0, 2.3f, 0.10f);
+        p.stage[1] = st(42.0, 690.0, 6.5f, 12500.0, 2.5f, 0.13f);
+        p.stage[2] = st(50.0,   0.0, 0.0f, 10500.0, 2.0f, 0.10f);
+        p.stage[3] = st(56.0,   0.0, 0.0f,  9500.0, 1.4f, 0.07f);
+        // Cue (mid noonDB −7.5): a shade more scooped than the JCM800's −7 — the
+        // DSL's "modern" voicing. A/B the two: same family, the DSL smoother and
+        // slightly hollower. If they are indistinguishable, widen this gap first.
+        p.tone = tone3( 92.0, 0.70, 1.00f, -1.0f,
+                       660.0, 0.85, 0.90f, -7.5f,
+                      2350.0, 0.70, 1.10f, +1.5f,
+                      -14.0f, 0.35f);
+        p.power = PowerAmpVoicing{
+            0.68f, AmpClip::ClassAB, 0.05f,
+            0.20f, 45.0,
+            2200.0, -3.0f,
+            3500.0, 1.0f,
+            65.0, 9000.0
+        };
+        // The one combo in the profiled set — a 1×12, not a 4×12.
+        p.cabSlot = 1;
+        p.outTrim = 0.98f;
+        break;
+
+    // ---------------------------------------------------------------------
     // Legacy — the pre-profile fixed voicing, reproduced EXACTLY, and the
     // fallback for every amp the name matcher does not recognize. Every field
     // not listed here is at its neutral value, so the whole power stage is a
@@ -477,6 +678,11 @@ const char *ampVoicingName(int voicing) noexcept {
     case AC30:            return "AC30";
     case JC120:           return "JC-120";
     case Bassman59:       return "Bassman '59";
+    case Plexi1959:       return "Plexi Super Lead";
+    case BE100:           return "BE-100";
+    case DualRect:        return "Dual Rectifier";
+    case Rockerverb:      return "Rockerverb 100";
+    case DSL40C:          return "DSL40C";
     case KatanaAcousticA: return "Katana Acoustic A";
     case KatanaAcousticB: return "Katana Acoustic B";
     case KatanaCleanA:    return "Katana Clean A";
