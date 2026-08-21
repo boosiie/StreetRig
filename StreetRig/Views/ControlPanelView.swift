@@ -205,9 +205,26 @@ struct ControlPanelSurface: View {
                   channel: .output,
                   monitor: audio.levels,
                   isLive: audio.isEngaged,
-                  selectable: true)
+                  selectable: true,
+                  badge: latencyBadge)
             .overlay(SystemRoutePicker())
             .frame(maxWidth: .infinity)
+    }
+
+    /// THE NUMBER THAT EXPLAINS THE DELAY. The session has always measured input,
+    /// output and buffer latency — it just logged them and showed the player
+    /// nothing, so a 200 ms wireless route looked identical to an 8 ms wired one
+    /// and the only symptom was "it feels laggy". Round trip lives next to the
+    /// route that causes it, because on this app the route IS the answer almost
+    /// every time: no DSP change can beat A2DP's buffering.
+    private var latencyBadge: RouteZone.Badge? {
+        let ms = audio.roundTripMs
+        guard ms > 0 else { return nil }
+        if audio.outputIsWireless {
+            // Named explicitly: "wireless" is the actionable word, not the number.
+            return .init(text: String(format: "%.0f ms · wireless", ms), warn: true)
+        }
+        return .init(text: String(format: "%.0f ms", ms), warn: !audio.latencyIsPlayable)
     }
 
     // MARK: - Master
@@ -433,6 +450,13 @@ private struct RouteZone: View {
     /// INPUT an in-app menu, OUTPUT the system route sheet.
     let selectable: Bool
 
+    /// Optional read-out on the caption row (OUTPUT uses it for round-trip
+    /// latency). It rides the CAPTION line, not the body, so it cannot push the
+    /// route name around or change the zone's height — the panel is on one shared
+    /// grid and a zone that grows steals space from the rig stage.
+    struct Badge { let text: String; let warn: Bool }
+    var badge: Badge? = nil
+
     var body: some View {
         VStack(alignment: .leading, spacing: PanelMetrics.rowGap) {
             HStack(spacing: 7) {
@@ -443,6 +467,13 @@ private struct RouteZone: View {
                     .foregroundStyle(RigTheme.textMuted)
                     .fixedSize()
                 Spacer(minLength: 0)
+                if let badge {
+                    Text(badge.text)
+                        .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(badge.warn ? RigTheme.amber : RigTheme.textMuted)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
             }
             .frame(height: PanelMetrics.caption)
 

@@ -348,8 +348,61 @@ final class AudioEngineController: ObservableObject {
         availableInputs = (session.availableInputs ?? []).map {
             RouteOption(name: $0.portName, uid: $0.uid)
         }
+        // Refresh the measured latency too: iOS re-negotiates the buffer and the
+        // port latencies on every route change, so these are only meaningful when
+        // read AFTER the route settles — which is exactly here.
+        //
+        // The sample rate is read here as well as in `configureSession`, and that
+        // matters: without it the whole read-out stays hidden until the player
+        // hits Proceed, which is precisely too late. Deciding whether to unplug
+        // the AirPods is a BEFORE-you-engage decision. These are iOS's current
+        // session values rather than post-activation granted ones, so they are an
+        // estimate until engaged — and then they refine in place.
+        grantedSampleRate = session.sampleRate
+        grantedIOBufferDuration = session.ioBufferDuration
+        grantedInputLatency  = session.inputLatency
+        grantedOutputLatency = session.outputLatency
+        outputIsWireless = Self.wirelessPort(route.outputs.first?.portType)
         detectNewDevices(session)
     }
+
+    // MARK: - Latency, as a number the player can see
+
+    /// True when the OUTPUT is a wireless route. This is the single most useful
+    /// fact about latency on this app and it was previously invisible: A2DP
+    /// Bluetooth buffers 150–300 ms by protocol design, and AirPlay is worse. No
+    /// amount of DSP work changes that, so an amp sim that silently routes to
+    /// AirPods just feels broken. `.allowBluetoothA2DP` stays ON deliberately —
+    /// monitoring wirelessly is a legitimate thing to want while noodling — but
+    /// the player is told what it costs rather than left to wonder.
+    @Published private(set) var outputIsWireless = false
+
+    private static func wirelessPort(_ type: AVAudioSession.Port?) -> Bool {
+        guard let type else { return false }
+        return type == .bluetoothA2DP || type == .bluetoothLE
+            || type == .bluetoothHFP || type == .airPlay
+    }
+
+    /// Measured round trip, milliseconds: what the hardware reports for input and
+    /// output, plus the buffer the render callback runs on, plus the only latency
+    /// the DSP itself contributes (the cab convolver's partition — the delay and
+    /// reverb blocks report zero, because their dry path is never delayed).
+    /// The DSP's own contribution, in samples — derived from the kernel rather
+    /// than assumed, so it stays honest if a future block adds real latency.
+    /// Today this is the cab convolver's 128-sample partition and nothing else.
+    var dspLatencySamples: Int { dspUnit?.cabLatencySamples ?? 0 }
+
+    var roundTripMs: Double {
+        guard grantedSampleRate > 0 else { return 0 }
+        let dspSeconds = Double(dspLatencySamples) / grantedSampleRate
+        return (grantedInputLatency + grantedOutputLatency
+                + grantedIOBufferDuration + dspSeconds) * 1_000
+    }
+
+    /// Above this, a player feels the delay rather than just measuring it. ~15 ms
+    /// is the widely used threshold for "playable"; a wired iRig path lands near
+    /// 8–12 ms, and any wireless route blows straight past it.
+    var latencyIsPlayable: Bool { roundTripMs > 0 && roundTripMs <= 15 }
 
     func selectInput(_ option: RouteOption) {
         let session = AVAudioSession.sharedInstance()
