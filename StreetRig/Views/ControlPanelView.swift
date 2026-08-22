@@ -17,21 +17,19 @@
 //  size you had to lean in to read. Everything here is sized to be read from
 //  standing height with a guitar on, which is the only distance that matters.
 //
-//  BOTH ROUTES ARE CONTROLS, by two different mechanisms. INPUT is ours to set,
-//  so it is a menu: tap the name, pick a port. OUTPUT cannot be set by an app at
-//  all — `AVAudioSession` has no "use this output" call, and iOS has already
-//  switched by the time a route-change notification lands — but it can be HANDED
-//  OFF: `AVRoutePickerView` opens the system's own route sheet, the same one
-//  Control Center shows, and the user picks there. So OUTPUT wears the chevron
-//  too, and the pair reads as a pair again.
+//  ROUTES, BOTH TAPPABLE — but not equally. INPUT picks a port outright: tap the
+//  name, choose one. OUTPUT cannot, because which DEVICE plays is iOS's call
+//  (Control Center, plugging in headphones) and the only override a session gets
+//  is speaker-or-not — so that, exactly, is what its menu offers and no more.
+//  It was plain text here on the grounds that iOS owned the output entirely,
+//  which left anyone whose rig was coming out of the EARPIECE nothing to press.
 //
-//  This zone was plain text for a while, on the reasoning that "iOS owns output,
-//  so there is nothing to draw." Half right: the *route* is iOS's to set, but the
-//  *choice* was always offerable and we simply were not offering it. The original
-//  lesson still stands, though, and is why the hand-off had to be a real system
-//  picker — an earlier bar drew output exactly like input and tapping it did
-//  nothing, which made the whole panel look broken. Draw a control, or draw text;
-//  never draw a control that does nothing.
+//  OUTPUT ALSO CARRIES THE LATENCY, because the port and its cost are one fact.
+//  The session has always measured input, output and buffer latency and shown the
+//  player none of it, so a 172 ms Bluetooth route looked exactly like a 25 ms
+//  wired one and the only symptom was "it feels laggy" with nothing to point at.
+//  Measured on the phone: 163 of those 172 ms were the output port alone. Naming
+//  a route "wireless" is worth more than the number next to it.
 //
 //  LEVELS LIVE HERE NOW. Each route carries its own lamp (dark → green when
 //  signal arrives → red on clip) and segment bar. That read-out is what the
@@ -49,7 +47,6 @@
 //
 
 import SwiftUI
-import AVKit
 import StreetRigEngine
 
 /// ONE GRID FOR ALL FOUR ZONES. Every zone is a caption row of the same height
@@ -195,20 +192,32 @@ struct ControlPanelSurface: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// The route we cannot set but CAN hand off. The zone still reports the live
-    /// output (iOS switches it out from under us whenever headphones arrive); the
-    /// invisible picker on top turns the whole zone into the system route sheet,
-    /// so the tap that used to do nothing now opens the one UI that can honour it.
+    /// iOS names the device; the session may only say speaker-or-not. So this is
+    /// a control like INPUT, but a two-item one — the zone still reports the port
+    /// that is actually playing, and the menu sets the policy behind it. It also
+    /// carries the round-trip read-out, because the port and its latency are the
+    /// same fact and belong on the same zone.
     private var outputZone: some View {
-        RouteZone(title: "OUTPUT",
-                  name: audio.currentOutputName,
-                  channel: .output,
-                  monitor: audio.levels,
-                  isLive: audio.isEngaged,
-                  selectable: true,
-                  badge: latencyBadge)
-            .overlay(SystemRoutePicker())
-            .frame(maxWidth: .infinity)
+        Menu {
+            Picker("Output", selection: outputBinding) {
+                ForEach(AudioEngineController.OutputChoice.allCases) { choice in
+                    Text(choice.label).tag(choice)
+                }
+            }
+        } label: {
+            RouteZone(title: "OUTPUT",
+                      name: audio.currentOutputName,
+                      channel: .output,
+                      monitor: audio.levels,
+                      isLive: audio.isEngaged,
+                      selectable: true,
+                      badge: latencyBadge)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var outputBinding: Binding<AudioEngineController.OutputChoice> {
+        Binding(get: { audio.outputChoice }, set: { audio.selectOutput($0) })
     }
 
     /// THE NUMBER THAT EXPLAINS THE DELAY. The session has always measured input,
@@ -245,16 +254,46 @@ struct ControlPanelSurface: View {
             }
             .frame(height: PanelMetrics.caption)
 
-            TapSlider(value: masterBinding, in: 0...2)
+            TapSlider(value: masterBinding, in: Self.masterMinDB...Self.masterMaxDB, tint: masterTint)
                 .frame(height: PanelMetrics.body)
         }
         .padding(.horizontal, PanelMetrics.zonePadding)
         .frame(width: 186)
     }
 
+    /// MASTER TRAVELS IN DECIBELS, and the stage behind it is a linear gain.
+    /// Laid out linearly in gain over a run this wide the fader is unusable —
+    /// unity lands a twentieth of the way along and the top of the travel moves
+    /// in whole decibels per pixel. In dB the run is even: the same distance
+    /// means the same change wherever your thumb is on it.
+    ///
+    /// The top matches the DSP's own ceiling (128.0 linear = +42 dB); the bottom
+    /// is silence rather than −40 dB, because a monitor fader you can't close is
+    /// one you have to reach past.
+    static let masterMinDB: Double = -40
+    static let masterMaxDB: Double = 42
+
     private var masterBinding: Binding<Double> {
-        Binding(get: { Double(audio.masterLevel) },
-                set: { audio.masterLevel = Float($0) })
+        Binding(get: {
+            let db = Double(AudioLevelBus.dbfs(audio.masterLevel))
+            return min(Self.masterMaxDB, max(Self.masterMinDB, db))
+        }, set: { db in
+            audio.masterLevel = db <= Self.masterMinDB ? 0 : Float(pow(10, db / 20))
+        })
+    }
+
+    /// WHERE CLEAN ENDS. Above this the output stage starts trading the waveform
+    /// for level — mirrored from `DSPKernel::kCleanUpToDB`, which is the side that
+    /// actually does it.
+    static let cleanUpToDB: Double = 12
+
+    /// The fader warms as it crosses out of clean, so the trade the output stage
+    /// is making is visible on the control that makes it — no legend to read, and
+    /// nothing new to find on a panel meant to be read from standing height.
+    private var masterTint: Color {
+        let db = Double(AudioLevelBus.dbfs(audio.masterLevel))
+        let t = min(1, max(0, (db - Self.cleanUpToDB) / (Self.masterMaxDB - Self.cleanUpToDB)))
+        return RigTheme.amber.mix(with: RigTheme.clip, by: t * 0.9)
     }
 
     private var masterText: String {
@@ -411,29 +450,6 @@ struct ControlPanelSurface: View {
     private static func remedy(for message: String) -> String {
         message == AudioEngineController.noAmpStatus ? noAmpRemedy : captureRemedy
     }
-}
-
-// MARK: - The system route sheet, as a whole-zone hit target
-
-/// `AVRoutePickerView` is the only sanctioned way to let a player choose an audio
-/// output: the app never sets the route, it just opens iOS's sheet and iOS does.
-///
-/// It is drawn INVISIBLE (clear tint, clear background) and stretched over the
-/// output zone, because the zone underneath already says everything — route name,
-/// lamp, meter, chevron — and the stock AirPlay glyph would be a second, smaller
-/// control sitting on top of it. Clearing the tint hides the glyph without
-/// touching hit-testing, so the whole zone stays the button, exactly like INPUT.
-private struct SystemRoutePicker: UIViewRepresentable {
-    func makeUIView(context: Context) -> AVRoutePickerView {
-        let picker = AVRoutePickerView()
-        picker.prioritizesVideoDevices = false      // audio routes, not screens
-        picker.tintColor = .clear                   // hide the glyph, keep the tap
-        picker.activeTintColor = .clear
-        picker.backgroundColor = .clear
-        return picker
-    }
-
-    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
 }
 
 // MARK: - A route: what it is, what it's called, what's coming through it

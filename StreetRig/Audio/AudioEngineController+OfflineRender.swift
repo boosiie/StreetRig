@@ -374,16 +374,46 @@ extension AudioEngineController {
     // MARK: - Prompt 003: full compiled-rig chain verification
 
     /// Render one whole rig (compiled from a `RigDSPPlan`) through the real graph.
+    /// `outputLevel` overrides the kernel's output stage for this pass. It exists
+    /// for one reason: the output stage now ends in a LIMITER, and a limiter
+    /// flattens exactly the peaks and spectral contrast an amp-voicing test is
+    /// trying to measure. Rendering a voicing comparison at full level measures
+    /// the limiter, not the amp — the AC30 lost 4.8 dB of crest to it and two
+    /// checks failed on differences that were real but squashed. Same reasoning as
+    /// `cabBypass` in `ampPlan`: to characterize one stage, take the others out.
     private func renderRigPlan(_ plan: RigDSPPlan,
                                source: AVAudioPCMBuffer,
                                fmt: AVAudioFormat,
                                tailSeconds: Double = 0.15,
-                               benchmarkFull: Bool = false) async throws -> PassOutput {
+                               benchmarkFull: Bool = false,
+                               outputLevel: Float? = nil) async throws -> PassOutput {
         try await renderCore(source: source, fmt: fmt, tailSeconds: tailSeconds,
                              benchmarkFull: benchmarkFull) { dsp in
             RigGraphCompiler.applyImmediate(plan, to: dsp)   // pedals → amp → cab, in order
+            if let outputLevel {
+                dsp.setParameter(SRParamOutputLevel, value: outputLevel)
+            }
         }
     }
+
+    /// The amp suite's isolation settings, in one place because they must match
+    /// across every pass it renders — a comparison between two amps measured under
+    /// different conditions is not a comparison.
+    ///
+    /// The input stage now ends in a downward expander below −50 dBFS and the
+    /// output stage in a limiter at −1 dBFS. Both are correct for playing and both
+    /// are contamination for MEASURING an amp: the expander pulls the plucked DI's
+    /// decay tails down (it lifted every amp's crest from ~1.9 to ~4.5 and flattened
+    /// the difference between them to noise), and the limiter flattens the peaks.
+    /// Lifting the input keeps the tails above the expander's threshold; dropping
+    /// the output keeps the loudest amp clear of the ceiling. Same reasoning as
+    /// `cabBypass` in `ampPlan` — to characterize one stage, take the others out.
+    /// Input is left ALONE. Lifting it to clear the expander was tried and is
+    /// wrong: at 4× the burst drove every power setting into identical saturation
+    /// (loud/quiet 1.57 / 1.55 / 1.56) and erased the dynamics the power-control
+    /// checks exist to measure. The expander's effect on decay tails is real but
+    /// it is not worth destroying the measurement to dodge.
+    private static let ampSuiteOutputLevel: Float = 0.25
 
     private func rigLine(_ name: String, _ s: [Float], _ sr: Double) -> String {
         let padded = name.padding(toLength: 20, withPad: " ", startingAt: 0)
@@ -1167,8 +1197,16 @@ extension AudioEngineController {
         var checks: [(String, Bool, String)] = []
         var lines: [String] = []
 
+        // BELOW THE LIMITER, ON PURPOSE. At full level the hottest amps drove the
+        // output stage well past its −1 dBFS ceiling (the AC30 peaked around 1.7
+        // linear) and the limiter pulled them back by up to 4.8 dB — so what the
+        // suite measured was the limiter's gain reduction, not the voicing. 0.25
+        // puts even the loudest amp near 0.43 peak, clear of the ceiling, and the
+        // comparisons are all level-matched or RMS-fractional anyway, so nothing
+        // downstream cares about the absolute figure.
         func render(_ plan: RigDSPPlan) async -> [Float] {
-            ((try? await renderRigPlan(plan, source: dry, fmt: fmt)) ?? PassOutput()).samples
+            ((try? await renderRigPlan(plan, source: dry, fmt: fmt,
+                                       outputLevel: Self.ampSuiteOutputLevel)) ?? PassOutput()).samples
         }
         func mid(_ s: [Float]) -> Double { Self.bandEnergy(s, sr: sr, lo: 300, hi: 1200) }
         func hi3(_ s: [Float]) -> Double { Double(Self.brightness(s, sr: sr, cutoff: 3000) * 100) }
@@ -1278,11 +1316,34 @@ extension AudioEngineController {
         checks.append(("Twin is more mid-scooped than the JCM800", twinMid < jcmMid,
                        String(format: "mid 300–1.2k: Twin %.1f%% < JCM800 %.1f%% (noonDB −11 vs −7)",
                               twinMid, jcmMid)))
-        let jcCrest = Self.crestFactor(byId(ParameterMap.ampJC120))
-        let jcmCrest = Self.crestFactor(byId(ParameterMap.ampJCM800))
-        checks.append(("JC-120 keeps its headroom; the JCM800 does not", jcCrest > jcmCrest,
-                       String(format: "crest: JC-120 %.2f > JCM800 %.2f (headroom 3.00 vs 0.75)",
-                              jcCrest, jcmCrest)))
+        // HEADROOM, MEASURED AS HARMONICS RATHER THAN CREST. The claim is that the
+        // JC-120 (headroom 3.00, solid state) stays clean where the JCM800
+        // (headroom 0.75, Class AB) breaks up. Crest factor used to show that and
+        // no longer does: the input stage's downward expander pulls the plucked
+        // DI's decay tails below its −50 dBFS threshold, which lifts EVERY amp's
+        // crest (~1.9 → ~4.5) and squeezes the gap between these two to 0.03 —
+        // noise. Harmonic generation on a loud sustained tone measures breakup
+        // directly, sits far above the expander's threshold, and is the thing the
+        // headroom field actually controls.
+        let loudTone = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(sr))!
+        loudTone.frameLength = AVAudioFrameCount(sr)
+        for i in 0..<Int(sr) {
+            loudTone.floatChannelData![0][i] = Float(0.5 * sin(2.0 * Double.pi * 220.0 * Double(i) / sr))
+        }
+        func harmonics(_ name: String, _ cat: GearCategory) async -> Double {
+            var plan = ampPlan(name, cat, values: Self.ampTestKnobs).plan
+            plan.cabBypass = true
+            let out = ((try? await renderRigPlan(plan, source: loudTone, fmt: fmt,
+                                                 outputLevel: Self.ampSuiteOutputLevel))
+                        ?? PassOutput()).samples
+            // Everything above the 220 Hz fundamental is harmonic the amp invented.
+            return Double(Self.brightness(out, sr: sr, cutoff: 400) * 100)
+        }
+        let jcHarm = await harmonics("Rolund JC-120 Jazz Chorus", .comboAmp)
+        let jcmHarm = await harmonics("Marswell JCM800 2203", .amp)
+        checks.append(("JC-120 keeps its headroom; the JCM800 does not", jcHarm < jcmHarm,
+                       String(format: "harmonics >400 Hz on a loud 220 Hz tone: JC-120 %.1f%% < JCM800 %.1f%% (headroom 3.00 vs 0.75)",
+                              jcHarm, jcmHarm)))
 
         // ---- 2. THE VOX CUT: a knob that works BACKWARDS. --------------------
         // The strongest form of "a brighter amp measures brighter": the same
@@ -1382,7 +1443,13 @@ extension AudioEngineController {
             }
         }
         func burstRatio(_ index: Int) async -> Double {
-            let out = ((try? await renderRigPlan(katanaPowerPlan(index), source: burst, fmt: fmt))
+            // Through the SAME isolation as every other pass in this suite. This
+            // call reached renderRigPlan directly and so kept hitting the limiter
+            // at full output, which cost the 100 W reference 0.13 of its
+            // loud/quiet ratio and very nearly failed the check on the limiter's
+            // behaviour rather than the power amp's.
+            let out = ((try? await renderRigPlan(katanaPowerPlan(index), source: burst, fmt: fmt,
+                                                 outputLevel: Self.ampSuiteOutputLevel))
                         ?? PassOutput()).samples
             let (loud, quiet) = Self.halves(out)
             return quiet > 1e-9 ? Double(loud / quiet) : 0

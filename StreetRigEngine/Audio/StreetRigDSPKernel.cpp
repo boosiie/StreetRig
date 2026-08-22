@@ -427,6 +427,27 @@ void SRKernelProcess(SRKernelRef kernel,
     const float cgTarget = reconf ? 0.0f : 1.0f;
     const float cgStep = (cgTarget - cgStart) * invFrames;
 
+    // Limiter timing, once per buffer rather than per sample: 2 ms to take hold
+    // of a transient, 80 ms to let go — slow enough not to chatter on every note,
+    // fast enough that a chord doesn't arrive before the gain does.
+    const float srF = static_cast<float>(k->sampleRate > 0 ? k->sampleRate : 48000.0);
+    const float attackCoef  = 1.0f - std::exp(-1.0f / (0.002f * srF));
+    const float releaseCoef = 1.0f - std::exp(-1.0f / (0.080f * srF));
+
+    // Expander timing: open in a millisecond so no pick attack is ever late,
+    // close over 150 ms so it never chatters on a decay.
+    const float gateAttack  = 1.0f - std::exp(-1.0f / (0.001f * srF));
+    const float gateRelease = 1.0f - std::exp(-1.0f / (0.150f * srF));
+    constexpr float invGateThreshold = 1.0f / DSPKernel::kGateThreshold;
+
+    // How dirty this fader position asks to be: 0 below the clean line, 1 at the
+    // top. Read from the output level itself, so there is no second control to
+    // find and no way for the two to disagree about how hard the stage is driven.
+    const float outDB = 20.0f * std::log10(std::fmax(outTarget, 1.0e-6f));
+    const float dirt = std::fmin(1.0f, std::fmax(0.0f,
+        (outDB - DSPKernel::kCleanUpToDB) /
+        (DSPKernel::kFullDirtDB - DSPKernel::kCleanUpToDB)));
+
     // Amp/cab params (drive + makeup are de-zippered inside the processor).
     AmpCabParams p;
     p.ampBypass = k->ampBypass.load(std::memory_order_relaxed);
@@ -458,9 +479,22 @@ void SRKernelProcess(SRKernelRef kernel,
 
         if (!src) { for (int i = 0; i < frameCount; ++i) dst[i] = 0.0f; continue; }
 
-        // 1. Input gain ramp (src → dst).
+        const int limCh = (ch < DSPKernel::kLimiterChannels) ? ch : 0;
+
+        // 1. Input gain ramp (src → dst), through the expander — ahead of the
+        //    pedals and the amp, because hiss let through here is hiss the amp
+        //    spends the rest of the chain amplifying.
         float g0 = inStart;
-        for (int i = 0; i < frameCount; ++i) { dst[i] = src[i] * g0; g0 += inStep; }
+        float genv = k->gateEnv[limCh];
+        for (int i = 0; i < frameCount; ++i) {
+            const float v = src[i] * g0;
+            g0 += inStep;
+            const float a = std::fabs(v);
+            genv += (a > genv ? gateAttack : gateRelease) * (a - genv);
+            const float t = std::fmin(1.0f, genv * invGateThreshold);
+            dst[i] = v * t * t;
+        }
+        k->gateEnv[limCh] = genv;
 
         // 2. PEDAL CHAIN — PRE span: everything in front of the amp, in
         //    on-screen chain order.
@@ -483,9 +517,53 @@ void SRKernelProcess(SRKernelRef kernel,
         //    position. Empty unless the rig asks for it.
         k->pedals.processSpan(dst, frameCount, ch, splitPost, slotCount);
 
-        // 7. Output level × chain fade ramp (fade covers structural swaps).
+        // 7. Output level × chain fade ramp (fade covers structural swaps), then
+        //    the LIMITER — the last thing between the rig and the converter, and
+        //    therefore after every span above, including POST. A block dropped
+        //    into the post-loop position is part of the rig and belongs under the
+        //    limiter like everything else; putting it after would let it hand the
+        //    converter exactly the peaks the limiter exists to catch.
+        //
+        //    This was a waveshaper first, and a waveshaper is the wrong tool: bend
+        //    a full-range signal that hard and you have built a fuzz box, complete
+        //    with the harmonics it invents above Nyquist folding back down as the
+        //    scratch you can hear underneath the note. A limiter never touches the
+        //    shape of the wave — it moves a gain, smoothly, so nothing is added
+        //    that wasn't played. Loud costs dynamics here; it no longer costs tone.
+        constexpr float ceiling = DSPKernel::kOutputCeiling;
+        constexpr float invCeiling = 1.0f / ceiling;
+        float env = k->limiterEnv[limCh];
+        float lim = k->limiterGain[limCh];
         float g1 = outStart, cg = cgStart;
-        for (int i = 0; i < frameCount; ++i) { dst[i] *= g1 * cg; g1 += outStep; cg += cgStep; }
+        for (int i = 0; i < frameCount; ++i) {
+            const float x = dst[i] * g1 * cg;
+            g1 += outStep; cg += cgStep;
+
+            // Follow the peak, down fast and up slow, and ask for whatever gain
+            // keeps it under the ceiling.
+            const float a = std::fabs(x);
+            env += (a > env ? attackCoef : releaseCoef) * (a - env);
+            const float want = (env > ceiling) ? (ceiling / env) : 1.0f;
+            lim += ((want < lim) ? attackCoef : releaseCoef) * (want - lim);
+
+            // TWO WAYS TO FIT UNDER THE CEILING, mixed by where the fader sits.
+            // The limiter holds the level without touching the waveform; the
+            // saturator bends the waveform and gets more out of the same ceiling
+            // for it. Clean at the bottom of the travel, driven at the top, and
+            // the whole way between is a real position rather than a switch.
+            const float clean = x * lim;
+            const float drivenIn = x * invCeiling;
+            const float driven = ceiling * drivenIn / std::sqrt(1.0f + drivenIn * drivenIn);
+            const float mixed = clean + dirt * (driven - clean);
+
+            // Whatever still overshoots — a transient that outran the envelope —
+            // is bent rather than snapped. At the clean end this is the only
+            // non-linearity in the path, and it sees a millisecond at a time.
+            const float y = mixed * invCeiling;
+            dst[i] = ceiling * y / std::sqrt(1.0f + y * y);
+        }
+        k->limiterEnv[limCh] = env;
+        k->limiterGain[limCh] = lim;
     }
 
     // Commit ramp end-points for the next buffer (audio thread only).

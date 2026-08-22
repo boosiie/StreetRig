@@ -198,10 +198,21 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
             min: 0.0, max: 4.0, unit: .linearGain, unitName: nil,
             flags: [.flag_IsReadable, .flag_IsWritable, .flag_CanRamp],
             valueStrings: nil, dependentParameters: nil)
+        // Ceiling raised to 128.0 (+42 dB) — measured, not guessed: a guitar at
+        // mic level lands near −42 dBFS and the rig has to make up the difference
+        // before anything is audible. Safe to hand over that much because the
+        // kernel's output stage now ends in a soft ceiling, so the far end of the
+        // fader saturates like a pushed power amp instead of shattering on the
+        // converter. Was 4.0 (+12 dB): a rig monitored
+        // through a phone speaker, out of a `.measurement` session that gives up
+        // level to keep the DI clean, runs out of fader long before it runs out
+        // of room. NOTE for the plugin: a parameter's range is part of its public
+        // face, so a host automation curve written against the old maximum reads
+        // 4x hotter now — pre-release, and worth one rescale.
         let outputLevel = AUParameterTree.createParameter(
             withIdentifier: "outputLevel", name: "Output Level",
             address: AUParameterAddress(SRParamOutputLevel.rawValue),
-            min: 0.0, max: 4.0, unit: .linearGain, unitName: nil,
+            min: 0.0, max: 128.0, unit: .linearGain, unitName: nil,
             flags: [.flag_IsReadable, .flag_IsWritable, .flag_CanRamp],
             valueStrings: nil, dependentParameters: nil)
         inputGain.value = 1.0
