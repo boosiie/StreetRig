@@ -17,11 +17,12 @@
 //  size you had to lean in to read. Everything here is sized to be read from
 //  standing height with a guitar on, which is the only distance that matters.
 //
-//  SIMPLER ROUTES. INPUT is the only route you can actually choose, so it is the
-//  only one drawn as a control: tap the name, pick a port. OUTPUT is iOS's call
-//  (Control Center, plugging in headphones), so it is plain text — no chevron and
-//  no dropdown chrome promising a menu that never opens. The old bar drew both
-//  identically, which made the output look broken every time it was tapped.
+//  ROUTES, BOTH TAPPABLE — but not equally. INPUT picks a port outright: tap the
+//  name, choose one. OUTPUT cannot, because which DEVICE plays is iOS's call
+//  (Control Center, plugging in headphones) and the only override a session gets
+//  is speaker-or-not — so that, exactly, is what its menu offers and no more.
+//  It was plain text here on the grounds that iOS owned the output entirely,
+//  which left anyone whose rig was coming out of the EARPIECE nothing to press.
 //
 //  LEVELS LIVE HERE NOW. Each route carries its own lamp (dark → green when
 //  signal arrives → red on clip) and segment bar. That read-out is what the
@@ -184,15 +185,29 @@ struct ControlPanelSurface: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// Read-only: iOS owns the output route, so this reports rather than commands.
+    /// iOS names the device; the session may only say speaker-or-not. So this is
+    /// a control like INPUT, but a two-item one — the zone still reports the port
+    /// that is actually playing, and the menu sets the policy behind it.
     private var outputZone: some View {
-        RouteZone(title: "OUTPUT",
-                  name: audio.currentOutputName,
-                  channel: .output,
-                  monitor: audio.levels,
-                  isLive: audio.isEngaged,
-                  selectable: false)
-            .frame(maxWidth: .infinity)
+        Menu {
+            Picker("Output", selection: outputBinding) {
+                ForEach(AudioEngineController.OutputChoice.allCases) { choice in
+                    Text(choice.label).tag(choice)
+                }
+            }
+        } label: {
+            RouteZone(title: "OUTPUT",
+                      name: audio.currentOutputName,
+                      channel: .output,
+                      monitor: audio.levels,
+                      isLive: audio.isEngaged,
+                      selectable: true)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var outputBinding: Binding<AudioEngineController.OutputChoice> {
+        Binding(get: { audio.outputChoice }, set: { audio.selectOutput($0) })
     }
 
     // MARK: - Master
@@ -213,16 +228,46 @@ struct ControlPanelSurface: View {
             }
             .frame(height: PanelMetrics.caption)
 
-            TapSlider(value: masterBinding, in: 0...2)
+            TapSlider(value: masterBinding, in: Self.masterMinDB...Self.masterMaxDB, tint: masterTint)
                 .frame(height: PanelMetrics.body)
         }
         .padding(.horizontal, PanelMetrics.zonePadding)
         .frame(width: 186)
     }
 
+    /// MASTER TRAVELS IN DECIBELS, and the stage behind it is a linear gain.
+    /// Laid out linearly in gain over a run this wide the fader is unusable —
+    /// unity lands a twentieth of the way along and the top of the travel moves
+    /// in whole decibels per pixel. In dB the run is even: the same distance
+    /// means the same change wherever your thumb is on it.
+    ///
+    /// The top matches the DSP's own ceiling (128.0 linear = +42 dB); the bottom
+    /// is silence rather than −40 dB, because a monitor fader you can't close is
+    /// one you have to reach past.
+    static let masterMinDB: Double = -40
+    static let masterMaxDB: Double = 42
+
     private var masterBinding: Binding<Double> {
-        Binding(get: { Double(audio.masterLevel) },
-                set: { audio.masterLevel = Float($0) })
+        Binding(get: {
+            let db = Double(AudioLevelBus.dbfs(audio.masterLevel))
+            return min(Self.masterMaxDB, max(Self.masterMinDB, db))
+        }, set: { db in
+            audio.masterLevel = db <= Self.masterMinDB ? 0 : Float(pow(10, db / 20))
+        })
+    }
+
+    /// WHERE CLEAN ENDS. Above this the output stage starts trading the waveform
+    /// for level — mirrored from `DSPKernel::kCleanUpToDB`, which is the side that
+    /// actually does it.
+    static let cleanUpToDB: Double = 12
+
+    /// The fader warms as it crosses out of clean, so the trade the output stage
+    /// is making is visible on the control that makes it — no legend to read, and
+    /// nothing new to find on a panel meant to be read from standing height.
+    private var masterTint: Color {
+        let db = Double(AudioLevelBus.dbfs(audio.masterLevel))
+        let t = min(1, max(0, (db - Self.cleanUpToDB) / (Self.masterMaxDB - Self.cleanUpToDB)))
+        return RigTheme.amber.mix(with: RigTheme.clip, by: t * 0.9)
     }
 
     private var masterText: String {

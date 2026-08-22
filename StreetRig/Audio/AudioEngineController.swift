@@ -21,6 +21,7 @@ import Foundation
 import StreetRigEngine
 import AVFoundation
 import Combine
+import UIKit
 
 @MainActor
 final class AudioEngineController: ObservableObject {
@@ -70,7 +71,14 @@ final class AudioEngineController: ObservableObject {
     /// Monitoring volume — the DSP's existing OUTPUT LEVEL stage (unity = 1.0).
     /// Kept here (not in a view) so it survives the signal-check screen being
     /// dismissed and re-opened, and is re-applied on every engage.
-    @Published var masterLevel: Float = 1.0 {
+    ///
+    /// DEFAULT IS +6 dB, NOT UNITY. `.measurement` mode is what keeps the DI
+    /// clean — no AGC, no EQ, no noise suppression on the way in — and it costs
+    /// real output level on the way out. At unity, through the phone's own
+    /// speaker, the rig is too quiet to play against; doubling it is the standing
+    /// start. There is another 6 dB above this on the slider, and no limiter
+    /// behind it, so the clip lamp is the thing to watch on the way up.
+    @Published var masterLevel: Float = 2.0 {
         didSet {
             guard masterLevel != oldValue else { return }
             applyMasterLevel()
@@ -181,6 +189,7 @@ final class AudioEngineController: ObservableObject {
             engine.attach(unit)
             engine.connect(input, to: unit, format: inputFormat)
             engine.connect(unit, to: engine.mainMixerNode, format: inputFormat)
+            wiredInputFormat = inputFormat
 
             engine.prepare()
             try engine.start()
@@ -207,11 +216,65 @@ final class AudioEngineController: ObservableObject {
             refreshRoutes()
             isEngaged = true
             status = .running
+            // NOBODY TOUCHES THE SCREEN WHILE THEY ARE PLAYING. The phone is on
+            // the floor with a guitar in the way, so iOS reads a live rig as an
+            // idle device and locks it mid-song. Held awake for exactly as long
+            // as the engine is running, and handed straight back on teardown.
+            UIApplication.shared.isIdleTimerDisabled = true
             log("Live engine started. \(latencyLine())")
         } catch {
             status = .error(error.localizedDescription)
             teardown()
             log("engage() failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// The format the running graph was cut for. A route change and a
+    /// configuration change both land for one switch, in either order — this is
+    /// what makes the second one free instead of a second glitch in the monitor.
+    private var wiredInputFormat: AVAudioFormat?
+
+    /// THE HARDWARE MOVED — re-cut the graph against whatever is there now.
+    ///
+    /// AVAudioEngine negotiates its I/O format ONCE, at start. Move the input
+    /// route under a running engine and iOS stops the engine and drops the
+    /// connections into and out of its I/O nodes: the edge cut at `engage()`
+    /// describes a device that is no longer on the other end of it. Restarting
+    /// without re-cutting — which is all the route handler used to do, through a
+    /// `try?` that swallowed the refusal — is how switching INPUT on the play
+    /// page left a panel still reading LIVE over dead meters and no sound.
+    private func rewireForCurrentHardware(_ reason: String) {
+        guard isEngaged, let engine, let unit = avAudioUnit else { return }
+        let input = engine.inputNode
+        let format = input.inputFormat(forBus: 0)
+
+        // Already cut for this hardware and still running: nothing moved.
+        if engine.isRunning, let wired = wiredInputFormat, wired.isEqual(format) { return }
+
+        guard format.channelCount > 0, format.sampleRate > 0 else {
+            wiredInputFormat = nil
+            status = .error("No audio input available")
+            log("\(reason): no usable input format — engine left stopped.")
+            return
+        }
+
+        // Taps first: they belong to the old configuration, and a tap outliving
+        // the node it was installed on is the classic AVAudioEngine crash.
+        removeLevelTaps()
+        engine.stop()
+        engine.connect(input, to: unit, format: format)
+        engine.connect(unit, to: engine.mainMixerNode, format: format)
+        engine.prepare()
+        do {
+            try engine.start()
+            wiredInputFormat = format
+            installLevelTaps(on: engine)
+            status = .running
+            log("\(reason) — graph re-cut for \(Int(format.sampleRate)) Hz / \(format.channelCount) ch.")
+        } catch {
+            wiredInputFormat = nil
+            status = .error(error.localizedDescription)
+            log("\(reason) — re-cut failed: \(error.localizedDescription)")
         }
     }
 
@@ -223,7 +286,9 @@ final class AudioEngineController: ObservableObject {
     }
 
     private func teardown() {
+        UIApplication.shared.isIdleTimerDisabled = false
         stopMetering()
+        wiredInputFormat = nil
         // Taps come off BEFORE the nodes stop / detach: a tap left on a node that
         // is being torn down is the classic AVAudioEngine crash.
         removeLevelTaps()
@@ -298,19 +363,40 @@ final class AudioEngineController: ObservableObject {
     /// Not `private` so the offline-render extension (separate file) can reuse it.
     func configureSession(activate: Bool) throws {
         let session = AVAudioSession.sharedInstance()
-        // `.measurement` disables input processing so the amp sim starts from the
-        // untouched guitar signal. No `.defaultToSpeaker` (feedback risk) — prefer
-        // the connected headphones/route. A2DP allowed so AirPods can monitor.
-        try session.setCategory(.playAndRecord, mode: .measurement, options: [.allowBluetoothA2DP])
+        // MODE `.default`, NOT `.measurement`. Measurement mode was chosen to keep
+        // the DI untouched on the way IN — and it does — but the same switch also
+        // strips the system's processing on the way OUT: the speaker EQ, the low-
+        // frequency compensation, and the multiband limiting iOS runs to make a
+        // 10 mm driver sound like a speaker. That is why the rig came out quiet
+        // and thin no matter how much gain was thrown at it, and it is the
+        // difference between this and every other music app on the phone. The
+        // input processing this gives back applies to the built-in mic path, not
+        // to a digital interface — which is where a guitar should be arriving.
+        // A2DP allowed so AirPods can monitor.
+        //
+        // `.defaultToSpeaker` because the alternative is the EARPIECE: a
+        // `.playAndRecord` session with nothing plugged in routes playback to the
+        // little speaker you hold to your ear, which for an amp sim is a route in
+        // name only. It was left off here over a feedback risk that belongs to the
+        // built-in mic, not to the DI this rig is built around — and a connected
+        // device still wins, so headphones and interfaces are unaffected.
+        try session.setCategory(.playAndRecord, mode: .default,
+                                options: [.allowBluetoothA2DP, .defaultToSpeaker])
         try? session.setPreferredSampleRate(requestedSampleRate)
         try? session.setPreferredIOBufferDuration(requestedIOBufferDuration)
-        if activate { try session.setActive(true, options: []) }
+        if activate {
+            try session.setActive(true, options: [])
+            applyPendingInput(session)
+            applyOutputChoice()
+            applyInputTrim(session)
+        }
 
         grantedSampleRate = session.sampleRate
         grantedIOBufferDuration = session.ioBufferDuration
         grantedInputLatency = session.inputLatency
         grantedOutputLatency = session.outputLatency
-        log("Session configured. \(latencyLine())")
+        let route = session.currentRoute
+        log("Session configured. \(latencyLine()) · in=\(route.inputs.first?.portName ?? "—") out=\(route.outputs.first?.portName ?? "—")")
     }
 
     func latencyLine() -> String {
@@ -340,22 +426,230 @@ final class AudioEngineController: ObservableObject {
         refreshRoutes()
     }
 
+    /// THE PORT THE PLAYER PICKED, held from the tap until the route agrees.
+    ///
+    /// `setPreferredInput` SUCCEEDS on an idle session and iOS remembers the
+    /// choice — but it does not move `currentRoute`, because a session that was
+    /// never activated has no live route to move. So before PROCEED the route is
+    /// still naming whatever was there before, and a panel that reads only the
+    /// route reports the pick as though nothing happened. That is what made the
+    /// INPUT picker look dead on the rig screen and alive on the play page: same
+    /// control, same code — the play page just has an active session behind it,
+    /// because PROCEED engaged one on the way in.
+    private var pendingInputUID: String?
+
+    /// The pick's name, for as long as the route can't confirm it itself.
+    private var pendingInputName: String? {
+        pendingInputUID.flatMap { uid in availableInputs.first(where: { $0.uid == uid })?.name }
+    }
+
     func refreshRoutes() {
         let session = AVAudioSession.sharedInstance()
         let route = session.currentRoute
-        currentInputName = route.inputs.first?.portName ?? "—"
-        currentOutputName = route.outputs.first?.portName ?? "—"
         availableInputs = (session.availableInputs ?? []).map {
             RouteOption(name: $0.portName, uid: $0.uid)
         }
+
+        let routeInput = route.inputs.first
+        // Stop standing in for the route the moment it stops being blind: it has
+        // caught up, the port was pulled, or the session is live — and a live
+        // session's route is the only honest answer, including when iOS declined
+        // the pick and opened something else.
+        if let pending = pendingInputUID,
+           isEngaged
+            || routeInput?.uid == pending
+            || !availableInputs.contains(where: { $0.uid == pending }) {
+            pendingInputUID = nil
+        }
+
+        currentInputName = pendingInputName ?? routeInput?.portName ?? "—"
+        currentOutputName = route.outputs.first?.portName ?? "—"
         detectNewDevices(session)
     }
 
+    /// Choose the port the guitar comes in on. While the engine is idle this
+    /// records a preference that iOS opens when the session goes live; while it
+    /// is running the route moves under your finger.
     func selectInput(_ option: RouteOption) {
         let session = AVAudioSession.sharedInstance()
         guard let port = (session.availableInputs ?? []).first(where: { $0.uid == option.uid }) else { return }
-        try? session.setPreferredInput(port)
+        do {
+            try session.setPreferredInput(port)
+            pendingInputUID = option.uid
+        } catch {
+            // Not `try?`: a refusal is the one case where the panel must NOT go
+            // on to name the port the player asked for.
+            log("Couldn't select input \(option.name): \(error.localizedDescription)")
+        }
         refreshRoutes()
+    }
+
+    /// Re-assert the pick at the one moment it can actually take — the session
+    /// going active. iOS does carry a preference set while idle across the
+    /// activation, but the category is re-set on the way in, so this makes the
+    /// guarantee ours rather than the framework's.
+    private func applyPendingInput(_ session: AVAudioSession) {
+        guard let uid = pendingInputUID,
+              let port = (session.availableInputs ?? []).first(where: { $0.uid == uid }) else { return }
+        do { try session.setPreferredInput(port) }
+        catch { log("Couldn't open the chosen input \(port.portName): \(error.localizedDescription)") }
+    }
+
+    // MARK: - Input trim: the preamp knob nobody can reach
+
+    /// WHERE THE HARDWARE PREAMP IS SET, 0…1, when iOS lets us set it at all.
+    ///
+    /// Both ends of this were measured on device and both were wrong. Left alone,
+    /// a guitar through the headphone-jack adapter arrived 42 dB down — so quiet
+    /// the rig had to invent the difference, and the hiss with it. Turned all the
+    /// way up, it pinned 0.0 dBFS on every transient against a −44 dB average:
+    /// a front end clipping itself, which is where the noise came from and where
+    /// the low end went, a clipped wave losing its fundamental before anything
+    /// else. Neither is a setting. This walks to one and then stops.
+    private var inputTrim: Float = 0.5
+
+    /// Peaks should land here: hot enough to leave the noise behind, cold enough
+    /// that a hard-picked chord still has somewhere to go. WIDE, because a guitar
+    /// is: the gap between a dying note and a dug-in chord is 40 dB, and the first
+    /// version of this window was narrower than that — so it chased the decay up
+    /// and the strum back down, 194 times in one session, riding the gain audibly
+    /// the whole way. A trim that moves while you play is worse than one set wrong.
+    private static let trimTargetLowDB: Float = -20
+    private static let trimTargetHighDB: Float = -8
+
+    /// ONLY PLAYING GETS A VOTE. Measured: a window of someone playing reads a
+    /// peak 30–40 dB over its own average (−10 peak on a −50 average), because
+    /// notes are transients. Hiss reads about 15 dB over — it is steady, that is
+    /// what makes it hiss. So the crest is what tells them apart, and it does it
+    /// without caring how weak the pickup is, which an absolute threshold cannot.
+    ///
+    /// This is the fix for the last thing still moving on its own: the trim used
+    /// to read a quiet window as "needs more gain" and walk up during the gaps —
+    /// 0.66 → 0.74 on windows peaking at −51 dBFS, which is silence — then walk
+    /// back down the moment a chord landed. Silence now says nothing at all.
+    private static let trimPlayingCrestDB: Float = 20
+    private static let trimPlayingFloorDB: Float = -45
+
+    /// The loudest peak and loudest average since the last decision. Judging on
+    /// the window rather than the instant is what makes this settle.
+    private var trimWindowPeakDB: Float = AudioLevel.floorDB
+    private var trimWindowRmsDB: Float = AudioLevel.floorDB
+    private var trimAgreement = 0
+
+    private func applyInputTrim(_ session: AVAudioSession) {
+        guard session.isInputGainSettable else { return }
+        try? session.setInputGain(inputTrim)
+    }
+
+    /// Nudge the trim toward the window, a step at a time, roughly twice a
+    /// second. NOT gain-riding: this moves an ANALOG knob ahead of the converter,
+    /// never the audio, and once the peaks are in the window it stops moving
+    /// entirely — the deadband is the whole point. Down quickly (clipping is
+    /// damage), up slowly (a quiet passage is not a reason to crank).
+    private func adjustInputTrim() {
+        let session = AVAudioSession.sharedInstance()
+        guard isEngaged, session.isInputGainSettable else { return }
+        let level = levels.input
+        trimWindowPeakDB = max(trimWindowPeakDB, level.peakDB)
+        trimWindowRmsDB = max(trimWindowRmsDB, level.rmsDB)
+        if level.isClipping { trimWindowPeakDB = 0 }
+
+        // Decide on the window, not on the instant — and only every few seconds.
+        trimAgreement += 1
+        guard trimAgreement >= 6 else { return }
+        trimAgreement = 0
+        let windowPeak = trimWindowPeakDB
+        let windowCrest = trimWindowPeakDB - trimWindowRmsDB
+        trimWindowPeakDB = AudioLevel.floorDB
+        trimWindowRmsDB = AudioLevel.floorDB
+
+        var next = inputTrim
+        if windowPeak > Self.trimTargetHighDB {
+            // Down on the evidence of the peak alone. Too hot is too hot whatever
+            // made it, and the cost of being wrong is a clipped transient.
+            next -= 0.04
+        } else if windowPeak < Self.trimTargetLowDB {
+            // Up only on the evidence of PLAYING. Everything else — a decaying
+            // note, a gap between phrases, a room full of hiss — is quiet for
+            // reasons that more gain would not improve.
+            guard windowPeak > Self.trimPlayingFloorDB,
+                  windowCrest > Self.trimPlayingCrestDB else { return }
+            next += 0.02
+        } else {
+            return                             // in range — this is where it stops
+        }
+
+        next = min(1.0, max(0.05, next))
+        guard abs(next - inputTrim) > 0.001 else { return }
+        inputTrim = next
+        try? session.setInputGain(next)
+        log(String(format: "Input trim → %.2f (window peak %.1f dBFS, crest %.1f dB)",
+                   next, windowPeak, windowCrest))
+    }
+
+    // MARK: - Output: the one override a session gets
+
+    /// WHERE MONITORING COMES OUT, as far as an app is allowed to say.
+    ///
+    /// iOS owns which DEVICE plays — it follows headphones, an interface, AirPods
+    /// — and the single override it grants a session is speaker-or-not. So that
+    /// is exactly what this offers, and nothing it can't keep: `.automatic`
+    /// follows whatever iOS picked, `.speaker` forces the phone's loudspeaker
+    /// even over something connected.
+    enum OutputChoice: String, CaseIterable, Identifiable {
+        case automatic, speaker
+        var id: String { rawValue }
+        var label: String { self == .automatic ? "Automatic" : "Speaker" }
+    }
+
+    @Published private(set) var outputChoice: OutputChoice = .automatic
+
+    /// Whether OUR override is the reason the speaker is playing — there is no
+    /// API to ask the session, and letting go of an override we never took would
+    /// throw away one the player set in Control Center.
+    private var speakerOverrideApplied = false
+
+    func selectOutput(_ choice: OutputChoice) {
+        outputChoice = choice
+        applyOutputChoice()
+        refreshRoutes()
+    }
+
+    /// Put the route where the choice says. Only ever calls the API when
+    /// something actually needs changing: every override raises a route change,
+    /// which comes straight back through here, and a version of this that always
+    /// called would chase its own tail.
+    ///
+    /// An override needs a live session, so before PROCEED this is a preference —
+    /// `configureSession` applies it the moment the session goes active, the same
+    /// shape as the INPUT pick.
+    private func applyOutputChoice() {
+        let session = AVAudioSession.sharedInstance()
+        let outputs = session.currentRoute.outputs
+        let onReceiver = outputs.contains { $0.portType == .builtInReceiver }
+        let onSpeaker = outputs.contains { $0.portType == .builtInSpeaker }
+        do {
+            switch outputChoice {
+            case .speaker:
+                guard !onSpeaker else { return }
+                try session.overrideOutputAudioPort(.speaker)
+                speakerOverrideApplied = true
+            case .automatic:
+                if speakerOverrideApplied {
+                    try session.overrideOutputAudioPort(.none)
+                    speakerOverrideApplied = false
+                }
+                // The belt to `.defaultToSpeaker`'s braces: if the route still
+                // lands on the earpiece — the one place nobody chose and nobody
+                // wants — take the override back out and push it to the speaker.
+                if onReceiver {
+                    try session.overrideOutputAudioPort(.speaker)
+                    speakerOverrideApplied = true
+                }
+            }
+        } catch {
+            log("Couldn't set the output route: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - New hardware: ask before switching
@@ -440,19 +734,19 @@ final class AudioEngineController: ObservableObject {
     }
 
     private func adopt(_ offer: DeviceOffer) {
-        let session = AVAudioSession.sharedInstance()
         switch offer.kind {
         case .input:
-            if let port = (session.availableInputs ?? []).first(where: { $0.uid == offer.uid }) {
-                try? session.setPreferredInput(port)
-            }
+            // Straight through the picker's own path — which refreshes the routes
+            // itself — so "Use it" on the rig screen names the new device in the
+            // panel exactly as choosing it from the INPUT menu does. It was
+            // silent here for the same reason the menu was.
+            selectInput(RouteOption(name: offer.name, uid: offer.uid))
         case .output:
             // iOS has ALREADY routed to the new output by the time the
-            // notification lands, so "use it" means clearing any override we put
-            // in place — the session then follows the newest device itself.
-            try? session.overrideOutputAudioPort(.none)
+            // notification lands, so "use it" means letting the session follow
+            // the newest device — which is what automatic IS.
+            selectOutput(.automatic)
         }
-        refreshRoutes()
     }
 
     #if DEBUG
@@ -469,10 +763,11 @@ final class AudioEngineController: ObservableObject {
         case .input:
             break   // keep whatever input is already preferred
         case .output:
-            // OUTPUT ROUTING BELONGS TO iOS. Since it has already switched,
-            // declining can only mean pushing playback back to the built-in
-            // speaker — the one output override a session is allowed.
-            try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
+            // iOS has already switched, so declining can only mean pushing
+            // playback back to the phone's own speaker — which is the other
+            // choice the OUTPUT zone offers, set here by the same route.
+            selectOutput(.speaker)
+            return
         }
         refreshRoutes()
     }
@@ -489,6 +784,14 @@ final class AudioEngineController: ObservableObject {
         observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification,
                                             object: nil, queue: .main) { [weak self] note in
             MainActor.assumeIsolated { self?.handleRouteChange(note) }
+        })
+        // THE ENGINE'S OWN ALARM, and the one nothing was listening for. iOS
+        // raises it when the I/O hardware underneath a running engine changes —
+        // which is precisely what choosing a different INPUT does — and by the
+        // time it lands the engine has already stopped itself.
+        observers.append(center.addObserver(forName: .AVAudioEngineConfigurationChange,
+                                            object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.rewireForCurrentHardware("Engine configuration changed") }
         })
     }
 
@@ -521,6 +824,9 @@ final class AudioEngineController: ObservableObject {
 
     private func handleRouteChange(_ note: Notification) {
         refreshRoutes()
+        // Pulling headphones out hands playback back to the earpiece; put it
+        // where the player asked for it. Inert unless something needs moving.
+        if isEngaged { applyOutputChoice() }
         guard let info = note.userInfo,
               let raw = info[AVAudioSessionRouteChangeReasonKey] as? UInt,
               let reason = AVAudioSession.RouteChangeReason(rawValue: raw) else { return }
@@ -533,11 +839,12 @@ final class AudioEngineController: ObservableObject {
                 status = .interrupted
                 log("Input/route removed — engine paused.")
             }
-        case .newDeviceAvailable, .routeConfigurationChange:
-            if isEngaged, let engine, !engine.isRunning {
-                try? engine.start()
-                if engine.isRunning { status = .running }
-            }
+        case .newDeviceAvailable, .routeConfigurationChange, .override:
+            // The switch itself, or the iRig going back in after an unplug. One
+            // answer for both: cut the graph to the hardware that is there NOW.
+            // A bare `try? engine.start()` was the old answer, and it restarted
+            // an engine still wired to the device that just left.
+            rewireForCurrentHardware("Route changed")
         default:
             break
         }
@@ -556,10 +863,13 @@ final class AudioEngineController: ObservableObject {
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(4))
         var ticks = 0
+        var trimTicks = 0
         timer.setEventHandler { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.levels.tick(dt: interval)
+                trimTicks += 1
+                if trimTicks >= 15 { trimTicks = 0; self.adjustInputTrim() }
                 ticks += 1
                 guard ticks >= 8 else { return }
                 ticks = 0
