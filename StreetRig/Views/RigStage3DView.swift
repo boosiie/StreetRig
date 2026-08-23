@@ -889,6 +889,27 @@ enum RigDiorama {
     static let maxCameraDistance = defaultCameraDistance * 1.75
     static let minCameraDistance: Float = 7.2
 
+    // MARK: Backdrop
+
+    /// The blue the diorama sits in — the colour the stage model's own author
+    /// photographs it against.
+    ///
+    /// Set on the SCENE, and that is the whole point of it living here rather than
+    /// only in `RigStageView`. The SCNView asks for a clear background
+    /// (`backgroundColor = .clear`, `isOpaque = false`) and lets a SwiftUI colour show
+    /// through — which works right up until the camera turns on post-processing.
+    /// `wantsHDR` plus bloom, saturation and contrast route the frame through an
+    /// offscreen pass that does not carry the clear background out with it, so the
+    /// view composites opaque and paints over whatever SwiftUI put behind it.
+    ///
+    /// The symptom is badly misleading: the backdrop reads as "too dark" no matter
+    /// what colour you set in SwiftUI, because none of those colours were ever on
+    /// screen. Giving the scene its own background renders the blue in SceneKit,
+    /// where it cannot be covered. `RigStageView.stageBackground` paints the SAME
+    /// value for the strip of padding around the view, so the two agree whichever
+    /// one you end up looking at.
+    static let backdrop = UIColor(red: 0.196, green: 0.588, blue: 0.757, alpha: 1)   // #3296C1
+
     // MARK: Guitar placement
 
     /// Where the guitar's lower bout meets the boards. Unchanged from where the
@@ -1035,6 +1056,7 @@ enum RigDiorama {
     static func make(amp: GearItem?, cabinet: GearItem?,
                      pedals: [GearItem], guitar: GearItem?) -> SCNScene {
         let scene = SCNScene()
+        scene.background.contents = backdrop        // see `backdrop` — NOT decoration
         let world = SCNNode()
         world.name = "world"
 
