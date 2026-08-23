@@ -2291,6 +2291,38 @@ extension AudioEngineController {
                        "PRE \(preTypes) (drive \(ParameterMap.typeDrive), mod \(ParameterMap.typeModulation)); "
                        + "MID \(midTypes) (delay \(ParameterMap.typeDelay), reverb \(ParameterMap.typeReverb))"))
 
+        // SWITCHING A BLOCK'S TYPE REPLACES IT — reported as "switching into
+        // flanger doesn't turn it off, I think it stacks effects". A block owns
+        // exactly ONE slot whatever it is set to, and changing the setting must
+        // move that slot's voicing rather than add a second one.
+        func modPlan(_ typeIndex: Double) -> RigDSPPlan {
+            var v = Self.ampTestKnobs
+            v["Character"] = 2; v["Mod"] = typeIndex; v["Mod On"] = 1; v["Mod Level"] = 5
+            return ampPlan("VOSS Katana 100", .comboAmp, values: v).plan
+        }
+        let chorusPlan = modPlan(1), flangerPlan = modPlan(2)
+        func modSlots(_ p: RigDSPPlan) -> [Int] {
+            p.pedals.filter { $0.type == ParameterMap.typeModulation }.map(\.character)
+        }
+        let chorusMods = modSlots(chorusPlan), flangerMods = modSlots(flangerPlan)
+        checks.append(("a Mod type switch REPLACES the block, never stacks",
+                       chorusMods.count == 1 && flangerMods.count == 1
+                       && chorusMods != flangerMods,
+                       "chorus voicings \(chorusMods) → flanger voicings \(flangerMods) "
+                       + "(one slot each, different voicing)"))
+        // …and the switch must reach the engine, which means the signature has to
+        // move. If it did not, the change would take the continuous path, which
+        // deliberately does NOT re-voice a slot — the old algorithm would keep
+        // running with the new label, exactly the reported symptom.
+        checks.append(("…and it is STRUCTURAL, so the slot is actually re-voiced",
+                       chorusPlan.signature != flangerPlan.signature,
+                       "chorus \(chorusPlan.signature) vs flanger \(flangerPlan.signature)"))
+        // Audibly different, through the real graph.
+        let chorusOut = await render(chorusPlan, dry), flangerOut = await render(flangerPlan, dry)
+        let modDiff = Self.levelMatchedDiff(chorusOut, flangerOut)
+        checks.append(("…and chorus and flanger actually sound different", modDiff > 0.02,
+                       String(format: "%.1f%% residual after level matching", modDiff * 100)))
+
         // The routing must be AUDIBLE, not just declared: the same reverb block,
         // moved between the three spans, has to measure differently. In the loop
         // its tail is squashed by the output stage; after the cab it floats on
