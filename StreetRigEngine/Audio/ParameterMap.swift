@@ -411,6 +411,29 @@ public enum ParameterMap {
         public let options: [String]
         public let dials: [String]      ///< suffixes appended to `name`
         public let span: AmpFXSpan
+        /// Type indices whose effect is driven by an LFO and therefore has a
+        /// SPEED. The rate used to be pinned at a fixed "musical mid-sweep",
+        /// which meant a tremolo you could not slow down and a phaser you could
+        /// not sweep — reported by ear, and the obvious gap once you try to use
+        /// them. Listed per TYPE rather than per block because a block's options
+        /// are a mixed bag: on FX, Tremolo and Phaser have a rate and Comp, EQ
+        /// and Wah do not, and drawing a dead Rate dial for a compressor is the
+        /// thing this file already refuses to do for OUTPUT.
+        public let rateTypes: Set<Int>
+
+        public init(name: String, options: [String], dials: [String],
+                    span: AmpFXSpan, rateTypes: Set<Int> = []) {
+            self.name = name; self.options = options; self.dials = dials
+            self.span = span; self.rateTypes = rateTypes
+        }
+
+        /// The dials this block shows for `typeIndex`. Passing nil returns the
+        /// SUPERSET, which is what building an item's default values needs — a
+        /// dial the player has never seen still wants a sane stored default.
+        public func dials(forType typeIndex: Int?) -> [String] {
+            guard let typeIndex else { return dials + (rateTypes.isEmpty ? [] : ["Rate"]) }
+            return dials + (rateTypes.contains(typeIndex) ? ["Rate"] : [])
+        }
     }
 
     /// `Off` is index 0 of every block's type selector, and it is the STRUCTURAL
@@ -423,10 +446,12 @@ public enum ParameterMap {
     public static let katanaFXBlocks: [AmpFXBlockSpec] = [
         .init(name: "Booster", options: ["Off", "Clean", "Blues", "Crunch", "Tube", "Dist", "Metal", "Fuzz"],
               dials: ["Level"], span: .pre),
+        // Every Mod option is an LFO effect, so Rate is always live here.
         .init(name: "Mod", options: ["Off", "Chorus", "Flanger", "Phaser", "Tremolo", "Vibrato"],
-              dials: ["Level"], span: .pre),
+              dials: ["Level"], span: .pre, rateTypes: [1, 2, 3, 4, 5]),
+        // Only Tremolo (4) and Phaser (5) sweep; Comp, EQ and Wah do not.
         .init(name: "FX", options: ["Off", "Comp", "EQ", "Wah", "Tremolo", "Phaser"],
-              dials: ["Level"], span: .mid),
+              dials: ["Level"], span: .mid, rateTypes: [4, 5]),
         .init(name: "Delay", options: ["Off", "Digital", "Analog", "Tape"],
               dials: ["Level", "Time"], span: .mid),
         .init(name: "Reverb", options: ["Off", "Room", "Plate", "Spring", "Hall"],
@@ -474,9 +499,9 @@ public enum ParameterMap {
             case "Mod":
                 type = typeModulation
                 voicing = [0, modChorus, modFlanger, modPhaser, modTremolo, modUnivibe][typeIndex]
-                // Rate is fixed at a musical mid-sweep; the knob is depth AND
-                // mix, which is what a single "depth" control does on hardware.
-                params = [modRateHz(4), norm(level), norm(level)]
+                // Rate is the player's now (it was pinned at 4). Level remains
+                // depth AND mix, which is what a single "depth" control does.
+                params = [modRateHz(values["Mod Rate"] ?? 4), norm(level), norm(level)]
             case "FX":
                 switch typeIndex {
                 case 1: type = typeCompressor; params = [norm(level), compMakeup(5)]
@@ -488,9 +513,9 @@ public enum ParameterMap {
                         params = [eqBandDB(10 - level), eqBandDB(5), eqBandDB(level)]
                 case 3: type = typeWah;  params = [norm(level)]
                 case 4: type = typeModulation; voicing = modTremolo
-                        params = [modRateHz(5), norm(level), norm(level)]
+                        params = [modRateHz(values["FX Rate"] ?? 5), norm(level), norm(level)]
                 default: type = typeModulation; voicing = modPhaser
-                        params = [modRateHz(4), norm(level), norm(level)]
+                        params = [modRateHz(values["FX Rate"] ?? 4), norm(level), norm(level)]
                 }
             case "Delay":
                 type = typeDelay

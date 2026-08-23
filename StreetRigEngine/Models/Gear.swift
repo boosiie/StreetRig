@@ -200,7 +200,12 @@ public struct GearItem: Identifiable, Codable, Hashable, Transferable {
 
     /// The knobs to DISPLAY + persist for this specific item: its real per-model
     /// control set when known (PedalSpec), else the generic per-category set.
-    public var parameters: [GearParameter] { PedalSpec.parameters(forName: name, category: category) }
+    /// `values` is passed so a block whose dial set depends on its selected TYPE
+    /// can show the right dials — the Katana's FX blocks gain a Rate only for the
+    /// LFO effects. Everything else ignores it.
+    public var parameters: [GearParameter] {
+        PedalSpec.parameters(forName: name, category: category, values: values)
+    }
 
     public init(id: UUID = UUID(), name: String, category: GearCategory,
          values: [String: Double]? = nil,
@@ -257,7 +262,8 @@ public struct ARSlot: Codable, Hashable {
 /// Which knob drives which DSP role is resolved separately, by ALIAS, in
 /// ParameterMap.pedalParams — so renaming a knob here never breaks the sound.
 enum PedalSpec {
-    static func parameters(forName name: String, category: GearCategory) -> [GearParameter] {
+    static func parameters(forName name: String, category: GearCategory,
+                           values: [String: Double]? = nil) -> [GearParameter] {
         let n = name.lowercased()
         func p(_ names: [String]) -> [GearParameter] { names.map { GearParameter($0) } }
 
@@ -359,7 +365,11 @@ enum PedalSpec {
                                            group: block.name, shortName: "Type"))
                     p.append(GearParameter("\(block.name) On", options: ["Off", "On"], defaultIndex: 1,
                                            group: block.name, shortName: "On"))
-                    for dial in block.dials {
+                    // nil values (building an item's defaults) yields the
+                    // superset, so every dial has a stored default the first time
+                    // its type is selected.
+                    let selected = values.map { Int(($0[block.name] ?? 0).rounded()) }
+                    for dial in block.dials(forType: selected) {
                         p.append(GearParameter("\(block.name) \(dial)", group: block.name, shortName: dial))
                     }
                 }

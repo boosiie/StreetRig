@@ -441,7 +441,12 @@ void SRKernelProcess(SRKernelRef kernel,
     // close over 150 ms so it never chatters on a decay.
     const float gateAttack  = 1.0f - std::exp(-1.0f / (0.001f * srF));
     const float gateRelease = 1.0f - std::exp(-1.0f / (0.150f * srF));
-    constexpr float invGateThreshold = 1.0f / DSPKernel::kGateThreshold;
+    // Threshold tracks amp drive — see kGateDriveRef. Read once per buffer from
+    // the same ramped value the amp stage uses, so the two can never disagree.
+    const float driveNow = k->ampDrive.target.load(std::memory_order_relaxed);
+    const float gateScale = std::fmin(DSPKernel::kGateMaxScale,
+                                      std::fmax(1.0f, driveNow / DSPKernel::kGateDriveRef));
+    const float invGateThreshold = 1.0f / (DSPKernel::kGateThreshold * gateScale);
     // Gain smoothing, asymmetric on purpose: instant open, slow close.
     const float gateOpen  = 1.0f - std::exp(-1.0f / float(DSPKernel::kGateOpenSec  * srF));
     const float gateClose = 1.0f - std::exp(-1.0f / float(DSPKernel::kGateCloseSec * srF));

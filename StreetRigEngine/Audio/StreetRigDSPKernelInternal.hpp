@@ -130,6 +130,25 @@ struct DSPKernel {
     /// design: instant when a note arrives, molasses on the way back down.
     static constexpr double kGateOpenSec  = 0.001;   // 1 ms — never late
     static constexpr double kGateCloseSec = 0.250;   // 250 ms — never rippling
+
+    /// THE THRESHOLD FOLLOWS THE GAIN, because the problem it solves does.
+    ///
+    /// A fixed threshold cannot serve both ends of this app. Reported by ear: at
+    /// −62 dBFS a clean tone is perfect, and a high-gain patch roars between notes
+    /// — obviously so, because the preamp cascade amplifies the noise floor by
+    /// tens of dB before anyone hears it, and the gate is sitting in front of all
+    /// of that judging the raw input. Raise it to suit high gain and clean chords
+    /// get chewed again; that is the exact trade that produced the first bug.
+    ///
+    /// So it scales with amp drive: the more the amp is about to amplify, the
+    /// higher the line has to be to hold the same noise DOWNSTREAM. This is also
+    /// what a guitarist does by hand — more gain, more gate. It is safe here in a
+    /// way it was not before because the gain is smoothed now: a higher threshold
+    /// can no longer put ripple on a note, only pull its far tail down sooner.
+    ///
+    /// Clean stays at −62 dBFS; a cranked amp lands near −45.
+    static constexpr float kGateDriveRef = 2.0f;    // drive at/below this = base
+    static constexpr float kGateMaxScale = 8.0f;    // ≈ +18 dB at full gain
     float gateEnv[8]{};
     /// The expander's SMOOTHED gain, per channel. Starts open so the very first
     /// buffer after a reset is not faded in.
