@@ -255,6 +255,10 @@ public enum ParameterMap {
                voiceRAT = 10, voiceBigMuff = 11, voiceFuzzFace = 12,
                voiceFuzzFactory = 13, voiceCleanBoost = 14
     public static let modChorus = 0, modFlanger = 1, modPhaser = 2, modTremolo = 3, modUnivibe = 4
+    /// Twelve all-pass stages and near-oscillating feedback — the deep sweep.
+    /// Mirrors `ModulationPedal::DeepPhaser`; the two tables are hand-mirrored,
+    /// exactly as the drive voicings are.
+    public static let modDeepPhaser = 5
     /// Delay circuits (mirror `DelayPedal::Voicing`). These are three different
     /// CIRCUITS, not one delay with three tone settings: digital crossfades on a
     /// time change while tape and BBD glide (opposite correct behaviours), and
@@ -463,12 +467,20 @@ public enum ParameterMap {
     public static let katanaFXBlocks: [AmpFXBlockSpec] = [
         .init(name: "Booster", options: ["Off", "Clean", "Blues", "Crunch", "Tube", "Dist", "Metal", "Fuzz"],
               dials: ["Level"], span: .pre),
-        // Every Mod option is an LFO effect, so Rate is always live here.
-        .init(name: "Mod", options: ["Off", "Chorus", "Flanger", "Phaser", "Tremolo", "Vibrato"],
-              dials: ["Level"], span: .pre, rateTypes: [1, 2, 3, 4, 5]),
-        // Only Tremolo (4) and Phaser (5) sweep; Comp, EQ and Wah do not.
-        .init(name: "FX", options: ["Off", "Comp", "EQ", "Wah", "Tremolo", "Phaser"],
-              dials: ["Level"], span: .mid, rateTypes: [4, 5]),
+        // MOD IS THE PHASE-SHIFT BLOCK. Re-sorted on request: the two phasers and
+        // the flanger together, because they are the same family — swept notches —
+        // and belong on one selector. Chorus and Vibrato left the block; every
+        // remaining option is an LFO effect, so Rate is always live.
+        .init(name: "Mod", options: ["Off", "Phaser", "Deep Phaser", "Flanger"],
+              dials: ["Level"], span: .pre, rateTypes: [1, 2, 3]),
+        // FX IS EVERYTHING ELSE. Re-sorted on request to Wah / Tremolo, with the
+        // phasers moved to Mod where they belong. PITCH SHIFTER IS ABSENT ON
+        // PURPOSE: pitch was deferred with delay and reverb, and only those two
+        // were built, so there is no engine behind it — a menu entry for it would
+        // be a control that does nothing, which is the one thing this file already
+        // refuses to draw. It goes in when it has DSP. Only Tremolo (2) sweeps.
+        .init(name: "FX", options: ["Off", "Wah", "Tremolo"],
+              dials: ["Level"], span: .mid, rateTypes: [2]),
         .init(name: "Delay", options: ["Off", "Digital", "Analog", "Tape"],
               dials: ["Level", "Time"], span: .mid),
         .init(name: "Reverb", options: ["Off", "Room", "Plate", "Spring", "Hall"],
@@ -515,24 +527,15 @@ public enum ParameterMap {
                 params = [pedalDrive(level), pedalToneHz(6), pedalLevel(6)]
             case "Mod":
                 type = typeModulation
-                voicing = [0, modChorus, modFlanger, modPhaser, modTremolo, modUnivibe][typeIndex]
+                voicing = [0, modPhaser, modDeepPhaser, modFlanger][typeIndex]
                 // Rate is the player's now (it was pinned at 4). Level remains
                 // depth AND mix, which is what a single "depth" control does.
                 params = [modRateHz(values["Mod Rate"] ?? 4), norm(level), norm(level)]
             case "FX":
                 switch typeIndex {
-                case 1: type = typeCompressor; params = [norm(level), compMakeup(5)]
-                case 2: type = typeEq
-                        // One knob across three bands: a TILT. Knob 0 is a dark,
-                        // mid-forward setting and knob 10 a bright, scooped one,
-                        // which is the range a single "EQ" control can honestly
-                        // cover.
-                        params = [eqBandDB(10 - level), eqBandDB(5), eqBandDB(level)]
-                case 3: type = typeWah;  params = [norm(level)]
-                case 4: type = typeModulation; voicing = modTremolo
-                        params = [modRateHz(values["FX Rate"] ?? 5), norm(level), norm(level)]
-                default: type = typeModulation; voicing = modPhaser
-                        params = [modRateHz(values["FX Rate"] ?? 4), norm(level), norm(level)]
+                case 1: type = typeWah;  params = [norm(level)]
+                default: type = typeModulation; voicing = modTremolo
+                         params = [modRateHz(values["FX Rate"] ?? 5), norm(level), norm(level)]
                 }
             case "Delay":
                 type = typeDelay
