@@ -96,6 +96,29 @@ struct ComponentDetailView: View {
     /// SMALLER THAN IT WAS, on request: the panel is a picture of an amp face and
     /// the controls under it are what the player actually came for. A row is 56 pt
     /// — a 34 pt knob and its label — against the 132 pt a single row used to take.
+    /// The CHANNEL switch, if this amp has one.
+    private var channelParam: GearParameter? { params.first { $0.name == "CHANNEL" } }
+
+    /// The row label the switch is currently pointing at. Rows and switch options
+    /// are matched BY NAME — an amp names its rows the same as its channels and
+    /// the relationship needs declaring nowhere else.
+    private var liveChannel: String? {
+        guard let p = channelParam, let opts = p.options, let id = item?.id else { return nil }
+        let v = Int((store.item(id)?.values[p.name] ?? p.defaultValue).rounded())
+        return opts.indices.contains(v) ? opts[v] : nil
+    }
+
+    /// A channel row that is not the selected one. Shaded, but STILL LIVE to the
+    /// touch: setting up the other channel before switching to it is exactly what
+    /// a player does, so the shade says "not currently in the signal path" rather
+    /// than "you may not touch this". That is the opposite of the THUMP shade,
+    /// which is dead precisely because there is nothing behind it.
+    private func rowIsOffChannel(_ label: String?) -> Bool {
+        guard let label, let opts = channelParam?.options,
+              opts.contains(label), let live = liveChannel else { return false }
+        return label != live
+    }
+
     private var knobPanelHeight: CGFloat {
         let rows = max(1, dialRows.count)
         // Every LABELLED row needs its caption's height too. Counting only the
@@ -248,10 +271,12 @@ struct ComponentDetailView: View {
                             if let label = row.label {
                                 Text(label)
                                     .font(.system(size: 9, weight: .bold)).tracking(1.1)
-                                    .foregroundStyle(labelColor.opacity(0.75))
+                                    .foregroundStyle(labelColor
+                                        .opacity(rowIsOffChannel(label) ? 0.4 : 0.75))
                             }
                             knobRow(id: id, row.dials, knob: knob,
-                                    light: light, labelColor: labelColor)
+                                    light: light, labelColor: labelColor,
+                                    offChannel: rowIsOffChannel(row.label))
                         }
                     }
                     .padding(.horizontal, 14)
@@ -267,7 +292,8 @@ struct ComponentDetailView: View {
 
     /// One row of the knob panel.
     private func knobRow(id: UUID, _ row: [GearParameter], knob: CGFloat,
-                         light: Bool, labelColor: Color) -> some View {
+                         light: Bool, labelColor: Color,
+                         offChannel: Bool = false) -> some View {
         HStack(spacing: 6) {
             ForEach(row) { param in
                             VStack(spacing: 5) {
@@ -283,9 +309,14 @@ struct ComponentDetailView: View {
                                 // grey slab across the panel instead of reading as
                                 // one dial being out of service.
                                 .overlay {
-                                    if param.isDisabled {
+                                    // Two shades, same shape, different meanings:
+                                    // a disabled control has nothing behind it, an
+                                    // off-channel one is simply not the row being
+                                    // heard right now. The second is lighter and
+                                    // never blocks a touch.
+                                    if param.isDisabled || offChannel {
                                         Circle()
-                                            .fill(.black.opacity(0.5))
+                                            .fill(.black.opacity(param.isDisabled ? 0.5 : 0.34))
                                             .blendMode(.multiply)
                                             .allowsHitTesting(false)
                                     }
@@ -302,7 +333,9 @@ struct ComponentDetailView: View {
                             // chassis, dimmed and dead to the touch so it reads as
                             // "not yet" rather than as a knob that lies. The shade
                             // itself is on the knob above; this only fades the pair.
-                            .opacity(param.isDisabled ? 0.45 : 1)
+                            .opacity(param.isDisabled ? 0.45 : (offChannel ? 0.62 : 1))
+                            // Off-channel knobs STAY turnable — dialling in the
+                            // other channel before you switch to it is the point.
                             .allowsHitTesting(!param.isDisabled)
             }
         }

@@ -524,7 +524,7 @@ enum PedalSpec {
                 return [GearParameter("CLEAN/CRUNCH", options: ["CLEAN", "CRUNCH"], defaultIndex: 1),
                         GearParameter("OD1/OD2",      options: ["OD1", "OD2"], defaultIndex: 0),
                         GearParameter("TONE SHIFT",   options: ["OFF", "ON"], defaultIndex: 0),
-                        GearParameter("CHANNEL",      options: ["ULTRA", "CLASSIC"], defaultIndex: 0),
+                        GearParameter("CHANNEL",      options: ["ULTRA GAIN", "CLASSIC GAIN"], defaultIndex: 0),
                         GearParameter("Volume 2", shortName: "GAIN",   rowLabel: "CLASSIC GAIN"),
                         GearParameter("Master 2", shortName: "VOLUME", rowLabel: "CLASSIC GAIN"),
                         GearParameter("Gain",     shortName: "GAIN",   rowLabel: "ULTRA GAIN"),
