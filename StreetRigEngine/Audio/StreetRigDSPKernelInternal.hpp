@@ -101,6 +101,34 @@ struct DSPKernel {
         return (x < 0.0f) ? -bent : bent;
     }
 
+    /// SPEAKER COMPENSATION — the app's real listening chain.
+    ///
+    /// 320 Hz, second order. An iPhone driver is a few millimetres of excursion:
+    /// below roughly 400 Hz it makes almost no sound, and asking it to try wastes
+    /// the limiter's whole budget on energy that never leaves the phone. Cutting
+    /// there before the limiter is not thinning the tone — the tone below 320 Hz
+    /// was never arriving. What changes is that the midrange stops being ducked
+    /// to make room for it.
+    ///
+    /// Second order rather than first because the point is to get the energy OUT
+    /// of the limiter's detector, and a 6 dB/octave slope still hands it plenty.
+    static constexpr double kSpeakerHPHz = 320.0;
+    /// A broad lift where a small driver is actually efficient, which is also
+    /// where a guitar's note definition lives. Not a smile curve — the speaker
+    /// cannot do the bottom of one and does not need help at the top.
+    static constexpr double kSpeakerLiftHz = 2200.0;
+    static constexpr float  kSpeakerLiftDB = 3.5f;
+
+    /// Two cascaded one-poles = the 12 dB/oct high-pass, plus a one-pole shelf for
+    /// the lift. Per channel, and only run when the destination is the phone.
+    struct SpeakerComp {
+        float hp1 = 0.0f, hp2 = 0.0f;   // running low-pass state (subtracted out)
+        float shelf = 0.0f;
+        void reset() noexcept { hp1 = hp2 = shelf = 0.0f; }
+    };
+    SpeakerComp speakerComp[8];
+    std::atomic<bool> speakerCompOn{false};
+
     /// INPUT EXPANDER — the quiet answer to a noisy front end.
     ///
     /// A guitar at mic level brings its own hiss, and every dB of gain after it

@@ -65,7 +65,22 @@ typedef enum : uint64_t {
     /// RAMPED GAIN, not a switch, so flipping the power control is a ~5 ms glide
     /// rather than a fade/park rebuild — a rebuild here would be audibly worse
     /// than the hardware, which switches instantly and silently.
-    SRParamAmpPower     = 13
+    SRParamAmpPower     = 13,
+    /// SPEAKER COMPENSATION: 0 = off (headphones, an interface, AirPlay to a real
+    /// speaker), >= 0.5 = on (the phone's own speaker).
+    ///
+    /// This app is played with the phone ON THE FLOOR, through its own speaker —
+    /// not a fallback, the intended use. That driver produces essentially nothing
+    /// below a few hundred Hz, so every watt of low end the amp makes is not
+    /// merely inaudible: it drives the output limiter, and the limiter answers by
+    /// pulling DOWN the midrange that can actually be heard. The rig is quieter
+    /// and duller than it should be because of energy nobody is receiving.
+    ///
+    /// So when the built-in speaker is the destination, the output stage
+    /// high-passes what the speaker cannot reproduce BEFORE the limiter sees it,
+    /// and lifts the presence band the speaker can. Off for every other route,
+    /// because doing this into headphones would be gutting them for no reason.
+    SRParamSpeakerComp  = 14
 } SRParameterAddress;
 
 // --- Prompt 003: structured pedal parameter range (still the SAME lock-free bus) ---

@@ -198,6 +198,7 @@ final class AudioEngineController: ObservableObject {
             self.avAudioUnit = unit
             self.dspUnit = unit.auAudioUnit as? StreetRigDSPUnit
             applyMasterLevel()
+            applySpeakerComp()      // the DSP unit exists now; re-assert the route
 
             // Meter taps go on once the engine is RUNNING, so both nodes report a
             // settled stream format (a tap installed against a not-yet-negotiated
@@ -480,6 +481,8 @@ final class AudioEngineController: ObservableObject {
         grantedInputLatency  = session.inputLatency
         grantedOutputLatency = session.outputLatency
         outputIsWireless = Self.wirelessPort(route.outputs.first?.portType)
+        outputIsPhoneSpeaker = route.outputs.first?.portType == .builtInSpeaker
+        applySpeakerComp()
         detectNewDevices(session)
     }
 
@@ -494,6 +497,20 @@ final class AudioEngineController: ObservableObject {
     /// just feels broken. `.allowBluetoothA2DP` stays ON deliberately — monitoring
     /// wirelessly while noodling is legitimate — but the cost is now stated.
     @Published private(set) var outputIsWireless = false
+
+    /// True when the rig is coming out of the PHONE'S OWN SPEAKER — which is how
+    /// this app is meant to be used: phone on the floor, no headphones. That
+    /// driver makes almost nothing below a few hundred Hz, so the kernel switches
+    /// on a compensation stage that clears the sub-bass out of the limiter's way
+    /// and lifts the band the speaker is good at. Strictly route-following: a
+    /// wired output or an interface gets the full-range signal untouched.
+    @Published private(set) var outputIsPhoneSpeaker = false
+
+    private func applySpeakerComp() {
+        dspUnit?.parameterTree?
+            .parameter(withAddress: AUParameterAddress(SRParamSpeakerComp.rawValue))?
+            .value = outputIsPhoneSpeaker ? 1 : 0
+    }
 
     private static func wirelessPort(_ type: AVAudioSession.Port?) -> Bool {
         guard let type else { return false }

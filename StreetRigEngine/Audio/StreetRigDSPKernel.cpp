@@ -104,7 +104,10 @@ void SRKernelReset(SRKernelRef kernel) {
     k->processor.reset();
     // Expander opens on reset. Left where it was, a session that stopped during a
     // silence would fade the first notes of the next one in.
-    for (int c = 0; c < 8; ++c) { k->gateEnv[c] = 0.0f; k->gateGain[c] = 1.0f; }
+    for (int c = 0; c < 8; ++c) {
+        k->gateEnv[c] = 0.0f; k->gateGain[c] = 1.0f;
+        k->speakerComp[c].reset();
+    }
 }
 
 // MARK: - Parameter bus
@@ -146,6 +149,7 @@ void SRKernelSetParameter(SRKernelRef kernel, uint64_t address, float value) {
         // Both destinations recompute off the audio thread, so this adds no new
         // threading concern — and the kernel stays profile-agnostic.
         case SRParamAmpPresence:  k->processor.setPresenceDB(value); break;
+        case SRParamSpeakerComp:  k->speakerCompOn.store(value >= 0.5f, std::memory_order_relaxed); break;
         default: break;
     }
 }
@@ -160,6 +164,7 @@ float SRKernelGetParameter(SRKernelRef kernel, uint64_t address) {
         case SRParamAmpBypass:    return k->ampBypass.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
         case SRParamCabBypass:    return k->cabBypass.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
         case SRParamAmpUseNeural: return k->useNeural.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
+        case SRParamSpeakerComp:  return k->speakerCompOn.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
         case SRParamCabSelect:    return (float)k->cabSelect.load(std::memory_order_relaxed);
         default: return 0.0f;
     }
@@ -545,6 +550,28 @@ void SRKernelProcess(SRKernelRef kernel,
         //    scratch you can hear underneath the note. A limiter never touches the
         //    shape of the wave — it moves a gain, smoothly, so nothing is added
         //    that wasn't played. Loud costs dynamics here; it no longer costs tone.
+        // SPEAKER COMPENSATION, ahead of the limiter on purpose: the whole point
+        // is that the limiter never sees the sub-bass the phone cannot play.
+        const bool spkOn = k->speakerCompOn.load(std::memory_order_relaxed);
+        DSPKernel::SpeakerComp &sc = k->speakerComp[limCh];
+        const float hpCoef = 1.0f - std::exp(-2.0f * (float)M_PI * (float)DSPKernel::kSpeakerHPHz / srF);
+        const float shCoef = 1.0f - std::exp(-2.0f * (float)M_PI * (float)DSPKernel::kSpeakerLiftHz / srF);
+        const float liftGain = std::pow(10.0f, DSPKernel::kSpeakerLiftDB / 20.0f) - 1.0f;
+        if (spkOn) {
+            for (int i = 0; i < frameCount; ++i) {
+                // Two one-pole low-passes subtracted out = 12 dB/oct high-pass.
+                sc.hp1 += hpCoef * (dst[i] - sc.hp1);
+                const float h1 = dst[i] - sc.hp1;
+                sc.hp2 += hpCoef * (h1 - sc.hp2);
+                const float hp = h1 - sc.hp2;
+                // Broad presence lift: the high part of a one-pole split, added.
+                sc.shelf += shCoef * (hp - sc.shelf);
+                dst[i] = hp + (hp - sc.shelf) * liftGain;
+            }
+        } else {
+            sc.reset();
+        }
+
         // The limiter aims at the KNEE, not the ceiling. Hold peaks at the knee
         // and the soft ceiling above is a straight wire for everything the limiter
         // caught — the gap between the two is headroom kept in reserve for the
