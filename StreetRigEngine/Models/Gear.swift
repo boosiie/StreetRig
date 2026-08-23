@@ -381,8 +381,25 @@ enum PedalSpec {
             //     refuses to draw. It goes in when the power amp grows a low shelf.
             //   • Orange Rockerverb — Gain / Bass / Middle / Treble / Master, plus
             //     its reverb. No presence knob on the dirty channel.
+            // ROLAND JC-120 — two channels; channel 2 carries the distortion, the
+            // reverb and the chorus/vibrato that the amp is named for.
             if n.contains("jc-120") || n.contains("jc120") || n.contains("jazz chorus") {
-                return p(["Volume", "Treble", "Mid", "Bass"])
+                return [GearParameter("BRIGHT",   options: ["OFF", "ON"], defaultIndex: 0),
+                        GearParameter("BRIGHT 2", options: ["OFF", "ON"], defaultIndex: 0,
+                                      shortName: "BRIGHT"),
+                        GearParameter("EFFECT", options: ["VIBRATO", "OFF", "CHORUS"], defaultIndex: 1),
+                        GearParameter("Volume",   shortName: "VOLUME", rowLabel: "CHANNEL 1"),
+                        GearParameter("Treble 2", shortName: "TREBLE", rowLabel: "CHANNEL 1"),
+                        GearParameter("Mid 2",    shortName: "MIDDLE", rowLabel: "CHANNEL 1"),
+                        GearParameter("Bass 2",   shortName: "BASS",   rowLabel: "CHANNEL 1"),
+                        GearParameter("Gain",       shortName: "VOLUME",     rowLabel: "CHANNEL 2"),
+                        GearParameter("Treble",     shortName: "TREBLE",     rowLabel: "CHANNEL 2"),
+                        GearParameter("Mid",        shortName: "MIDDLE",     rowLabel: "CHANNEL 2"),
+                        GearParameter("Bass",       shortName: "BASS",       rowLabel: "CHANNEL 2"),
+                        GearParameter("DISTORTION", rowLabel: "CHANNEL 2"),
+                        GearParameter("REVERB",     rowLabel: "CHANNEL 2"),
+                        GearParameter("SPEED",      rowLabel: "CHANNEL 2"),
+                        GearParameter("DEPTH",      rowLabel: "CHANNEL 2")]
             }
             // FENDER BASSMAN — a tweed 5F6-A: presence and the tone stack, then a
             // volume for EACH input, bright and normal. No master, no gain knob;
@@ -395,13 +412,39 @@ enum PedalSpec {
                         GearParameter("Gain",     shortName: "VOL BRIGHT"),
                         GearParameter("Volume",   shortName: "VOL NORMAL")]
             }
+            // FENDER TWIN REVERB — two channels, and the reverb and vibrato live
+            // on the Vibrato one only, which is why that row is longer.
             if n.contains("twin") {
-                return p(["Gain", "Bass", "Mid", "Treble", "Master"])
+                return [GearParameter("BRIGHT",   options: ["OFF", "ON"], defaultIndex: 0),
+                        GearParameter("BRIGHT 2", options: ["OFF", "ON"], defaultIndex: 0,
+                                      shortName: "BRIGHT"),
+                        GearParameter("Volume",   shortName: "VOLUME", rowLabel: "NORMAL"),
+                        GearParameter("Treble 2", shortName: "TREBLE", rowLabel: "NORMAL"),
+                        GearParameter("Mid 2",    shortName: "MIDDLE", rowLabel: "NORMAL"),
+                        GearParameter("Bass 2",   shortName: "BASS",   rowLabel: "NORMAL"),
+                        GearParameter("Gain",     shortName: "VOLUME", rowLabel: "VIBRATO"),
+                        GearParameter("Treble",   shortName: "TREBLE", rowLabel: "VIBRATO"),
+                        GearParameter("Mid",      shortName: "MIDDLE", rowLabel: "VIBRATO"),
+                        GearParameter("Bass",     shortName: "BASS",   rowLabel: "VIBRATO"),
+                        GearParameter("REVERB",    rowLabel: "VIBRATO"),
+                        GearParameter("SPEED",     rowLabel: "VIBRATO"),
+                        GearParameter("INTENSITY", rowLabel: "VIBRATO")]
             }
+            // VOX AC30 — the Normal channel is one volume and nothing else; Top
+            // Boost is the tone channel. CUT and MASTER VOLUME are the amp's
+            // global pair, and Cut runs backwards (the profile's negative
+            // presenceScale is what does that).
             if n.contains("ac30") {
-                // CUT, not Presence — and the profile's negative presenceScale is
-                // what makes it work backwards, so the name is the only change.
-                return p(["Gain", "Bass", "Mid", "Treble", "Cut", "Master"])
+                return [GearParameter("Volume", shortName: "NORMAL VOLUME"),
+                        GearParameter("Gain",   shortName: "VOLUME",  rowLabel: "TOP BOOST"),
+                        GearParameter("Treble", shortName: "TREBLE",  rowLabel: "TOP BOOST"),
+                        GearParameter("Bass",   shortName: "BASS",    rowLabel: "TOP BOOST"),
+                        GearParameter("REVERB TONE",    rowLabel: "TOP BOOST"),
+                        GearParameter("REVERB LEVEL",   rowLabel: "TOP BOOST"),
+                        GearParameter("TREMOLO SPEED",  rowLabel: "TOP BOOST"),
+                        GearParameter("TREMOLO DEPTH",  rowLabel: "TOP BOOST"),
+                        GearParameter("Cut",    shortName: "MASTER TONE CUT"),
+                        GearParameter("Master", shortName: "MASTER VOLUME")]
             }
             // THE FRIEDMAN, LEFT TO RIGHT, exactly as it reads on the chassis.
             // Duplicated names (two channels' worth of TREBLE / MIDDLE / BASS) need
@@ -470,8 +513,28 @@ enum PedalSpec {
                     k("GAIN"),
                 ]
             }
+            // MARSHALL DSL — two gain channels, a shared tone stack, and its own
+            // reverb per channel. RESONANCE is real on this amp and is drawn here,
+            // though the power amp models a single feedback shelf so it does
+            // nothing yet.
             if n.contains("dsl") {
-                return p(["Gain", "Bass", "Mid", "Treble", "Presence", "Master"])
+                return [GearParameter("CLEAN/CRUNCH", options: ["CLEAN", "CRUNCH"], defaultIndex: 1),
+                        GearParameter("OD1/OD2",      options: ["OD1", "OD2"], defaultIndex: 0),
+                        GearParameter("TONE SHIFT",   options: ["OFF", "ON"], defaultIndex: 0),
+                        GearParameter("CHANNEL",      options: ["CLASSIC", "ULTRA"], defaultIndex: 1),
+                        GearParameter("Volume 2", shortName: "GAIN",   rowLabel: "CLASSIC GAIN"),
+                        GearParameter("Master 2", shortName: "VOLUME", rowLabel: "CLASSIC GAIN"),
+                        GearParameter("Gain",     shortName: "GAIN",   rowLabel: "ULTRA GAIN"),
+                        GearParameter("Volume",   shortName: "VOLUME", rowLabel: "ULTRA GAIN"),
+                        GearParameter("Treble",   shortName: "TREBLE"),
+                        GearParameter("Mid",      shortName: "MIDDLE"),
+                        GearParameter("Bass",     shortName: "BASS"),
+                        GearParameter("Presence", shortName: "PRESENCE"),
+                        GearParameter("RESONANCE", isDisabled: true),
+                        GearParameter("CLASSIC REVERB"),
+                        GearParameter("ULTRA REVERB"),
+                        GearParameter("Master",   shortName: "MASTER 1"),
+                        GearParameter("MASTER 2")]
             }
             // ORANGE ROCKERVERB — a channel switch, the shared reverb, then the
             // dirty channel and the clean one on their own rows.

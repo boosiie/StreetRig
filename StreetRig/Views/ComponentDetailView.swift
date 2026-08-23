@@ -102,7 +102,8 @@ struct ComponentDetailView: View {
         // knob rows is what clipped "CHANNEL 1" off the top of the Mesa and the
         // Orange: the panel was sized for the dials and the text had nowhere to go.
         let labels = dialRows.filter { $0.label != nil }.count
-        return CGFloat(rows) * 56 + CGFloat(labels) * 17 + 14
+        let spacing = max(0, rows * 2 - 1) * 4
+        return CGFloat(rows) * 56 + CGFloat(labels) * 13 + CGFloat(spacing) + 12
     }
     private var switches: [GearParameter] { params.filter { $0.isDiscrete && $0.group == nil } }
 
@@ -233,19 +234,21 @@ struct ComponentDetailView: View {
                     // is still a legible dial and the row always fits now. Rows are
                     // sized from the widest one so every knob on the panel matches.
                     let widest = CGFloat(max(1, dialRows.map(\.dials.count).max() ?? 1))
-                    let rowH = (geo.size.height - 10) / CGFloat(max(1, dialRows.count))
-                    let knob = max(26, min(rowH - 20, (geo.size.width - 28) / widest - 8))
+                    let captions = CGFloat(dialRows.filter { $0.label != nil }.count)
+                    // Take the captions and the inter-row spacing OUT before
+                    // dividing. Dividing the whole height by the row count pretended
+                    // the labels were free, so the content was always taller than
+                    // its box and the first caption was the part that got cut.
+                    let spacing = CGFloat(max(0, dialRows.count * 2 - 1)) * 4
+                    let avail = geo.size.height - 12 - captions * 13 - spacing
+                    let rowH = avail / CGFloat(max(1, dialRows.count))
+                    let knob = max(22, min(rowH - 17, (geo.size.width - 28) / widest - 8))
                     VStack(spacing: 4) {
                         ForEach(Array(dialRows.enumerated()), id: \.offset) { _, row in
                             if let label = row.label {
-                                // Centred across the panel and readable at arm's
-                                // length — it names the row of knobs under it, so
-                                // it has to carry as much as they do.
                                 Text(label)
-                                    .font(.system(size: 12, weight: .bold)).tracking(1.6)
-                                    .foregroundStyle(labelColor.opacity(0.85))
-                                    .frame(maxWidth: .infinity, alignment: .center)
-                                    .padding(.top, 1)
+                                    .font(.system(size: 9, weight: .bold)).tracking(1.1)
+                                    .foregroundStyle(labelColor.opacity(0.75))
                             }
                             knobRow(id: id, row.dials, knob: knob,
                                     light: light, labelColor: labelColor)
@@ -288,7 +291,7 @@ struct ComponentDetailView: View {
                                     }
                                 }
                                 Text(param.displayName)
-                                    .font(.system(size: knob < 40 ? 8 : 11, weight: .medium))
+                                    .font(.system(size: knob < 40 ? 11 : 13, weight: .semibold))
                                     .foregroundStyle(labelColor)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.5)
