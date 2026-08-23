@@ -31,9 +31,15 @@ enum ModelExporter {
         written += export(name: "StreetRig_Amp", into: docs) { root in
             ProceduralAmp.build(into: root)
         }
-        // A representative stompbox (3-knob)
-        written += export(name: "StreetRig_Pedal", into: docs) { root in
-            root.addChildNode(ProceduralPedal.build(for: GearItem(name: "Ibonez Tube Screamer", category: .overdrive)))
+        // One file per ENCLOSURE ARCHETYPE, not one representative stompbox.
+        // A designer refining "the pedal" used to be handed a generic box and
+        // had to guess what the wah or the Boss compact was supposed to be; each
+        // family now bakes the shape it is actually replacing. Driven off
+        // `allCases` so a new archetype exports itself with no edit here.
+        for archetype in PedalArchetype.allCases {
+            written += export(name: archetype.exportName, into: docs) { root in
+                root.addChildNode(ProceduralPedal.build(for: archetype.representativeItem))
+            }
         }
         // Les Paul-style guitar body (no stand)
         written += export(name: "StreetRig_Guitar", into: docs) { root in
