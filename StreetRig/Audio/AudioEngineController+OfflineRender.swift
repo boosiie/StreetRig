@@ -559,6 +559,74 @@ extension AudioEngineController {
         return (out, allPass, base.samples)
     }
 
+    /// THE LIVE SWITCH, which the plan-level check cannot see. Compiling two
+    /// plans and rendering each from scratch proves the COMPILER replaces a
+    /// block. It says nothing about what happens when the type changes on an
+    /// engine that is already running — and "switching into flanger doesn't turn
+    /// it off" is a report about exactly that.
+    ///
+    /// Renders chorus on a live engine, applies the flanger plan mid-stream
+    /// through the same path the app uses, then asks which the tail sounds like.
+    /// If the swap works the tail is flanger; if the old algorithm survives it
+    /// lands nearer chorus, or between the two.
+    private func liveModSwitchTest(fmt: AVAudioFormat, chorus: RigDSPPlan, flanger: RigDSPPlan)
+        async -> (toFlanger: Double, toChorus: Double, ok: Bool) {
+        let sr = fmt.sampleRate
+        let n = Int(2.0 * sr)
+        guard let src = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(n)) else {
+            return (0, 0, false)
+        }
+        src.frameLength = AVAudioFrameCount(n)
+        if let cd = src.floatChannelData {
+            for i in 0..<n { cd[0][i] = Float(0.3 * sin(2.0 * Double.pi * 220.0 * Double(i) / sr)) }
+        }
+
+        /// Render `pre` chunks under `first`, optionally swap to `second`, then
+        /// render `post` chunks and return only those.
+        func run(_ first: RigDSPPlan, swapTo second: RigDSPPlan?,
+                 pre: Int, post: Int) async -> [Float] {
+            StreetRigDSPUnit.registerIfNeeded()
+            guard let unit = try? await Self.instantiateDSPUnit() else { return [] }
+            let engine = AVAudioEngine(); let player = AVAudioPlayerNode()
+            engine.attach(player); engine.attach(unit)
+            engine.connect(player, to: unit, format: fmt)
+            engine.connect(unit, to: engine.mainMixerNode, format: fmt)
+            engine.connect(engine.mainMixerNode, to: engine.outputNode, format: fmt)
+            let maxFrames: AVAudioFrameCount = 128
+            guard (try? engine.enableManualRenderingMode(.offline, format: fmt, maximumFrameCount: maxFrames)) != nil,
+                  (try? engine.start()) != nil,
+                  let rb = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: maxFrames),
+                  let dsp = unit.auAudioUnit as? StreetRigDSPUnit else { return [] }
+            RigGraphCompiler.applyImmediate(first, to: dsp)
+            player.scheduleBuffer(src, at: nil, options: [], completionHandler: nil)
+            player.play()
+            func chunks(_ c: Int) -> [Float] {
+                var out: [Float] = []
+                for _ in 0..<c where (try? engine.renderOffline(maxFrames, to: rb)) == .some(.success) {
+                    out.append(contentsOf: Self.channelSamples(rb))
+                }
+                return out
+            }
+            _ = chunks(pre)
+            if let second { RigGraphCompiler.applyImmediate(second, to: dsp) }
+            let tail = chunks(post)
+            engine.stop()
+            return tail
+        }
+
+        let preChunks = Int(0.5 * sr) / 128, postChunks = Int(0.5 * sr) / 128
+        // The tail after a live chorus→flanger switch…
+        let swapped = await run(chorus, swapTo: flanger, pre: preChunks, post: postChunks)
+        // …against a flanger that was applied the same way and has run the same
+        // number of chunks, so both are at a comparable point in the source.
+        let pureFlanger = await run(flanger, swapTo: flanger, pre: preChunks, post: postChunks)
+        let pureChorus  = await run(chorus,  swapTo: chorus,  pre: preChunks, post: postChunks)
+        guard !swapped.isEmpty, !pureFlanger.isEmpty, !pureChorus.isEmpty else { return (0, 0, false) }
+        let dF = Double(Self.levelMatchedDiff(swapped, pureFlanger))
+        let dC = Double(Self.levelMatchedDiff(swapped, pureChorus))
+        return (dF, dC, dF < dC)
+    }
+
     /// Drive the reconfigure barrier inside a running (offline) render: steady tone
     /// → begin (fade to silence + park) → end (fade back in). Proves the fade is
     /// click-free and the parked branch truly mutes, without a physical device.
@@ -2317,6 +2385,12 @@ extension AudioEngineController {
         checks.append(("…and it is STRUCTURAL, so the slot is actually re-voiced",
                        chorusPlan.signature != flangerPlan.signature,
                        "chorus \(chorusPlan.signature) vs flanger \(flangerPlan.signature)"))
+        // THE LIVE SWITCH — the case the two checks above cannot reach.
+        let liveSwap = await liveModSwitchTest(fmt: fmt, chorus: chorusPlan, flanger: flangerPlan)
+        checks.append(("…and switching LIVE actually lands on the new effect", liveSwap.ok,
+                       String(format: "post-switch tail is %.1f%% from flanger vs %.1f%% from chorus",
+                              liveSwap.toFlanger * 100, liveSwap.toChorus * 100)))
+
         // Audibly different, through the real graph.
         let chorusOut = await render(chorusPlan, dry), flangerOut = await render(flangerPlan, dry)
         let modDiff = Self.levelMatchedDiff(chorusOut, flangerOut)
