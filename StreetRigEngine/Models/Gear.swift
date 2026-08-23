@@ -143,6 +143,12 @@ public struct GearParameter: Codable, Hashable, Identifiable {
     /// Short label to show inside a group, where the group name already carries
     /// the context ("Level" rather than "Booster Level"). Falls back to `name`.
     public var shortName: String?
+    /// Drawn, but greyed and inert. For a control that EXISTS on the hardware and
+    /// has no engine behind it yet — the panel stays a faithful picture of the amp
+    /// without pretending the knob does something. Distinct from omitting it: the
+    /// player can see the amp has a THUMP control and that this build cannot use
+    /// it, which is more honest than a gap where a knob should be.
+    public var isDisabled: Bool = false
     public var id: String { name }
 
     /// True when this is a switch/selector rather than a dial.
@@ -151,7 +157,7 @@ public struct GearParameter: Codable, Hashable, Identifiable {
     public var displayName: String { shortName ?? name }
 
     public init(_ name: String, min: Double = 0, max: Double = 10, defaultValue: Double = 5,
-                group: String? = nil, shortName: String? = nil) {
+                group: String? = nil, shortName: String? = nil, isDisabled: Bool = false) {
         self.name = name
         self.min = min
         self.max = max
@@ -159,11 +165,13 @@ public struct GearParameter: Codable, Hashable, Identifiable {
         self.options = nil
         self.group = group
         self.shortName = shortName
+        self.isDisabled = isDisabled
     }
 
     /// A discrete selector: `min` 0 … `max` options.count − 1, stored as an index.
     public init(_ name: String, options: [String], defaultIndex: Int,
-                group: String? = nil, shortName: String? = nil) {
+                group: String? = nil, shortName: String? = nil, isDisabled: Bool = false) {
+        self.isDisabled = isDisabled
         self.name = name
         self.min = 0
         self.max = Double(Swift.max(0, options.count - 1))
@@ -374,6 +382,46 @@ enum PedalSpec {
                 // CUT, not Presence — and the profile's negative presenceScale is
                 // what makes it work backwards, so the name is the only change.
                 return p(["Gain", "Bass", "Mid", "Treble", "Cut", "Master"])
+            }
+            // THE FRIEDMAN, LEFT TO RIGHT, exactly as it reads on the chassis.
+            // Duplicated names (two channels' worth of TREBLE / MIDDLE / BASS) need
+            // unique keys because a value dictionary is keyed by name, so the
+            // second set is suffixed internally and `shortName` puts the real word
+            // back on the panel.
+            //
+            // WHAT IS LIVE: GAIN, BASS, MIDDLE, TREBLE, VOLUME, PRESENCE and
+            // MASTER 1 drive the existing engine. The channel-2 set, the four
+            // switches and SYSTEM VOL are drawn because they are on the amp, and
+            // they will do nothing until the profile grows a second channel.
+            // THUMP is drawn DISABLED, as asked.
+            if n.contains("be-100") || n.contains("be100") {
+                func k(_ label: String, _ key: String? = nil, disabled: Bool = false) -> GearParameter {
+                    GearParameter(key ?? label, shortName: label, isDisabled: disabled)
+                }
+                func sw(_ label: String, _ opts: [String], _ key: String? = nil) -> GearParameter {
+                    GearParameter(key ?? label, options: opts, defaultIndex: 0, shortName: label)
+                }
+                return [
+                    k("SYSTEM VOL"),
+                    k("THUMP", disabled: true),
+                    k("PRESENCE"),
+                    k("MASTER 2"),
+                    k("MASTER 1"),
+                    k("TREBLE", "TREBLE 2"),
+                    k("MIDDLE", "MIDDLE 2"),
+                    k("BASS",   "BASS 2"),
+                    sw("VOICE", ["1", "2"]),
+                    k("GAIN 2"),
+                    sw("STRUCTURE", ["TIGHT", "LOOSE"]),
+                    k("GAIN 1"),
+                    sw("CHANNEL", ["BE", "HBE"]),
+                    k("VOLUME"),
+                    k("TREBLE"),
+                    k("MIDDLE"),
+                    k("BASS"),
+                    sw("BRIGHT", ["OFF", "ON"]),
+                    k("GAIN"),
+                ]
             }
             if n.contains("dsl") {
                 return p(["Gain", "Bass", "Mid", "Treble", "Presence", "Master"])

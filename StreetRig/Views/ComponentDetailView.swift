@@ -188,13 +188,27 @@ struct ComponentDetailView: View {
                                     onLight: light
                                 )
                                 .frame(width: knob, height: knob)
-                                Text(param.name)
+                                Text(param.displayName)
                                     .font(.caption.weight(.medium))
                                     .foregroundStyle(labelColor)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.6)
                             }
                             .frame(maxWidth: .infinity)
+                            // A control the AMP has and this build cannot drive.
+                            // Drawn, so the panel stays a true picture of the
+                            // chassis, but shadowed and dead to the touch — which
+                            // reads as "not yet" rather than as a knob that lies.
+                            .opacity(param.isDisabled ? 0.32 : 1)
+                            .overlay {
+                                if param.isDisabled {
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(.black.opacity(0.45))
+                                        .blendMode(.multiply)
+                                        .allowsHitTesting(false)
+                                }
+                            }
+                            .allowsHitTesting(!param.isDisabled)
                         }
                     }
                     .padding(22)
@@ -437,7 +451,17 @@ struct ComponentDetailView: View {
         let options = param.options ?? []
         let count = max(1, options.count)
         let index = min(max(Int(binding.wrappedValue.rounded()), 0), count - 1)
-        func step(_ d: Int) { binding.wrappedValue = Double((index + d + count) % count) }
+        // CYCLES THE REAL TYPES ONLY — Wah → Tremolo → Wah, never through Off.
+        // Off is still index 0 and still what an unset block holds, but it is no
+        // longer a stop on the carousel: turning a block off is the ON/OFF pair's
+        // job, and landing on "Off" while hunting for a sound was just a dead
+        // detent in the middle of the loop.
+        let firstReal = min(1, count - 1)
+        let realCount = max(1, count - firstReal)
+        func step(_ d: Int) {
+            let cur = max(index, firstReal)
+            binding.wrappedValue = Double(firstReal + (cur - firstReal + d + realCount) % realCount)
+        }
         return HStack(spacing: 0) {
             Button { step(-1) } label: {
                 Image(systemName: "chevron.left").font(.caption2.weight(.bold))

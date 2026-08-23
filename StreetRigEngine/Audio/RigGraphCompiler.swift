@@ -177,19 +177,30 @@ public enum RigGraphCompiler {
         let v: (String) -> Double = { vals[$0] ?? 5 }
         /// Index-valued selectors are NOT dials: 5 would be a nonsense default.
         let idx: (String, Double) -> Double = { vals[$0] ?? $1 }
-        plan.ampDrive       = ParameterMap.ampDrive(gainKnob: v("Gain"))
-        plan.ampMaster      = ParameterMap.ampMaster(masterKnob: v("Master"))
-        plan.ampBassDB      = ParameterMap.ampBandDB("Bass",     knob: v("Bass"))
-        plan.ampMidDB       = ParameterMap.ampBandDB("Mid",      knob: v("Mid"))
-        plan.ampTrebleDB    = ParameterMap.ampBandDB("Treble",   knob: v("Treble"))
+        /// ONE ROLE, SEVERAL NAMES. Panels are now per-amp and faithful to the
+        /// chassis, so the same job is labelled differently from amp to amp: the
+        /// AC30 says CUT where others say Presence, and the Friedman's panel is
+        /// screen-printed GAIN / MIDDLE / MASTER 1 in caps. The engine cares about
+        /// the ROLE, so each role lists the names that fill it and takes the first
+        /// one the amp actually has. Adding an amp with its own vocabulary is a
+        /// new alias here, not a new code path.
+        let role: ([String]) -> Double = { names in
+            for n in names { if let x = vals[n] { return x } }
+            return 5
+        }
+        plan.ampDrive       = ParameterMap.ampDrive(gainKnob: role(["Gain", "GAIN", "GAIN 1"]))
+        plan.ampMaster      = ParameterMap.ampMaster(masterKnob: role(["Master", "MASTER 1"]))
+        plan.ampBassDB      = ParameterMap.ampBandDB("Bass",   knob: role(["Bass", "BASS"]))
+        plan.ampMidDB       = ParameterMap.ampBandDB("Mid",    knob: role(["Mid", "MIDDLE"]))
+        plan.ampTrebleDB    = ParameterMap.ampBandDB("Treble", knob: role(["Treble", "TREBLE"]))
         // Presence, or CUT on the AC30 — the same destination under two names, so
         // whichever the panel actually shows is the one that is read. An amp with
         // neither (the Katana, the Twin, the JC-120, the Rockerverb) leaves it at
         // noon, which its profile then scales by its own presenceScale — zero for
         // the amps that genuinely have no such control.
-        let presenceKnob = vals["Cut"] ?? vals["Presence"] ?? 5
+        let presenceKnob = role(["Cut", "Presence", "PRESENCE"])
         plan.ampPresenceDB  = ParameterMap.ampBandDB("Presence", knob: presenceKnob)
-        plan.ampVolume      = ParameterMap.ampVolume(volumeKnob: v("Volume"))
+        plan.ampVolume      = ParameterMap.ampVolume(volumeKnob: role(["Volume", "VOLUME"]))
         // PINNED TO FULL POWER. The wattage selector is gone from the panel (see
         // Gear.swift for why), and this is read from the profile rather than from
         // the item's values ON PURPOSE: a rig saved while the selector existed
