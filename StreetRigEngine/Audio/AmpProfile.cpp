@@ -94,8 +94,19 @@ constexpr ToneStackVoicing tone3(double bHz, double bQ, float bScale, float bNoo
 /// into fizz: 16 k → 13 k → 11 k → 10 k. Cue: fizz on the top of a high-gain
 /// voicing → lower the LAST stage's Miller toward 9 kHz.
 constexpr double kKatanaMiller[4] = {16000.0, 13000.0, 11000.0, 10000.0};
-/// Per-stage clip bias — even harmonics, tube-like.
-constexpr float  kKatanaAsym[4]   = {0.10f, 0.12f, 0.12f, 0.07f};
+/// Per-stage clip bias. LOW, and that is the Katana's whole character.
+///
+/// Asymmetry is what makes a valve stage CRUNCH: it manufactures even harmonics,
+/// and even harmonics track the pick attack, so the ear hears grain and bite that
+/// move with how hard you play. Symmetric clipping does the opposite — odd
+/// harmonics, a denser and flatter wall that sits still under the note.
+///
+/// Reported by ear as wanting "less crunch and more static stuff… a more metal
+/// like tone", which is exactly that trade, and it is also true to the amp: the
+/// Katana is a digital modeller and its high-gain characters are far more
+/// symmetric than a real valve front end. Was {0.10, 0.12, 0.12, 0.07} — a
+/// tube-ish bias copied from the analog rows without asking whether it belonged.
+constexpr float  kKatanaAsym[4]   = {0.035f, 0.045f, 0.045f, 0.025f};
 
 struct KatanaVoice {
     int     stages;
@@ -556,42 +567,77 @@ AmpProfile profileFor(int voicing) noexcept {
     // outranks them. Roughly −15% on the saturating stages of each; the follower
     // stage is left alone because it sets level, not dirt. Brown B stays the most
     // saturated of the ten and Crunch A the least, so the ORDER is intact.
+    // THE GAIN KNOB HAD NOTHING LEFT TO DO. Caught by a check comparing Brown B
+    // against ITSELF: 35.1% harmonics at Gain 1 and 32.1% at Gain 9 — turning it
+    // up made it measurably LESS distorted, which is impossible unless the amp is
+    // already flat out at the bottom of the dial. It was: four stages at ~2.2×
+    // each is ~25× baked into the profile before the knob is consulted, so Gain 1
+    // was already fully saturated and Gain 9 only pushed it into a squarer wave
+    // whose harmonics stop growing.
+    //
+    // That is also the honest explanation of the original "too extreme": the amp
+    // was maxed wherever the knob sat. A profile should set the amp's CHARACTER
+    // and leave the dial the range to go from clean to wall. Stage gains cut to
+    // roughly 1.3–1.7 so the knob reaches saturation instead of starting there —
+    // the density stays, because it comes from the near-symmetric bias and the
+    // tight interstage filters, not from brute gain.
+    //
+    // SATURATION IS NOT LOUDNESS, and the first pass at "filled" confused them.
+    // Dropping the clip bias to near-symmetric was right for the character — even
+    // harmonics are what crunch IS — but symmetric clipping also makes LESS total
+    // harmonic energy at a given drive, so the high-gain rows came out cleaner
+    // rather than denser. Brown B cranked measured only 4.7 points of harmonics
+    // above a clean amp; it should tower over one.
+    //
+    // So the clippers are driven harder again and `outTrim` is pulled down by the
+    // same amount. More saturation, identical loudness — which is what "filled"
+    // asks for, and the opposite of the "too extreme" that got the gains cut in
+    // the first place. Extreme was LEVEL. Filled is DENSITY.
+    //
+    // THE "A" VARIATIONS ARE THE FILLED ONES NOW. Reported by ear that the Boss
+    // wants a more filled, metal-leaning voice "especially on variation A".
+    // Filled is not more gain — the gains were pulled back twice on request — it
+    // is less low end reaching each clipper, so the distortion is dense and even
+    // instead of loose and crunchy. Every A row's input and interstage high-passes
+    // move up ~10 Hz, which takes the flub out of the clipper without touching how
+    // hard it is driven. Combined with the near-symmetric bias above, that is a
+    // wall rather than a chew.
     case KatanaCrunchA:     // chime, edge of breakup — the reference Katana row
         // Cue (gains 2.0 / 2.1 / 1.5): with Gain at noon it should sit RIGHT AT
         // edge-of-breakup. Already crunchy at 3 → lower. Clean at 7 → raise.
-        p = katana({3, {1.45f, 1.55f, 1.30f}, 60.0, {34.0, 42.0, 50.0},
+        p = katana({3, {1.30f, 1.38f, 1.15f}, 68.0, {44.0, 54.0, 62.0},
                     {420.0, 600.0, 0.0}, {6.0f, 5.0f, 0.0f},
                     1.00f, 0.20f, 0.0f, -2.0f, 0.0f, 1.00f, 1.00f, AmpClip::Triode});
         break;
     case KatanaCrunchB:     // plexi push
-        p = katana({3, {1.70f, 1.80f, 1.40f}, 72.0, {44.0, 54.0, 62.0},
+        p = katana({3, {1.45f, 1.55f, 1.22f}, 72.0, {44.0, 54.0, 62.0},
                     {480.0, 674.0, 0.0}, {8.0f, 6.0f, 0.0f},
                     0.90f, 0.22f, -1.0f, 0.0f, +1.0f, 1.10f, 0.95f, AmpClip::Triode});
         break;
 
     case KatanaLeadA:       // smooth, sustaining
-        p = katana({4, {1.60f, 1.70f, 1.60f, 1.20f}, 80.0, {50.0, 60.0, 70.0, 76.0},
+        p = katana({4, {1.42f, 1.50f, 1.42f, 1.15f}, 88.0, {60.0, 72.0, 82.0, 88.0},
                     {500.0, 650.0, 700.0, 0.0}, {6.0f, 6.0f, 5.0f, 0.0f},
-                    0.85f, 0.25f, -1.0f, +2.0f, 0.0f, 1.00f, 0.85f, AmpClip::Triode});
+                    0.85f, 0.25f, -1.0f, +2.0f, 0.0f, 1.00f, 0.70f, AmpClip::Triode});
         break;
     case KatanaLeadB:       // tighter, more attack
-        p = katana({4, {1.80f, 1.85f, 1.80f, 1.20f}, 95.0, {62.0, 74.0, 86.0, 92.0},
+        p = katana({4, {1.55f, 1.62f, 1.55f, 1.15f}, 95.0, {62.0, 74.0, 86.0, 92.0},
                     {560.0, 720.0, 780.0, 0.0}, {7.0f, 7.0f, 6.0f, 0.0f},
-                    0.80f, 0.26f, -2.0f, +1.0f, +2.0f, 1.15f, 0.82f, AmpClip::Triode});
+                    0.80f, 0.26f, -2.0f, +1.0f, +2.0f, 1.15f, 0.68f, AmpClip::Triode});
         break;
 
     case KatanaBrownA:      // classic brown
-        p = katana({4, {1.70f, 1.85f, 1.80f, 1.25f}, 85.0, {54.0, 66.0, 78.0, 84.0},
+        p = katana({4, {1.50f, 1.60f, 1.55f, 1.18f}, 95.0, {66.0, 78.0, 88.0, 94.0},
                     {450.0, 620.0, 700.0, 0.0}, {7.0f, 7.0f, 6.0f, 0.0f},
-                    0.80f, 0.28f, 0.0f, +3.0f, +1.0f, 1.05f, 0.85f, AmpClip::Triode});
+                    0.80f, 0.28f, 0.0f, +3.0f, +1.0f, 1.05f, 0.70f, AmpClip::Triode});
         break;
     case KatanaBrownB:      // modern, scooped, tightest
         // Cue (gains 2.9 / 3.1 / 2.9): the most saturated of the ten, and still
         // articulate on fast runs. MUSHY ON FAST PICKING → raise `couplingHz`,
         // do not lower the gain.
-        p = katana({4, {1.95f, 2.10f, 2.00f, 1.25f}, 105.0, {70.0, 84.0, 96.0, 104.0},
+        p = katana({4, {1.62f, 1.70f, 1.62f, 1.18f}, 122.0, {84.0, 96.0, 108.0, 116.0},
                     {520.0, 700.0, 780.0, 0.0}, {8.0f, 8.0f, 7.0f, 0.0f},
-                    0.75f, 0.30f, -2.0f, -3.0f, +3.0f, 1.20f, 0.80f, AmpClip::Triode});
+                    0.75f, 0.30f, -2.0f, -3.0f, +3.0f, 1.20f, 0.66f, AmpClip::Triode});
         break;
 
     // ---------------------------------------------------------------------

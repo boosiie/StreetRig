@@ -1612,9 +1612,35 @@ extension AudioEngineController {
                         ?? PassOutput()).samples
             return Double(Self.brightness(out, sr: sr, cutoff: 400) * 100)
         }
-        let dirty = await brownHarm()
-        checks.append(("a DIRTY amp is still dirty", dirty > quietHarm + 5.0,
-                       String(format: "harmonics >400 Hz: Brown B cranked %.1f%% vs clean %.1f%%", dirty, quietHarm)))
+        // COMPARED AGAINST ITSELF, not against a different amp. The old form put
+        // Brown B cranked next to a clean JC-120, which conflated two variables —
+        // and it broke the moment the Katana's clip bias went near-symmetric,
+        // because symmetric clipping makes only ODD harmonics. Losing the 2nd
+        // harmonic dropped the number even though the amp got MORE saturated, so
+        // the check was reading harmonic ORDER and reporting it as cleanliness.
+        //
+        // Same amp, same everything, gain 1 vs gain 9. That isolates the one
+        // variable the check cares about and cannot be fooled by a voicing change.
+        // CRUNCH, not Brown. Brown is a high-gain channel: it is saturated at the
+        // bottom of its dial on purpose and on the real amp too, so asking it for a
+        // wide clean-to-dirty sweep tests a thing it is not meant to do. Crunch is
+        // the character whose whole job is that sweep — "edge of breakup" at the
+        // bottom, genuinely crunchy at the top — so it is the honest place to
+        // assert the Gain knob still travels.
+        func brownAtGain(_ g: Double) async -> Double {
+            var v = Self.ampTestKnobs
+            v["Character"] = 2; v["Variation"] = 0; v["Gain"] = g
+            var plan = ampPlan("VOSS Katana 100", .comboAmp, values: v).plan
+            plan.cabBypass = true
+            let out = ((try? await renderRigPlan(plan, source: loudTone, fmt: fmt,
+                                                 outputLevel: Self.ampSuiteOutputLevel))
+                        ?? PassOutput()).samples
+            return Double(Self.brightness(out, sr: sr, cutoff: 400) * 100)
+        }
+        let brownLow = await brownAtGain(1), brownHigh = await brownAtGain(9)
+        checks.append(("the Gain knob still travels (Crunch A, 1 → 9)", brownHigh > brownLow + 5.0,
+                       String(format: "harmonics >400 Hz: %.1f%% at Gain 1 → %.1f%% at Gain 9",
+                              brownLow, brownHigh)))
 
 
         // ---- 4b. THE INPUT EXPANDER DOES NOT MODULATE A NOTE. ----------------
