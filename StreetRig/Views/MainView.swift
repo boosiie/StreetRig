@@ -39,6 +39,7 @@ struct MainView: View {
     /// Where the library should open when something sends the player there — the
     /// no-amp warning, so far. Consumed by LibraryContentView.
     @State private var libraryDestination: LibraryContentView.Drill?
+    @State private var showCredits = false
 
     var body: some View {
         ZStack {
@@ -99,6 +100,7 @@ struct MainView: View {
         // stage. Measured HERE, on the appRoot view itself, because that is the
         // only place the answer can't be wrong (see RigDragController.appRootOrigin).
         .background(appRootOriginReader)
+        .sheet(isPresented: $showCredits) { CreditsView() }
     }
 
     /// The no-amp warning's destination: the amp models, not merely the library's
@@ -123,6 +125,9 @@ struct MainView: View {
 
     private var topNav: some View {
         HStack(spacing: 0) {
+            // Balances the credits button opposite, so the title stays centred on
+            // the header rather than drifting left by the button's width.
+            Color.clear.frame(width: 34, height: 30)
             navArrow(systemName: "chevron.left", target: page.previous)
             Spacer()
             VStack(spacing: 5) {
@@ -134,6 +139,7 @@ struct MainView: View {
             }
             Spacer()
             navArrow(systemName: "chevron.right", target: page.next)
+            creditsButton
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
@@ -141,6 +147,20 @@ struct MainView: View {
         .overlay(alignment: .bottom) { Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1) }
         .contentShape(Rectangle())   // the gaps beside the title are swipeable too
         .gesture(headerSwipe)
+    }
+
+    /// Opens third-party attribution. Deliberately quiet — muted, not amber — since
+    /// it is a legal obligation to keep reachable, not a feature to advertise. It
+    /// must stay present: the stage model's CC BY licence is conditional on it.
+    private var creditsButton: some View {
+        Button { showCredits = true } label: {
+            Image(systemName: "info.circle")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(RigTheme.textMuted)
+                .frame(width: 34, height: 30)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Credits and licences")
     }
 
     /// The visible hint that the header pages, and the only place the pager's

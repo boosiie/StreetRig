@@ -49,7 +49,15 @@ struct RigStageView: View {
 
     var body: some View {
         ZStack {
+            // Bled past the safe area on purpose. In landscape the page is inset on
+            // the notch side, and everything else on this screen paints its own
+            // background edge to edge — the top nav, the gear rail, the transport bar
+            // — so the inset showed as a dark strip down the right of the stage and
+            // the blue read as a floating rectangle with a border. Only the COLOUR
+            // bleeds; the 3D view below stays inside the safe area, where it is not
+            // under the camera housing and can still be touched.
             stageBackground
+                .ignoresSafeArea()
 
             if use3DStage {
                 // The whole rig orbits together as one scene — no SwiftUI warp.
@@ -75,9 +83,12 @@ struct RigStageView: View {
                     dropArea: stageArea,
                     controller: drag
                 )
+                // Full-bleed on purpose. The scene paints its own backdrop now
+                // (`RigDiorama.backdrop`), so any inset here is a strip of SwiftUI
+                // colour sitting beside a SceneKit colour that has been through the
+                // camera's grade — and they do not match, so the inset reads as a
+                // band along the top and sides. No inset, no band.
                 .background(stageFrameReader)
-                .padding(.horizontal, 8)
-                .padding(.top, 20)
             } else {
                 vectorRig
                     .rotation3DEffect(.degrees(Double(tilt.width)),  axis: (x: 0, y: 1, z: 0), perspective: 0.5)
@@ -264,13 +275,34 @@ struct RigStageView: View {
 
     // MARK: - Background (lighter "stage" panel)
 
+    /// What the diorama's stage floats in.
+    ///
+    /// The blue the stage model's own author photographs it against — StreetRig now
+    /// shows the same asset in the same setting. It is a deliberate departure from
+    /// `RigTheme`'s warm "Burnt Tan" palette, and the ONLY surface in the app that
+    /// leaves it, because it is not really UI: it is the backdrop of a photograph of
+    /// a room, and the room is wooden. Blue is the complement of that wood, which is
+    /// why the boards and the sunburst read as vividly against it as they do — and
+    /// why every earlier attempt here, all of them warm, kept flattening the stage
+    /// into its own background.
+    ///
+    /// It replaces a neutral grey ramp that predated there being a modelled stage at
+    /// all, and a warm brown one derived from the boards' own colour (#834D2E) that
+    /// blended TOO well: matched to the floor, the platform stopped reading as an
+    /// object and the diorama lost its edge entirely.
+    ///
+    /// Backdrop for the stage area, behind the 3D view.
+    ///
+    /// This is `RigDiorama.backdrop` AS RENDERED, not as authored — #1D96C5 rather
+    /// than the #3296C1 the scene is handed. The camera grades every frame
+    /// (`saturation` 1.08, `contrast` 0.08) and the background goes through it like
+    /// everything else, which drops its red from 0.196 to 0.114. Matching the
+    /// authored value instead leaves a visible band wherever the two meet.
+    ///
+    /// With the 3D view full-bleed this should never actually be on screen — it is
+    /// what shows if the scene fails to build, and the point is that you cannot tell.
     private var stageBackground: some View {
-        ZStack {
-            LinearGradient(colors: [Color(white: 0.17), Color(white: 0.10)],
-                           startPoint: .top, endPoint: .bottom)
-            RadialGradient(colors: [RigTheme.amber.opacity(0.10), .clear],
-                           center: .center, startRadius: 0, endRadius: 340)
-        }
+        Color(red: 0.114, green: 0.588, blue: 0.773)      // #1D96C5
     }
 
     // MARK: - Tilt gesture for the vector layout (rubber-band back to center)

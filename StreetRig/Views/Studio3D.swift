@@ -29,20 +29,42 @@ enum Studio3D {
 
     // MARK: - Lighting (key + fill + ambient + image-based environment)
 
-    static func addLighting(to scene: SCNScene, keyIntensity: CGFloat = 850,
-                            envIntensity: CGFloat = 1.25) {
+    /// The one light rig, shared by the diorama and all three detail views.
+    ///
+    /// WARM AND BRIGHT on purpose. The numbers below used to describe a cool studio:
+    /// a 5900 K key against a 6800 K fill and a 7400 K rim, over an ambient of 85. On
+    /// a bare turntable that reads as clean product lighting, but once the gear stood
+    /// in a modelled room the same rig lit it like a morgue — the wooden boards went
+    /// grey-blue, and with almost no ambient everything the key missed fell to black,
+    /// so the "room" was a lit disc floating in a void.
+    ///
+    /// Every colour temperature has come DOWN (lower is warmer: 4200 K is a stage
+    /// lamp, 7400 K was overcast daylight) and the ambient is up more than fivefold,
+    /// which is what actually makes a room feel lit rather than spotlit. Shadows are
+    /// lightened to match — a bright room does not throw near-black ones.
+    ///
+    /// `envIntensity` moves the least of anything here, and deliberately. Image-based
+    /// lighting compounds with the ambient rather than adding to it, so lifting both
+    /// hard blows out the faceplates; the ambient is the honest lever for "is the room
+    /// lit", and this stays a nudge.
+    ///
+    /// Kept shared rather than given the stage its own rig, deliberately: tapping a
+    /// pedal flies the camera from the diorama to that pedal, and if the two rigs
+    /// disagreed the piece would visibly change colour on the way in.
+    static func addLighting(to scene: SCNScene, keyIntensity: CGFloat = 1300,
+                            envIntensity: CGFloat = 1.5) {
         scene.lightingEnvironment.contents = environmentImage()   // IBL for PBR reflections
         scene.lightingEnvironment.intensity = envIntensity
 
         let key = SCNLight()
         key.type = .directional
         key.intensity = keyIntensity
-        key.temperature = 5900                                  // a touch warm — amp room, not clinical
+        key.temperature = 4200                                  // stage lamp, not daylight
         key.castsShadow = true                                  // real directional contact shadow…
         key.shadowMode = .forward
         key.shadowRadius = 8                                    // …softened with PCF so it's a gentle grounding
         key.shadowSampleCount = 16
-        key.shadowColor = UIColor(white: 0, alpha: 0.42)
+        key.shadowColor = UIColor(white: 0, alpha: 0.30)        // lighter, to match the brighter room
         key.shadowMapSize = CGSize(width: 2048, height: 2048)
         let keyNode = SCNNode()
         keyNode.light = key
@@ -51,26 +73,33 @@ enum Studio3D {
 
         let fill = SCNLight()
         fill.type = .directional
-        fill.intensity = 330
-        fill.temperature = 6800
+        fill.intensity = 620
+        fill.temperature = 5000
         let fillNode = SCNNode()
         fillNode.light = fill
         fillNode.eulerAngles = SCNVector3(-0.25, -0.9, 0)       // soft right fill
         scene.rootNode.addChildNode(fillNode)
 
-        // Cool rim light from behind-above for a clean studio edge highlight.
+        // Rim light from behind-above for edge separation. Still the coolest of the
+        // three — that contrast is what keeps a warm room from turning into soup —
+        // but no longer the icy 7400 K that was outlining everything in blue.
         let rim = SCNLight()
         rim.type = .directional
-        rim.intensity = 460
-        rim.temperature = 7400
+        rim.intensity = 560
+        rim.temperature = 6000
         let rimNode = SCNNode()
         rimNode.light = rim
         rimNode.eulerAngles = SCNVector3(0.6, 3.0, 0)
         scene.rootNode.addChildNode(rimNode)
 
+        // The room light. This is the single biggest lever on "does this feel like a
+        // lit space?", because it is the only one that reaches surfaces no directional
+        // light is aimed at — the far side of the amp, under the stool, the boards
+        // behind the rig. At 85 those were all but black.
         let ambient = SCNLight()
         ambient.type = .ambient
-        ambient.intensity = 85
+        ambient.intensity = 460
+        ambient.temperature = 4500                              // warm bounce, as off wood
         let ambientNode = SCNNode()
         ambientNode.light = ambient
         scene.rootNode.addChildNode(ambientNode)
