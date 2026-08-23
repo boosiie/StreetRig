@@ -2,13 +2,20 @@
 //  GuitarModel3DView.swift
 //  StreetRig
 //
-//  The rig stage's guitar in 3D: a single-cutaway, Les Paul-style solidbody on a
-//  simple A-frame stand, backed by SceneKit. The body is an extruded silhouette
-//  (SCNShape from a bezier outline) with a cherry finish; it carries a set neck,
-//  an "open-book" headstock with 3+3 tuners, two humbuckers, a bridge +
-//  tailpiece, and four gold control knobs. A PROCEDURAL stand-in — generic, no
-//  brand marks — with the same swap seam idea as the amp (drop in a real .usdz
-//  later). Tap to open the guitar's detail view. Gated by `FeatureFlags.amp3D`.
+//  The rig stage's guitar in 3D, on a simple A-frame stand, backed by SceneKit.
+//  Tap to open the guitar's detail view. Gated by `FeatureFlags.amp3D`.
+//
+//  The BODY is now a real, PBR-textured `.usdz`, resolved and fitted through
+//  `GearModelLoader.guitarNode(for:)` — the same call the rig diorama makes, so
+//  the two surfaces cannot drift apart. The STAND is still procedural and still
+//  has its own independent seam (`guitar-stand.usdz`).
+//
+//  `ProceduralGuitar.buildGuitar` below is the RETIRED body: a generic,
+//  no-brand-marks, single-cutaway solidbody built from an extruded bezier
+//  silhouette. It is no longer the normal path. It survives for two jobs, both
+//  in `GearModelLoader`: it defines the envelope every real model is fitted into
+//  (`proceduralGuitarBounds`), and it is the last-resort draw if no model
+//  resolves, so a missing asset can never leave an empty stage.
 //
 
 import SwiftUI
@@ -26,7 +33,7 @@ struct GuitarModel3DView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> SCNView {
         let view = SCNView()
-        let scene = GuitarScene.make()
+        let scene = GuitarScene.make(item: item)
         view.scene = scene
         view.pointOfView = scene.rootNode.childNode(withName: "camera", recursively: false)
         view.backgroundColor = .clear
@@ -59,11 +66,15 @@ struct GuitarModel3DView: UIViewRepresentable {
 // MARK: - Scene assembly
 
 enum GuitarScene {
-    static func make() -> SCNScene {
+    static func make(item: GearItem? = nil) -> SCNScene {
         let scene = SCNScene()
 
+        // Same load path as the rig stage — `GearModelLoader.guitarNode` resolves
+        // the `.usdz` and fits it to the procedural envelope, so this view and the
+        // diorama always show the same instrument at the same size. Wrapped in a
+        // holder so the lean below doesn't disturb the fitted pose.
         let guitar = SCNNode()
-        ProceduralGuitar.buildGuitar(into: guitar)
+        guitar.addChildNode(GearModelLoader.guitarNode(for: item))
         guitar.eulerAngles.x = -0.10             // lean back onto the stand
         scene.rootNode.addChildNode(guitar)
 
@@ -80,8 +91,21 @@ enum GuitarScene {
     }
 }
 
-// MARK: - Procedural Les Paul-style guitar (generic, no brand marks)
+// MARK: - Procedural guitar (RETIRED body + the still-live stand)
 
+/// Two builders with different lifetimes now:
+///
+///  • `buildGuitar` — **retired** as a render path. Nothing calls it to draw the
+///    guitar any more; `GearModelLoader.guitarNode(for:)` loads a `.usdz`
+///    instead. It is kept because the loader needs it: it measures this body to
+///    get the envelope real models are fitted into, and draws it if no model
+///    resolves. Its dimensions are therefore load-bearing — changing them moves
+///    the size of EVERY guitar on the stage.
+///
+///  • `buildStand` — **live** for THIS view, and still overridable on its own with
+///    `guitar-stand.usdz`. The stand was never part of the model swap. The stage
+///    (`RigDiorama`) no longer draws one: it stands the guitar on the boards and
+///    leans it against the stool, so this is the only surface that uses it.
 enum ProceduralGuitar {
 
     /// Single-cutaway solidbody outline (neck points +Y, treble cutaway on −X).

@@ -264,13 +264,30 @@ struct RigStageView: View {
 
     // MARK: - Background (lighter "stage" panel)
 
+    /// What the diorama's stage floats in.
+    ///
+    /// The blue the stage model's own author photographs it against — StreetRig now
+    /// shows the same asset in the same setting. It is a deliberate departure from
+    /// `RigTheme`'s warm "Burnt Tan" palette, and the ONLY surface in the app that
+    /// leaves it, because it is not really UI: it is the backdrop of a photograph of
+    /// a room, and the room is wooden. Blue is the complement of that wood, which is
+    /// why the boards and the sunburst read as vividly against it as they do — and
+    /// why every earlier attempt here, all of them warm, kept flattening the stage
+    /// into its own background.
+    ///
+    /// It replaces a neutral grey ramp that predated there being a modelled stage at
+    /// all, and a warm brown one derived from the boards' own colour (#834D2E) that
+    /// blended TOO well: matched to the floor, the platform stopped reading as an
+    /// object and the diorama lost its edge entirely.
+    ///
+    /// Radial rather than linear so the light falls off toward the corners the way it
+    /// does behind the model in the source shot, instead of banding top-to-bottom.
+    /// No amber overlay any more — that glow was tuned to warm the old grey and just
+    /// muddies a blue.
     private var stageBackground: some View {
-        ZStack {
-            LinearGradient(colors: [Color(white: 0.17), Color(white: 0.10)],
-                           startPoint: .top, endPoint: .bottom)
-            RadialGradient(colors: [RigTheme.amber.opacity(0.10), .clear],
-                           center: .center, startRadius: 0, endRadius: 340)
-        }
+        RadialGradient(colors: [Color(red: 0.176, green: 0.549, blue: 0.706),   // #2D8CB4
+                                Color(red: 0.090, green: 0.369, blue: 0.486)],  // #175E7C
+                       center: .center, startRadius: 0, endRadius: 700)
     }
 
     // MARK: - Tilt gesture for the vector layout (rubber-band back to center)
