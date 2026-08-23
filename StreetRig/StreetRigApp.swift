@@ -21,6 +21,13 @@ struct StreetRigApp: App {
         if ProcessInfo.processInfo.environment["STREETRIG_EXPORT"] == "1" {
             ModelExporter.exportAll()
         }
+        // The 2D sibling: bake every component's knob panel to an editable PNG in
+        // Documents/PanelArt (see PanelArtExporter). `=1` fills in what is
+        // missing and never touches a plate you have edited; `=force` replaces
+        // the lot with clean baselines.
+        if let mode = ProcessInfo.processInfo.environment["STREETRIG_EXPORT_PANELS"] {
+            _ = MainActor.assumeIsolated { PanelArtExporter.exportAll(force: mode == "force") }
+        }
         #endif
     }
 

@@ -23,6 +23,12 @@ struct ComponentDetailView: View {
     /// The value currently being typed into the keypad (nil = keypad closed).
     @State private var editing: KeypadEdit?
 
+    /// Redraws the panel when its faceplate PNG changes underfoot — i.e. when you
+    /// edit a plate in the Files app and come back to the app (see
+    /// `PanelArtRevision`). Observed rather than read: the value itself is never
+    /// used, the notification is the whole point.
+    @ObservedObject private var plateRevision = PanelArtRevision.shared
+
     /// Which page the lower pane is showing. Only amps with an FX section have
     /// more than one; everything else never sees the picker.
     private enum Pane: String, CaseIterable { case levels = "LEVELS", fx = "FX", channels = "CHANNELS" }
@@ -46,60 +52,14 @@ struct ComponentDetailView: View {
 
     private var params: [GearParameter] { item?.parameters ?? [] }
 
-    /// A rotary is for a value that sweeps; a Katana's Character selector has
-    /// five detents and its Power switch three, and both live in the same knob
-    /// list as Gain and Bass. Splitting the list here — rather than teaching one
-    /// control to be two things — keeps the dial panel exactly as it was for the
-    /// twelve amps that only have dials, and gives the selectors the segmented
-    /// control they actually are.
-    /// The MAIN panel is everything with no group. A grouped control belongs to a
-    /// named sub-panel instead — the Katana's five FX blocks are one group each —
-    /// so the knob row and the switch strip stay exactly as they were for the
-    /// twelve amps that have no groups, instead of trying to fit twenty-six
-    /// controls across one landscape row.
-    private var dials: [GearParameter] { params.filter { !$0.isDiscrete && $0.group == nil } }
+    /// The panel's dials, its rows and its height all come from one place —
+    /// `KnobPanelLayout` — because the faceplate PNG behind them is baked at the
+    /// size that math produces. Every rule that used to live here (a rotary is
+    /// not a selector, a channel gets its own named row, a long shared row splits
+    /// in two) is unchanged; it just has a second reader now.
+    private var dials: [GearParameter] { KnobPanelLayout.dials(params) }
 
-    /// THE KNOB PANEL'S ROWS. Panels are faithful to the chassis now and some amps
-    /// have a lot of controls — the Friedman has nineteen — so one row is no longer
-    /// a safe assumption. Explicit `rowLabel`s win (an amp with two channels reads
-    /// as two named rows, which is how the hardware is laid out); otherwise a row
-    /// that would squeeze knobs below legibility is split in half. One row is
-    /// still preferred and still what most amps get.
-    ///
-    /// A stray unlabelled dial or two alongside named rows — the Orange's shared
-    /// REVERB — joins the first row rather than earning a third.
-    private var dialRows: [(label: String?, dials: [GearParameter])] {
-        var order: [String] = []
-        var byRow: [String: [GearParameter]] = [:]
-        var loose: [GearParameter] = []
-        for d in dials {
-            if let r = d.rowLabel {
-                if byRow[r] == nil { order.append(r) }
-                byRow[r, default: []].append(d)
-            } else { loose.append(d) }
-        }
-        if !order.isEmpty {
-            var rows: [(String?, [GearParameter])] = order.map { ($0, byRow[$0] ?? []) }
-            // UNLABELLED DIALS NEVER JOIN A CHANNEL ROW. They are the amp's shared
-            // controls — the Orange's reverb serves both channels, the Vox's
-            // reverb and tremolo likewise — and folding one in dimmed a shared
-            // control whenever the other channel was selected. A long shared row
-            // splits in two rather than crowding.
-            if !loose.isEmpty {
-                if loose.count > 4 {
-                    let half = (loose.count + 1) / 2
-                    rows.insert((nil, Array(loose.dropFirst(half))), at: 0)
-                    rows.insert((nil, Array(loose.prefix(half))), at: 0)
-                } else {
-                    rows.insert((nil, loose), at: 0)
-                }
-            }
-            return rows.map { (label: $0.0, dials: $0.1) }
-        }
-        guard loose.count > 7 else { return [(nil, loose)] }
-        let half = (loose.count + 1) / 2
-        return [(nil, Array(loose.prefix(half))), (nil, Array(loose.dropFirst(half)))]
-    }
+    private var dialRows: [(label: String?, dials: [GearParameter])] { KnobPanelLayout.rows(params) }
 
     /// SMALLER THAN IT WAS, on request: the panel is a picture of an amp face and
     /// the controls under it are what the player actually came for. A row is 56 pt
@@ -139,28 +99,10 @@ struct ComponentDetailView: View {
         return label != live
     }
 
-    private var knobPanelHeight: CGFloat {
-        let rows = max(1, dialRows.count)
-        // Every LABELLED row needs its caption's height too. Counting only the
-        // knob rows is what clipped "CHANNEL 1" off the top of the Mesa and the
-        // Orange: the panel was sized for the dials and the text had nowhere to go.
-        let labels = dialRows.filter { $0.label != nil }.count
-        let spacing = max(0, rows * 2 - 1) * 4
-        return CGFloat(rows) * 56 + CGFloat(labels) * 13 + CGFloat(spacing) + 12
-    }
     private var switches: [GearParameter] { params.filter { $0.isDiscrete && $0.group == nil } }
 
     /// The grouped controls, in declaration order, one entry per group.
-    private var fxGroups: [(name: String, controls: [GearParameter])] {
-        var order: [String] = []
-        var byName: [String: [GearParameter]] = [:]
-        for p in params {
-            guard let g = p.group else { continue }
-            if byName[g] == nil { order.append(g) }
-            byName[g, default: []].append(p)
-        }
-        return order.map { ($0, byName[$0] ?? []) }
-    }
+    private var fxGroups: [(name: String, controls: [GearParameter])] { KnobPanelLayout.groups(params) }
 
     /// Channel memories are offered for any amp that has an FX section — the
     /// panel is big enough by then that recalling it wholesale is the point.
@@ -193,7 +135,7 @@ struct ComponentDetailView: View {
                     // player actually drags — off the bottom; the cap plus the
                     // dock's own floor means both are always reachable.
                     knobPanel(id: id)
-                        .frame(height: min(knobPanelHeight, dense ? 132 : 178))
+                        .frame(height: KnobPanelLayout.height(params))
                     if !switches.isEmpty {
                         switchPanel(id: id, compact: dense)
                     }
@@ -265,11 +207,17 @@ struct ComponentDetailView: View {
         let light = GearArtView.panelIsLight(for: item)
         let labelColor: Color = light ? .black.opacity(0.72) : .white.opacity(0.88)
 
+        // THE SURFACE IS A PICTURE NOW — `<slug>-panel.png`, resolved by
+        // PanelArtLoader, drawn under the knobs and nothing else. It fills the
+        // panel and is cropped rather than stretched, so a plate authored at the
+        // panel's own proportions (which is what PanelArtExporter bakes) lands
+        // exactly; a plate of some other shape loses its edges instead of its
+        // geometry. The signature colour stays UNDER it, so a plate with
+        // transparency tints rather than replaces.
         return RoundedRectangle(cornerRadius: 24, style: .continuous)
             .fill(panel)
             .overlay(
-                LinearGradient(colors: [.white.opacity(0.12), .clear, .black.opacity(0.16)],
-                               startPoint: .top, endPoint: .bottom)
+                plate
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             )
             .overlay(
@@ -331,6 +279,25 @@ struct ComponentDetailView: View {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .strokeBorder(.white.opacity(0.10), lineWidth: 1)
             )
+    }
+
+    /// The panel's surface: the piece's own faceplate PNG if one exists, else the
+    /// plate the panel has always drawn. Drop a `<slug>-panel.png` into
+    /// `StreetRig/PanelArt/` — or into `PanelArt/` in the app's Documents folder,
+    /// which the Files app shows — and it appears here.
+    ///
+    /// The fallback is `ProceduralPlate`, the same view the exporter bakes the
+    /// shipped PNGs from, so a piece with no plate and a piece with a freshly
+    /// baked one look identical.
+    @ViewBuilder
+    private var plate: some View {
+        if let art = PanelArtLoader.uiImage(for: item) {
+            Image(uiImage: art)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+        } else {
+            ProceduralPlate(item: item)
+        }
     }
 
     /// Channel rows and shared rows, split for the side-by-side layout.

@@ -1,9 +1,9 @@
-# Customizing gear — icons & 3D models
+# Customizing gear — icons, knob panels & 3D models
 
-Every gear piece resolves its **icon** and its **3D model** from a file by the *same
-name convention*. Drop a file in, it wins; drop nothing, the app draws its built-in
-procedural art. No code, no manifest, no in-app UI — resolution happens by name at
-render time, so already-saved rigs keep working.
+Every gear piece resolves its **icon**, its **knob panel** and its **3D model** from a
+file by the *same name convention*. Drop a file in, it wins; drop nothing, the app draws
+its built-in procedural art. No code, no manifest, no in-app UI — resolution happens by
+name at render time, so already-saved rigs keep working.
 
 ## Repo layout
 
@@ -13,21 +13,27 @@ StreetRig/
     README.md
   Environments/                  ← the STAGE the gear stands on (scenery, not gear)
     README.md                      stage-environment.usdz — see StageEnvironment.swift
+  PanelArt/                    ← knob panels: <slug>-panel.png — every piece with knobs ships one
+    README.md
   Assets.xcassets/
     <slug>.imageset/             ← 2D icons (flat); the 47 catalog pedals already ship theirs
   Views/
     GearModelLoader.swift        ← resolves the .usdz
     GearIconLoader.swift         ← resolves the icon image
+    PanelArtLoader.swift         ← resolves the knob panel's faceplate
+    KnobPanelLayout.swift        ← the panel's rows and height (what a plate is baked to)
+  PanelArtExporter.swift         ← bakes the panels to editable PNGs (STREETRIG_EXPORT_PANELS=1)
   Models/                        ← Swift DATA models (Gear.swift, RigStore.swift) — NOT assets
   GearIcons-README.md            ← icon deep-dive (art sizes, category defaults)
 CUSTOMIZING-GEAR.md              ← this guide
 ```
 
-Two seams, one rule:
+Three seams, one rule:
 
 | What | Drop the file into | Resolver |
 |------|--------------------|----------|
 | **2D icon** | `StreetRig/Assets.xcassets/<slug>.imageset/` | [`GearIconLoader`](StreetRig/Views/GearIconLoader.swift) |
+| **Knob panel** | `StreetRig/PanelArt/<slug>-panel.png` | [`PanelArtLoader`](StreetRig/Views/PanelArtLoader.swift) |
 | **3D model** | `StreetRig/GearModels/<slug>.usdz` | [`GearModelLoader`](StreetRig/Views/GearModelLoader.swift) |
 
 ## The slug rule
@@ -39,6 +45,9 @@ Two seams, one rule:
 ## Fallback chain (first hit wins)
 
 - **Icon:** `<slug>` → `category-<category>` (e.g. `category-overdrive`) → procedural art.
+- **Knob panel:** `Documents/PanelArt/<slug>-panel.png` (the on-device override, see below)
+  → bundled `<slug>-panel.png` → bundled `category-<category>-panel.png` → the flat
+  procedural plate (the piece's colour + the standing gradient).
 - **Model:** `GearItem.modelName` → `<slug>.usdz` → `category-<category>.usdz` →
   **procedural textured with the piece's `<slug>.imageset`** → plain procedural.
 
@@ -83,15 +92,15 @@ Two rules apply to a guitar model and to no other piece:
 
 ## What's customizable
 
-| Piece | Icon (`Assets.xcassets/`) | Model (`GearModels/`) |
-|-------|---------------------------|-----------------------|
-| Guitar | `<guitar-slug>.imageset` | `<guitar-slug>.usdz` — or `category-guitar.usdz` for every guitar (**required**, see above) |
-| **Guitar stand** | *(drawn on the guitar)* | `guitar-stand.usdz` — detail view only; on the stage the guitar leans on the stool |
-| Amp **+ cab** (one model) | `<amp-slug>.imageset` | `<amp-slug>.usdz` |
-| Cabinet | `<cab-slug>.imageset` | *(part of the amp model)* |
-| Combo amp | `<combo-slug>.imageset` | `<combo-slug>.usdz` |
-| **Any pedal** | `<pedal-slug>.imageset` | `<pedal-slug>.usdz` |
-| **The stage itself** | *(n/a)* | `Environments/stage-environment.usdz` — scenery, not gear; see [that README](StreetRig/Environments/README.md) |
+| Piece | Icon (`Assets.xcassets/`) | Knob panel (`PanelArt/`) | Model (`GearModels/`) |
+|-------|---------------------------|--------------------------|-----------------------|
+| Guitar | `<guitar-slug>.imageset` | *(no knobs, no panel)* | `<guitar-slug>.usdz` — or `category-guitar.usdz` for every guitar (**required**, see above) |
+| **Guitar stand** | *(drawn on the guitar)* | *(n/a)* | `guitar-stand.usdz` — detail view only; on the stage the guitar leans on the stool |
+| Amp **+ cab** (one model) | `<amp-slug>.imageset` | `<amp-slug>-panel.png` | `<amp-slug>.usdz` |
+| Cabinet | `<cab-slug>.imageset` | *(no knobs, no panel)* | *(part of the amp model)* |
+| Combo amp | `<combo-slug>.imageset` | `<combo-slug>-panel.png` | `<combo-slug>.usdz` |
+| **Any pedal** | `<pedal-slug>.imageset` | `<pedal-slug>-panel.png` | `<pedal-slug>.usdz` |
+| **The stage itself** | *(n/a)* | *(n/a)* | `Environments/stage-environment.usdz` — scenery, not gear; see [that README](StreetRig/Environments/README.md) |
 
 > **Every piece in the catalog already ships a bespoke icon** — all 47 pedals and all
 > 14 amp heads, cabinets and combos (see
@@ -99,6 +108,37 @@ Two rules apply to a guitar model and to no other piece:
 > for any piece are the new drop-in below. The amp head + cabinet are one model
 > (`<amp-slug>.usdz`), and a model for the amp covers the whole stack; the stand is its
 > own file (`guitar-stand.usdz`), drawn in the guitar detail view only.
+
+## Knob panels — a PNG per component
+
+The plate the turnable knobs sit on in the zoom-detail view is a **picture**, one file per
+component: `StreetRig/PanelArt/<slug>-panel.png`. Every catalog piece that has knobs ships
+one (55 of them, plus 12 `category-<category>-panel.png` fallbacks), baked from the app so
+each is pixel-for-pixel the panel it replaced — a starting canvas, not a blank one.
+
+A plate is the surface **under** the knobs and nothing else: the knobs, their captions and
+the panel's rounded corners and edge stroke stay live views on top, because the knobs turn.
+Paint colour, metal, tolex, branding, screws, wear — not knobs.
+
+- Drawn **fill-and-crop**, never stretched: author at the size the exporter bakes and it
+  lands exactly, author at another aspect and the overflow is trimmed off the edges.
+- The piece's signature colour sits underneath, so a plate with transparency **tints**.
+- Sizes come from `KnobPanelLayout.height` — the same math that lays the knobs out — at
+  800 pt wide, 3×. In practice **2400 × 216** for a one-row panel and **2400 × 534** for a
+  full-height multi-row one.
+
+### Re-baking, and editing on the device
+
+1. Set **`STREETRIG_EXPORT_PANELS=1`** in the scheme's launch environment, run once
+   (Debug). Plates land in the app's `Documents/PanelArt/`; the path is printed to the
+   console. Existing files are never overwritten — those are edits. `=force` replaces them.
+2. Edit them **in place**: the Documents folder is visible in **Files → On My iPhone →
+   StreetRig**, a plate there beats the bundled one, and the cache is dropped when the app
+   returns to the foreground. Edit, switch back, open the panel — no rebuild.
+3. Copy what you want to ship into **`StreetRig/PanelArt/`**. Synchronized file groups
+   bundle it on the next build.
+
+See [`StreetRig/PanelArt/README.md`](StreetRig/PanelArt/README.md) for the full seam.
 
 ## Getting an editable starting point (3D)
 
@@ -126,6 +166,10 @@ deliberately skips the art texturing so what you open in Blender is clean geomet
   and cabinets, on the 3D stage as well. All 61 catalog pieces — 47 pedals and 14
   amps/cabs/combos — ship bespoke icons today. Author more by dropping `<slug>.imageset`
   into `Assets.xcassets/`.
+- **Knob panels** — live for every component that HAS knobs: all 55 catalog pieces with
+  controls ship a baked plate, and 12 category plates cover anything added later. Cabinets,
+  the guitar, the tuner and the loopers have no adjustable controls, so no panel and no
+  plate; give one knobs in `PedalSpec.parameters` and it needs a plate too.
 - **3D models** — the file seam is wired for the **amp + cab, guitar, stand, and every pedal**
   in the rig diorama, plus the amp's zoom-detail view. Author a custom `.usdz` at the baseline's
   scale/origin so it seats into the diorama layout cleanly (the export gives you that for free).
