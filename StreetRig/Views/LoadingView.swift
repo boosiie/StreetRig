@@ -15,6 +15,14 @@
 //      the same message each launch), pinned just above the bottom safe area so
 //      it reads as subordinate to the mark rather than competing with it.
 //
+//  They arrive in TWO PHASES rather than all at once:
+//    1. The mark fades and settles onto the true centre of the viewport, alone,
+//       and holds there for a beat. Nothing else is on screen.
+//    2. The mark lifts to its resting position and the chrome resolves in
+//       beneath it, rising a few points as it fades up.
+//  The staging is what makes the logo read as the subject and the status line
+//  as commentary on it — showing both at once flattens them into one block.
+//
 
 import SwiftUI
 import StreetRigEngine
@@ -37,15 +45,29 @@ struct LoadingView: View {
     /// all derived from it, so the mark scales as one unit if this changes.
     private let logoSize: CGFloat = 116
 
-    /// Optical lift for the whole mark, measured off a real 874×402 landscape
-    /// screenshot rather than guessed. With a lift of 0 the icon lands on the
-    /// exact centre (measured: icon frame y 143…259, centre 201.0, against a
-    /// frame centre of 201.0) — but the wordmark then hangs to y 290, so the
-    /// icon+wordmark pair reads ~16pt low. Lifting the pair by 8pt splits that
-    /// difference: the pair sits 8pt low instead of 16, and the icon sits 8pt
-    /// high — 2% of the viewport, small enough that the icon still measures as
-    /// centred, large enough to stop the lockup looking like it slipped.
-    private let markOpticalLift: CGFloat = -8
+    /// Where the mark RESTS IN PHASE TWO. In phase one it sits at 0 — the true
+    /// centre of the viewport — and animates to this lift as the chrome arrives.
+    ///
+    /// 24, not 16. A lift of 16 would centre the icon+wordmark pair exactly
+    /// (measured off a real 874×402 frame: at lift 0 the icon centres on 201.0,
+    /// but the wordmark hangs to y 290, leaving the pair ~16pt low). Going to 24
+    /// seats the pair slightly ABOVE geometric centre, which is deliberate — the
+    /// chrome is pinned near the bottom edge, so a mark on the true centre
+    /// leaves a big empty band up top and a cramped one below. Sitting it high
+    /// evens those bands out. Judged on screen, not derived.
+    private let markOpticalLift: CGFloat = -24
+
+    // MARK: - Phasing
+
+    /// How long the mark holds alone on centre before the chrome resolves in.
+    /// Long enough to register as a deliberate beat, short enough not to stall.
+    private static let markHold: Duration = .milliseconds(1100)
+
+    /// Phase one — the mark fading and settling into place.
+    @State private var markIsIn = false
+
+    /// Phase two — the mark lifting and the chrome arriving beneath it.
+    @State private var chromeIsIn = false
 
     @State private var messageIndex = Int.random(in: 0..<messages.count)
     @State private var isBreathing = false
@@ -58,17 +80,31 @@ struct LoadingView: View {
             // The mark ignores the safe area so it centres on the TRUE viewport
             // centre. Without this it would centre inside the safe area, and the
             // home indicator's ~21pt bottom inset would silently lift it.
+            //
+            // Phase one holds it at offset 0 (true centre); phase two lifts it
+            // to `markOpticalLift` to open up room for the chrome.
             mark
+                .opacity(markIsIn ? 1 : 0)
+                .scaleEffect(markIsIn ? 1 : 0.94)
+                .offset(y: chromeIsIn ? markOpticalLift : 0)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea()
 
             // The chrome does NOT ignore the safe area — it is bottom-aligned
             // inside it, so the home indicator is respected on every device.
+            // It rises as it fades so it reads as arriving, not blinking on.
             statusChrome
+                .opacity(chromeIsIn ? 1 : 0)
+                .offset(y: chromeIsIn ? 0 : 14)
                 .padding(.bottom, 18)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
         .onAppear { isBreathing = true }
+        .task {
+            withAnimation(.easeOut(duration: 0.55)) { markIsIn = true }
+            try? await Task.sleep(for: Self.markHold)
+            withAnimation(.easeInOut(duration: 0.6)) { chromeIsIn = true }
+        }
         .onReceive(rotation) { _ in
             withAnimation(.easeInOut(duration: 0.55)) {
                 messageIndex = nextMessageIndex()
@@ -92,7 +128,6 @@ struct LoadingView: View {
                     // edge hangs the wordmark below the icon with `gap` between.
                     .alignmentGuide(.bottom) { d in d[.top] - wordmarkGap }
             }
-            .offset(y: markOpticalLift)
     }
 
     /// Gap between the bottom of the icon and the cap-height of the wordmark.
