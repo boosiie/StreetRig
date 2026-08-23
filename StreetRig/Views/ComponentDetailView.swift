@@ -58,6 +58,48 @@ struct ComponentDetailView: View {
     /// twelve amps that have no groups, instead of trying to fit twenty-six
     /// controls across one landscape row.
     private var dials: [GearParameter] { params.filter { !$0.isDiscrete && $0.group == nil } }
+
+    /// THE KNOB PANEL'S ROWS. Panels are faithful to the chassis now and some amps
+    /// have a lot of controls — the Friedman has nineteen — so one row is no longer
+    /// a safe assumption. Explicit `rowLabel`s win (an amp with two channels reads
+    /// as two named rows, which is how the hardware is laid out); otherwise a row
+    /// that would squeeze knobs below legibility is split in half. One row is
+    /// still preferred and still what most amps get.
+    ///
+    /// A stray unlabelled dial or two alongside named rows — the Orange's shared
+    /// REVERB — joins the first row rather than earning a third.
+    private var dialRows: [(label: String?, dials: [GearParameter])] {
+        var order: [String] = []
+        var byRow: [String: [GearParameter]] = [:]
+        var loose: [GearParameter] = []
+        for d in dials {
+            if let r = d.rowLabel {
+                if byRow[r] == nil { order.append(r) }
+                byRow[r, default: []].append(d)
+            } else { loose.append(d) }
+        }
+        if !order.isEmpty {
+            var rows: [(String?, [GearParameter])] = order.map { ($0, byRow[$0] ?? []) }
+            if !loose.isEmpty, loose.count <= 2, var first = rows.first {
+                first.1 = loose + first.1
+                rows[0] = first
+            } else if !loose.isEmpty {
+                rows.insert((nil, loose), at: 0)
+            }
+            return rows.map { (label: $0.0, dials: $0.1) }
+        }
+        guard loose.count > 7 else { return [(nil, loose)] }
+        let half = (loose.count + 1) / 2
+        return [(nil, Array(loose.prefix(half))), (nil, Array(loose.dropFirst(half)))]
+    }
+
+    /// SMALLER THAN IT WAS, on request: the panel is a picture of an amp face and
+    /// the controls under it are what the player actually came for. A row is 56 pt
+    /// — a 34 pt knob and its label — against the 132 pt a single row used to take.
+    private var knobPanelHeight: CGFloat {
+        let rows = max(1, dialRows.count)
+        return CGFloat(rows) * 56 + 14
+    }
     private var switches: [GearParameter] { params.filter { $0.isDiscrete && $0.group == nil } }
 
     /// The grouped controls, in declaration order, one entry per group.
@@ -97,11 +139,16 @@ struct ComponentDetailView: View {
                 header
 
                 if let id = item?.id, !params.isEmpty {
+                    // THE PANEL TAKES WHAT IT NEEDS AND NO MORE, and is capped so
+                    // it can never crowd out the dock. A tall panel on a ~400 pt
+                    // landscape sheet used to push the sliders — the controls the
+                    // player actually drags — off the bottom; the cap plus the
+                    // dock's own floor means both are always reachable.
                     knobPanel(id: id)
-                        .frame(height: dense ? 100 : 132)
+                        .frame(height: min(knobPanelHeight, dense ? 126 : 150))
                     if !switches.isEmpty { switchPanel(id: id, compact: dense) }
                     sliderDock(id: id)
-                        .frame(maxHeight: .infinity)
+                        .frame(minHeight: 132, maxHeight: .infinity)
                 } else {
                     VStack(spacing: 12) {
                         GearArtView(item: item)
@@ -177,11 +224,41 @@ struct ComponentDetailView: View {
             )
             .overlay(
                 GeometryReader { geo in
-                    let n = CGFloat(max(1, dials.count))
-                    let knob = max(48, min(geo.size.height * 0.52, (geo.size.width - 48) / n - 14))
-                    HStack(spacing: 10) {
-                        ForEach(dials) { param in
-                            VStack(spacing: 12) {
+                    // THE FLOOR IS GONE. A 48 pt minimum meant nineteen knobs ran
+                    // off the side of the panel rather than getting smaller; 26 pt
+                    // is still a legible dial and the row always fits now. Rows are
+                    // sized from the widest one so every knob on the panel matches.
+                    let widest = CGFloat(max(1, dialRows.map(\.dials.count).max() ?? 1))
+                    let rowH = (geo.size.height - 10) / CGFloat(max(1, dialRows.count))
+                    let knob = max(26, min(rowH - 20, (geo.size.width - 28) / widest - 8))
+                    VStack(spacing: 4) {
+                        ForEach(Array(dialRows.enumerated()), id: \.offset) { _, row in
+                            if let label = row.label {
+                                Text(label)
+                                    .font(.system(size: 9, weight: .bold)).tracking(1.1)
+                                    .foregroundStyle(labelColor.opacity(0.75))
+                            }
+                            knobRow(id: id, row.dials, knob: knob,
+                                    light: light, labelColor: labelColor)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 5)
+                    .frame(width: geo.size.width, height: geo.size.height)
+                }
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .strokeBorder(.white.opacity(0.10), lineWidth: 1)
+            )
+    }
+
+    /// One row of the knob panel.
+    private func knobRow(id: UUID, _ row: [GearParameter], knob: CGFloat,
+                         light: Bool, labelColor: Color) -> some View {
+        HStack(spacing: 6) {
+            ForEach(row) { param in
+                            VStack(spacing: 5) {
                                 InteractiveKnob(
                                     value: store.binding(itemId: id, param: param.name),
                                     range: param.min...param.max,
@@ -189,10 +266,10 @@ struct ComponentDetailView: View {
                                 )
                                 .frame(width: knob, height: knob)
                                 Text(param.displayName)
-                                    .font(.caption.weight(.medium))
+                                    .font(.system(size: knob < 40 ? 8 : 11, weight: .medium))
                                     .foregroundStyle(labelColor)
                                     .lineLimit(1)
-                                    .minimumScaleFactor(0.6)
+                                    .minimumScaleFactor(0.5)
                             }
                             .frame(maxWidth: .infinity)
                             // A control the AMP has and this build cannot drive.
@@ -209,16 +286,8 @@ struct ComponentDetailView: View {
                                 }
                             }
                             .allowsHitTesting(!param.isDisabled)
-                        }
-                    }
-                    .padding(22)
-                    .frame(width: geo.size.width, height: geo.size.height)
-                }
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .strokeBorder(RigTheme.trim.opacity(0.5), lineWidth: 2)
-            )
+            }
+        }
     }
 
     // MARK: - Discrete selectors (character / variation / power switches)

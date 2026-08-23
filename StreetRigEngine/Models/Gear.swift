@@ -149,6 +149,13 @@ public struct GearParameter: Codable, Hashable, Identifiable {
     /// player can see the amp has a THUMP control and that this build cannot use
     /// it, which is more honest than a gap where a knob should be.
     public var isDisabled: Bool = false
+    /// Puts this dial on a NAMED ROW of the knob panel. Amps with two channels
+    /// have two rows of the same six controls with the channel's name between
+    /// them, which is how the chassis reads and the only way the duplicate labels
+    /// make sense. `nil` = the main, unlabelled row. Distinct from `group`, which
+    /// makes a separate PANE (the Katana's FX blocks); a row is still the one
+    /// panel, just stacked.
+    public var rowLabel: String? = nil
     public var id: String { name }
 
     /// True when this is a switch/selector rather than a dial.
@@ -157,7 +164,9 @@ public struct GearParameter: Codable, Hashable, Identifiable {
     public var displayName: String { shortName ?? name }
 
     public init(_ name: String, min: Double = 0, max: Double = 10, defaultValue: Double = 5,
-                group: String? = nil, shortName: String? = nil, isDisabled: Bool = false) {
+                group: String? = nil, shortName: String? = nil, isDisabled: Bool = false,
+                rowLabel: String? = nil) {
+        self.rowLabel = rowLabel
         self.name = name
         self.min = min
         self.max = max
@@ -394,6 +403,33 @@ enum PedalSpec {
             // switches and SYSTEM VOL are drawn because they are on the amp, and
             // they will do nothing until the profile grows a second channel.
             // THUMP is drawn DISABLED, as asked.
+            // MARSHALL JCM800 / PLEXI — a master-volume head reads right to left
+            // on the chassis, and these are the six it actually has.
+            if n.contains("jcm800") || n.contains("2203")
+                || n.contains("plexi") || n.contains("super lead") {
+                return [GearParameter("Presence", shortName: "PRESENCE"),
+                        GearParameter("Bass", shortName: "BASS"),
+                        GearParameter("Mid", shortName: "MIDDLE"),
+                        GearParameter("Treble", shortName: "TREBLE"),
+                        GearParameter("Master", shortName: "MASTER VOLUME"),
+                        GearParameter("Gain", shortName: "PRE-AMP VOLUME")]
+            }
+            // MESA DUAL RECTIFIER — two channels of the same six, one row each
+            // with the channel named between them, and the two mode switches to
+            // the left. CHANNEL 2's set is stored under suffixed keys because a
+            // values dictionary cannot hold two knobs called BASS.
+            if n.contains("rectifier") || n.contains("recto") {
+                func ch(_ suffix: String, _ row: String) -> [GearParameter] {
+                    [("Master", "MASTER"), ("Presence", "PRESENCE"), ("Bass", "BASS"),
+                     ("Mid", "MID"), ("Treble", "TREBLE"), ("Gain", "GAIN")].map {
+                        GearParameter($0.0 + suffix, shortName: $0.1, rowLabel: row)
+                    }
+                }
+                return [GearParameter("MODE", options: ["CLEAN", "PUSHED"], defaultIndex: 0),
+                        GearParameter("VOICE", options: ["VINTAGE", "MODERN"], defaultIndex: 1)]
+                     + ch("",   "CHANNEL 1")
+                     + ch(" 2", "CHANNEL 2")
+            }
             if n.contains("be-100") || n.contains("be100") {
                 func k(_ label: String, _ key: String? = nil, disabled: Bool = false) -> GearParameter {
                     GearParameter(key ?? label, shortName: label, isDisabled: disabled)
@@ -426,8 +462,20 @@ enum PedalSpec {
             if n.contains("dsl") {
                 return p(["Gain", "Bass", "Mid", "Treble", "Presence", "Master"])
             }
+            // ORANGE ROCKERVERB — a channel switch, the shared reverb, then the
+            // dirty channel and the clean one on their own rows.
             if n.contains("rockerverb") {
-                return p(["Gain", "Bass", "Mid", "Treble", "Master"])
+                return [GearParameter("CHANNEL", options: ["CLEAN", "DIRTY"], defaultIndex: 1),
+                        GearParameter("REVERB", shortName: "REVERB"),
+                        GearParameter("Master",  shortName: "VOLUME", rowLabel: "DIRTY"),
+                        GearParameter("Treble",  shortName: "TREBLE", rowLabel: "DIRTY"),
+                        GearParameter("Mid",     shortName: "MIDDLE", rowLabel: "DIRTY"),
+                        GearParameter("Bass",    shortName: "BASS",   rowLabel: "DIRTY"),
+                        GearParameter("Gain",    shortName: "GAIN",   rowLabel: "DIRTY"),
+                        GearParameter("Treble 2", shortName: "TREBLE", rowLabel: "CLEAN"),
+                        GearParameter("Mid 2",    shortName: "MIDDLE", rowLabel: "CLEAN"),
+                        GearParameter("Bass 2",   shortName: "BASS",   rowLabel: "CLEAN"),
+                        GearParameter("Volume 2", shortName: "VOLUME", rowLabel: "CLEAN")]
             }
             if n.contains("katana") {
                 var p: [GearParameter] = [
