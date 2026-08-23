@@ -156,6 +156,11 @@ public struct GearParameter: Codable, Hashable, Identifiable {
     /// makes a separate PANE (the Katana's FX blocks); a row is still the one
     /// panel, just stacked.
     public var rowLabel: String? = nil
+    /// Dim this control unless the control named here holds one of `activeValues`.
+    /// The JC-120's SPEED and DEPTH do nothing while its effect switch is OFF, and
+    /// a panel that says so is easier to read than one that leaves you guessing.
+    public var activeWhen: String? = nil
+    public var activeValues: [Int]? = nil
     public var id: String { name }
 
     /// True when this is a switch/selector rather than a dial.
@@ -165,8 +170,10 @@ public struct GearParameter: Codable, Hashable, Identifiable {
 
     public init(_ name: String, min: Double = 0, max: Double = 10, defaultValue: Double = 5,
                 group: String? = nil, shortName: String? = nil, isDisabled: Bool = false,
-                rowLabel: String? = nil) {
+                rowLabel: String? = nil, activeWhen: String? = nil, activeValues: [Int]? = nil) {
         self.rowLabel = rowLabel
+        self.activeWhen = activeWhen
+        self.activeValues = activeValues
         self.name = name
         self.min = min
         self.max = max
@@ -401,8 +408,12 @@ enum PedalSpec {
                         GearParameter("Bass 2",     shortName: "BASS",       rowLabel: "CHANNEL 2"),
                         GearParameter("DISTORTION", rowLabel: "CHANNEL 2"),
                         GearParameter("REVERB",     rowLabel: "CHANNEL 2"),
-                        GearParameter("SPEED",      rowLabel: "CHANNEL 2"),
-                        GearParameter("DEPTH",      rowLabel: "CHANNEL 2")]
+                        // Idle unless the effect switch is on VIBRATO (0) or
+                        // CHORUS (2) — with it OFF these two drive nothing.
+                        GearParameter("SPEED", rowLabel: "CHANNEL 2",
+                                      activeWhen: "EFFECT", activeValues: [0, 2]),
+                        GearParameter("DEPTH", rowLabel: "CHANNEL 2",
+                                      activeWhen: "EFFECT", activeValues: [0, 2])]
             }
             // FENDER BASSMAN — a tweed 5F6-A: presence and the tone stack, then a
             // volume for EACH input, bright and normal. No master, no gain knob;
@@ -410,7 +421,9 @@ enum PedalSpec {
             if n.contains("bassman") {
                 // Four jacks like the Plexi — two BRIGHT, two NORMAL — and a
                 // volume for each pair, jumpered together the same way.
-                return [GearParameter("Presence", shortName: "PRESENCE"),
+                return [GearParameter("PATCH", options: ["BRIGHT", "NORMAL", "JUMPERED"],
+                                      defaultIndex: 2),
+                        GearParameter("Presence", shortName: "PRESENCE"),
                         GearParameter("Mid",      shortName: "MIDDLE"),
                         GearParameter("Bass",     shortName: "BASS"),
                         GearParameter("Treble",   shortName: "TREBLE"),
@@ -476,7 +489,9 @@ enum PedalSpec {
             // channel's spare jack into the other is how both preamps end up
             // feeding the same signal, which is the sound people are after.
             if n.contains("plexi") || n.contains("super lead") {
-                return [GearParameter("Presence", shortName: "PRESENCE"),
+                return [GearParameter("PATCH", options: ["HIGH TREBLE", "NORMAL", "JUMPERED"],
+                                      defaultIndex: 2),
+                        GearParameter("Presence", shortName: "PRESENCE"),
                         GearParameter("Bass",     shortName: "BASS"),
                         GearParameter("Mid",      shortName: "MIDDLE"),
                         GearParameter("Treble",   shortName: "TREBLE"),

@@ -80,11 +80,19 @@ struct ComponentDetailView: View {
         }
         if !order.isEmpty {
             var rows: [(String?, [GearParameter])] = order.map { ($0, byRow[$0] ?? []) }
-            if !loose.isEmpty, loose.count <= 2, var first = rows.first {
-                first.1 = loose + first.1
-                rows[0] = first
-            } else if !loose.isEmpty {
-                rows.insert((nil, loose), at: 0)
+            // UNLABELLED DIALS NEVER JOIN A CHANNEL ROW. They are the amp's shared
+            // controls — the Orange's reverb serves both channels, the Vox's
+            // reverb and tremolo likewise — and folding one in dimmed a shared
+            // control whenever the other channel was selected. A long shared row
+            // splits in two rather than crowding.
+            if !loose.isEmpty {
+                if loose.count > 4 {
+                    let half = (loose.count + 1) / 2
+                    rows.insert((nil, Array(loose.dropFirst(half))), at: 0)
+                    rows.insert((nil, Array(loose.prefix(half))), at: 0)
+                } else {
+                    rows.insert((nil, loose), at: 0)
+                }
             }
             return rows.map { (label: $0.0, dials: $0.1) }
         }
@@ -113,6 +121,18 @@ struct ComponentDetailView: View {
     /// a player does, so the shade says "not currently in the signal path" rather
     /// than "you may not touch this". That is the opposite of the THUMP shade,
     /// which is dead precisely because there is nothing behind it.
+    /// Dimmed because some OTHER control says it is doing nothing right now — the
+    /// JC-120's SPEED and DEPTH when its effect switch is OFF. Distinct from an
+    /// off-channel dim (a different row is selected) and from `isDisabled` (there
+    /// is no engine at all), though all three look alike on purpose: the panel is
+    /// saying "not in play", and why is the amp's business rather than the eye's.
+    private func paramIsInactive(_ p: GearParameter) -> Bool {
+        guard let gate = p.activeWhen, let live = p.activeValues, let id = item?.id,
+              let gateParam = params.first(where: { $0.name == gate }) else { return false }
+        let v = Int((store.item(id)?.values[gate] ?? gateParam.defaultValue).rounded())
+        return !live.contains(v)
+    }
+
     private func rowIsOffChannel(_ label: String?) -> Bool {
         guard let label, let opts = channelParam?.options,
               opts.contains(label), let live = liveChannel else { return false }
@@ -258,7 +278,13 @@ struct ComponentDetailView: View {
                     // off the side of the panel rather than getting smaller; 26 pt
                     // is still a legible dial and the row always fits now. Rows are
                     // sized from the widest one so every knob on the panel matches.
-                    let widest = CGFloat(max(1, dialRows.map(\.dials.count).max() ?? 1))
+                    let split = splitLeftColumn
+                    let leftW  = split ? geo.size.width * 0.34 : geo.size.width
+                    let rightW = split ? geo.size.width * 0.60 : geo.size.width
+                    let leftMax  = CGFloat(max(1, (split ? channelRows : dialRows)
+                                                    .map(\.dials.count).max() ?? 1))
+                    let rightMax = CGFloat(max(1, (split ? sharedRows : dialRows)
+                                                    .map(\.dials.count).max() ?? 1))
                     let captions = CGFloat(dialRows.filter { $0.label != nil }.count)
                     // Take the captions and the inter-row spacing OUT before
                     // dividing. Dividing the whole height by the row count pretended
@@ -267,7 +293,9 @@ struct ComponentDetailView: View {
                     let spacing = CGFloat(max(0, dialRows.count * 2 - 1)) * 4
                     let avail = geo.size.height - 12 - captions * 13 - spacing
                     let rowH = avail / CGFloat(max(1, dialRows.count))
-                    let knob = max(22, min(rowH - 17, (geo.size.width - 28) / widest - 8))
+                    let knob = max(20, min(rowH - 17,
+                                           min((leftW - 24) / leftMax - 8,
+                                               (rightW - 24) / rightMax - 8)))
                     // SHORT CHANNEL ROWS GO BESIDE the shared controls rather than
                     // under them. Two rows of three knobs stacked full-width is two
                     // slivers in a lot of empty panel; as a left-hand column next
@@ -356,7 +384,7 @@ struct ComponentDetailView: View {
                                     // off-channel one is simply not the row being
                                     // heard right now. The second is lighter and
                                     // never blocks a touch.
-                                    if param.isDisabled || offChannel {
+                                    if param.isDisabled || offChannel || paramIsInactive(param) {
                                         Circle()
                                             .fill(.black.opacity(param.isDisabled ? 0.5 : 0.34))
                                             .blendMode(.multiply)
@@ -375,7 +403,8 @@ struct ComponentDetailView: View {
                             // chassis, dimmed and dead to the touch so it reads as
                             // "not yet" rather than as a knob that lies. The shade
                             // itself is on the knob above; this only fades the pair.
-                            .opacity(param.isDisabled ? 0.45 : (offChannel ? 0.62 : 1))
+                            .opacity(param.isDisabled ? 0.45
+                                     : ((offChannel || paramIsInactive(param)) ? 0.62 : 1))
                             // Off-channel knobs STAY turnable — dialling in the
                             // other channel before you switch to it is the point.
                             .allowsHitTesting(!param.isDisabled)
