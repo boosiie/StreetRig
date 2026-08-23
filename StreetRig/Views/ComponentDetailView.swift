@@ -399,8 +399,14 @@ struct ComponentDetailView: View {
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 if let onParam, !isOff {
-                    segmented(id: id, param: onParam, compact: true)
-                        .frame(width: 74)
+                    // BIGGER, on request. This is the control a player reaches for
+                    // mid-song — the one that stomps a block in and out — and it was
+                    // a 74 pt pair of 24 pt-high chips competing with a type cycler
+                    // nobody touches while playing. 104 × 34 is a real target for a
+                    // finger on a phone that is ON THE FLOOR, which is where this
+                    // app is used and where precision is worst.
+                    segmented(id: id, param: onParam, compact: false)
+                        .frame(width: 104)
                 }
             }
             // A CYCLER, not a row of detents. The Booster alone offers eight
@@ -444,13 +450,13 @@ struct ComponentDetailView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(index == ParameterMap.ampFXOff ? RigTheme.textMuted : RigTheme.textPrimary)
                     .lineLimit(1).minimumScaleFactor(0.6)
-                    .frame(maxWidth: .infinity, minHeight: 26).contentShape(Rectangle())
+                    .frame(maxWidth: .infinity, minHeight: 32).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             Button { step(1) } label: {
                 Image(systemName: "chevron.right").font(.caption2.weight(.bold))
                     .foregroundStyle(RigTheme.textMuted)
-                    .frame(width: 26, height: 26).contentShape(Rectangle())
+                    .frame(width: 32, height: 32).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
@@ -484,12 +490,12 @@ struct ComponentDetailView: View {
                 let isOn = (index == selected)
                 Button { binding.wrappedValue = Double(index) } label: {
                     Text(label)
-                        .font(.caption2.weight(isOn ? .bold : .medium))
+                        .font((compact ? Font.caption2 : Font.caption).weight(isOn ? .bold : .medium))
                         .foregroundStyle(isOn ? .black : RigTheme.textPrimary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
-                        .padding(.horizontal, 3)
-                        .frame(maxWidth: .infinity, minHeight: compact ? 24 : 28)
+                        .padding(.horizontal, 4)
+                        .frame(maxWidth: .infinity, minHeight: compact ? 26 : 34)
                         .background {
                             if isOn {
                                 RoundedRectangle(cornerRadius: 7, style: .continuous)

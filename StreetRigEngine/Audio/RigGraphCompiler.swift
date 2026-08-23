@@ -182,7 +182,13 @@ public enum RigGraphCompiler {
         plan.ampBassDB      = ParameterMap.ampBandDB("Bass",     knob: v("Bass"))
         plan.ampMidDB       = ParameterMap.ampBandDB("Mid",      knob: v("Mid"))
         plan.ampTrebleDB    = ParameterMap.ampBandDB("Treble",   knob: v("Treble"))
-        plan.ampPresenceDB  = ParameterMap.ampBandDB("Presence", knob: v("Presence"))
+        // Presence, or CUT on the AC30 — the same destination under two names, so
+        // whichever the panel actually shows is the one that is read. An amp with
+        // neither (the Katana, the Twin, the JC-120, the Rockerverb) leaves it at
+        // noon, which its profile then scales by its own presenceScale — zero for
+        // the amps that genuinely have no such control.
+        let presenceKnob = vals["Cut"] ?? vals["Presence"] ?? 5
+        plan.ampPresenceDB  = ParameterMap.ampBandDB("Presence", knob: presenceKnob)
         plan.ampVolume      = ParameterMap.ampVolume(volumeKnob: v("Volume"))
         // PINNED TO FULL POWER. The wattage selector is gone from the panel (see
         // Gear.swift for why), and this is read from the profile rather than from

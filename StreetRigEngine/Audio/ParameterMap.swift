@@ -47,7 +47,7 @@ public enum ParameterMap {
     static func ampBandDB(_ paramName: String, knob v: Double) -> Float {
         let bipolar = (norm(v) - 0.5) * 2.0    // -1…+1, 0 at noon
         switch paramName {
-        case "Presence": return bipolar * 9.0
+        case "Presence", "Cut": return bipolar * 9.0
         case "Mid":
             // ASYMMETRIC, and that is the physics rather than a taste call. A
             // passive TMB stack's mid control is mostly a CUT: turning it down
@@ -69,7 +69,9 @@ public enum ParameterMap {
         case "Bass":     return SRParamAmpBass
         case "Mid":      return SRParamAmpMid
         case "Treble":   return SRParamAmpTreble
-        case "Presence": return SRParamAmpPresence
+        // CUT is the AC30's name for the same control, and the profile's negative
+        // presenceScale is what makes it run backwards. One destination, two labels.
+        case "Presence", "Cut": return SRParamAmpPresence
         default:         return nil
         }
     }
@@ -719,7 +721,7 @@ public enum ParameterMap {
             let bipolar = Double(dB) < 0 ? Double(dB) / 12.0 : Double(dB) / 4.0
             return clampKnob((bipolar / 2.0 + 0.5) * 10.0)
         }
-        let range: Double = paramName == "Presence" ? 9.0 : 12.0
+        let range: Double = (paramName == "Presence" || paramName == "Cut") ? 9.0 : 12.0
         return clampKnob((Double(dB) / (2.0 * range) + 0.5) * 10.0)
     }
 

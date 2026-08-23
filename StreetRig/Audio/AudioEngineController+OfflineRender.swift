@@ -1524,10 +1524,15 @@ extension AudioEngineController {
         // The strongest form of "a brighter amp measures brighter": the same
         // control, on two amps, must move brightness in OPPOSITE directions,
         // because the AC30's `presenceScale` is negative.
+        // SWEEPS WHICHEVER NAME THE PANEL USES. The AC30's control is CUT, not
+        // Presence — same destination, and the profile's negative scale is what
+        // makes it run backwards. Setting only "Presence" turned a knob that amp
+        // no longer has, while its "Cut" sat at noon and won in the compiler.
+        // Both are set, so this follows the panel instead of assuming it.
         func presenceSweep(_ name: String, _ cat: GearCategory) async -> (lo: Double, hi: Double) {
-            var v = Self.ampTestKnobs; v["Presence"] = 0
+            var v = Self.ampTestKnobs; v["Presence"] = 0; v["Cut"] = 0
             let dark = await render(ampPlan(name, cat, values: v).plan)
-            v["Presence"] = 10
+            v["Presence"] = 10; v["Cut"] = 10
             let bright = await render(ampPlan(name, cat, values: v).plan)
             return (hi3(dark), hi3(bright))
         }

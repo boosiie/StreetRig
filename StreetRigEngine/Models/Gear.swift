@@ -342,10 +342,53 @@ enum PedalSpec {
             // from a Plexi. What is gone is asking the player to dial the wattage.
             // `SRParamAmpPower` also stays (addresses are append-only, and host
             // sessions carry it) — it is simply pinned to full power now.
+            // EVERY AMP GETS ITS OWN PANEL, because they do not share one. Checked
+            // model by model rather than assumed; the shared six were a placeholder
+            // and several of them were simply wrong.
+            //
+            //   • Fender Twin Reverb / Bassman — NO presence on the Twin. The panel
+            //     is Volume / Treble / Middle / Bass plus Reverb; presence belongs
+            //     to the Bassman, which really does have one.
+            //   • Vox AC30 — the control is CUT, not Presence, and it works
+            //     backwards (turning it up removes top end). The DSP already models
+            //     it as a negative presence scale; only the LABEL was wrong.
+            //   • Roland JC-120 — no presence, no gain. It is Volume / Treble /
+            //     Middle / Bass with the chorus, and it never distorts by design.
+            //   • Marshall JCM800 2203 — a master-volume head: Presence, Bass,
+            //     Middle, Treble, Master Volume and PREAMP volume. "Gain" is the
+            //     modern name for the preamp control.
+            //   • Marshall DSL40C — the hardware also has RESONANCE, a low-end
+            //     feedback control that mirrors presence. It is NOT here: there is
+            //     no DSP behind it (the power amp models one NFB shelf, not two),
+            //     and a knob that does nothing is the thing this codebase already
+            //     refuses to draw. It goes in when the power amp grows a low shelf.
+            //   • Orange Rockerverb — Gain / Bass / Middle / Treble / Master, plus
+            //     its reverb. No presence knob on the dirty channel.
+            if n.contains("jc-120") || n.contains("jc120") || n.contains("jazz chorus") {
+                return p(["Volume", "Treble", "Mid", "Bass"])
+            }
+            if n.contains("twin") {
+                return p(["Gain", "Bass", "Mid", "Treble", "Master"])
+            }
+            if n.contains("ac30") {
+                // CUT, not Presence — and the profile's negative presenceScale is
+                // what makes it work backwards, so the name is the only change.
+                return p(["Gain", "Bass", "Mid", "Treble", "Cut", "Master"])
+            }
+            if n.contains("dsl") {
+                return p(["Gain", "Bass", "Mid", "Treble", "Presence", "Master"])
+            }
+            if n.contains("rockerverb") {
+                return p(["Gain", "Bass", "Mid", "Treble", "Master"])
+            }
             if n.contains("katana") {
                 var p: [GearParameter] = [
+                    // NO PRESENCE. Reported from the hardware; the panel is
+                    // Gain / Volume / Bass / Middle / Treble / Master plus the
+                    // character and FX sections, and a presence knob was carried
+                    // over from the shared six by mistake.
                     GearParameter("Gain"), GearParameter("Bass"), GearParameter("Mid"),
-                    GearParameter("Treble"), GearParameter("Presence"),
+                    GearParameter("Treble"),
                     GearParameter("Volume"), GearParameter("Master"),
                     GearParameter("Character", options: ["Acoustic", "Clean", "Crunch", "Lead", "Brown"],
                                   defaultIndex: 2),

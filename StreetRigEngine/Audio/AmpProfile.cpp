@@ -206,10 +206,10 @@ AmpProfile profileFor(int voicing) noexcept {
         // below 480 Hz gets ~8 dB less gain into the next stage.
         // Cue: FLUBBY PALM MUTES → raise the Hz. Thin and brittle → lower it,
         // or reduce the dB. (350–650 Hz / +5…+11 dB.)
-        p.stage[0] = st(32.0, 480.0, 8.0f, 15000.0, 2.2f, 0.10f);
+        p.stage[0] = st(32.0, 480.0, 8.0f, 15000.0, 2.2f, 0.060f);
         // Cue: upper-mid "bark" on power chords. Too much = honky and nasal.
-        p.stage[1] = st(40.0, 674.0, 6.0f, 12000.0, 2.4f, 0.14f);
-        p.stage[2] = st(48.0,   0.0, 0.0f, 10000.0, 1.6f, 0.08f);
+        p.stage[1] = st(40.0, 674.0, 6.0f, 12000.0, 2.4f, 0.084f);
+        p.stage[2] = st(48.0,   0.0, 0.0f, 10000.0, 1.6f, 0.048f);
         // Cue (couplings 32/40/48): low-E chugs should stay defined under gain.
         // Mushy → raise all three ~10 Hz.
         //
@@ -244,8 +244,8 @@ AmpProfile profileFor(int voicing) noexcept {
         // (cathodeHz ≠ 0) and it stops being a Twin.
         // Cue (gains 1.5 / 1.4): clean to Gain ≈ 8, then polite breakup.
         // Distorting at 5 → lower.
-        p.stage[0] = st(20.0, 0.0, 0.0f, 26000.0, 1.5f, 0.02f);
-        p.stage[1] = st(25.0, 0.0, 0.0f, 24000.0, 1.4f, 0.02f);
+        p.stage[0] = st(20.0, 0.0, 0.0f, 26000.0, 1.5f, 0.012f);
+        p.stage[1] = st(25.0, 0.0, 0.0f, 24000.0, 1.4f, 0.012f);
         // Cue (mid noonDB −11): clean chords with everything at noon should
         // sound scooped and GLASSY, not boxy. Nasal → more negative; chords
         // vanish in a band mix → back off. (−8…−14.)
@@ -280,10 +280,10 @@ AmpProfile profileFor(int voicing) noexcept {
         p.inputHz  = 40.0;
         p.brightHz = 3000.0; p.brightDB = 4.0f;
         p.stageCount = 2;
-        p.stage[0] = st(25.0,   0.0, 0.0f, 20000.0, 1.7f, 0.06f);
+        p.stage[0] = st(25.0,   0.0, 0.0f, 20000.0, 1.7f, 0.036f);
         // Cue: top-boost chime on open chords. Missing → lower the Hz slightly
         // and raise the dB. (150–400 Hz / +3…+7 dB.)
-        p.stage[1] = st(30.0, 250.0, 5.0f, 16000.0, 2.0f, 0.10f);
+        p.stage[1] = st(30.0, 250.0, 5.0f, 16000.0, 2.0f, 0.060f);
         // Cue (mid noonDB +2): the AC30 must be the ONLY mid-forward amp of the
         // six. If it sounds scooped, the sign is wrong.
         // `rangeScale 0.35` on the mid is the AC30 barely having a mid control
@@ -359,8 +359,8 @@ AmpProfile profileFor(int voicing) noexcept {
         p.inputHz  = 32.0;
         p.brightHz = 1000.0; p.brightDB = 3.0f;
         p.stageCount = 2;
-        p.stage[0] = st(22.0, 180.0, 3.0f, 18000.0, 1.9f, 0.08f);
-        p.stage[1] = st(28.0,   0.0, 0.0f, 18000.0, 1.8f, 0.12f);
+        p.stage[0] = st(22.0, 180.0, 3.0f, 18000.0, 1.9f, 0.048f);
+        p.stage[1] = st(28.0,   0.0, 0.0f, 18000.0, 1.8f, 0.072f);
         p.tone = tone3( 85.0, 0.70, 1.1f,  0.0f,
                        420.0, 0.80, 1.3f, -6.0f,
                       3000.0, 0.70, 1.2f, +3.5f,
@@ -398,8 +398,8 @@ AmpProfile profileFor(int voicing) noexcept {
         p.stageCount = 2;
         // Cue (470 Hz / +7 dB): a softer, lower crunch shelf than the 800's
         // 480/+8 — the Plexi should sound OPEN where the 800 sounds tight.
-        p.stage[0] = st(30.0, 470.0, 7.0f, 16000.0, 2.0f, 0.10f);
-        p.stage[1] = st(38.0,   0.0, 0.0f, 11000.0, 1.8f, 0.10f);
+        p.stage[0] = st(30.0, 470.0, 7.0f, 16000.0, 2.0f, 0.060f);
+        p.stage[1] = st(38.0,   0.0, 0.0f, 11000.0, 1.8f, 0.060f);
         // Cue (mid noonDB −6 vs the 800's −7): less scooped, and the mid centre
         // sits higher (680 vs 650). A/B against the JCM800 — the Plexi should be
         // rounder and less barky at identical knobs. Indistinguishable → widen.
@@ -437,12 +437,12 @@ AmpProfile profileFor(int voicing) noexcept {
         p.stageCount = 4;
         // Cue (520 Hz / +9 dB): a HOTTER, HIGHER crunch shelf than any stock
         // Marshall — this is the "hot-rod" in one field.
-        p.stage[0] = st(45.0, 520.0, 9.0f, 15000.0, 2.4f, 0.10f);
-        p.stage[1] = st(55.0, 700.0, 7.0f, 13000.0, 2.6f, 0.13f);
-        p.stage[2] = st(62.0,   0.0, 0.0f, 11000.0, 2.2f, 0.11f);
+        p.stage[0] = st(45.0, 520.0, 9.0f, 15000.0, 2.4f, 0.060f);
+        p.stage[1] = st(55.0, 700.0, 7.0f, 13000.0, 2.6f, 0.078f);
+        p.stage[2] = st(62.0,   0.0, 0.0f, 11000.0, 2.2f, 0.066f);
         // Cue: the last stage is a follower, not another gain stage. If the amp
         // fizzes on the top end, lower this Miller toward 8500.
-        p.stage[3] = st(70.0,   0.0, 0.0f,  9500.0, 1.5f, 0.07f);
+        p.stage[3] = st(70.0,   0.0, 0.0f,  9500.0, 1.5f, 0.042f);
         // Cue (couplings 45/55/62/70, the tightest cascade in the table): chugs
         // must stay separated under high gain. Smearing → raise all four ~8 Hz.
         p.tone = tone3(100.0, 0.70, 1.00f, -1.5f,
@@ -478,10 +478,10 @@ AmpProfile profileFor(int voicing) noexcept {
         p.inputHz  = 55.0;
         p.brightHz = 0.0; p.brightDB = 0.0f;       // no bright cap — it is a DARK amp
         p.stageCount = 4;
-        p.stage[0] = st(25.0, 400.0, 6.0f, 13000.0, 2.5f, 0.09f);
-        p.stage[1] = st(30.0,   0.0, 0.0f, 11000.0, 2.8f, 0.12f);
-        p.stage[2] = st(35.0,   0.0, 0.0f,  9500.0, 2.4f, 0.10f);
-        p.stage[3] = st(40.0,   0.0, 0.0f,  8500.0, 1.6f, 0.06f);
+        p.stage[0] = st(25.0, 400.0, 6.0f, 13000.0, 2.5f, 0.054f);
+        p.stage[1] = st(30.0,   0.0, 0.0f, 11000.0, 2.8f, 0.072f);
+        p.stage[2] = st(35.0,   0.0, 0.0f,  9500.0, 2.4f, 0.060f);
+        p.stage[3] = st(40.0,   0.0, 0.0f,  8500.0, 1.6f, 0.036f);
         // Cue (Millers 13k→8.5k, the darkest cascade in the table): if it sounds
         // fizzy rather than dark, these are too high.
         //
@@ -669,10 +669,10 @@ AmpProfile profileFor(int voicing) noexcept {
         // Cue (500 Hz / +8 dB): the same crunch shelf idea as the JCM800, one
         // stage earlier in a longer cascade — which is what makes the DSL smoother
         // at high gain rather than just louder.
-        p.stage[0] = st(35.0, 500.0, 8.0f, 15000.0, 2.3f, 0.10f);
-        p.stage[1] = st(42.0, 690.0, 6.5f, 12500.0, 2.5f, 0.13f);
-        p.stage[2] = st(50.0,   0.0, 0.0f, 10500.0, 2.0f, 0.10f);
-        p.stage[3] = st(56.0,   0.0, 0.0f,  9500.0, 1.4f, 0.07f);
+        p.stage[0] = st(35.0, 500.0, 8.0f, 15000.0, 2.3f, 0.060f);
+        p.stage[1] = st(42.0, 690.0, 6.5f, 12500.0, 2.5f, 0.078f);
+        p.stage[2] = st(50.0,   0.0, 0.0f, 10500.0, 2.0f, 0.060f);
+        p.stage[3] = st(56.0,   0.0, 0.0f,  9500.0, 1.4f, 0.042f);
         // Cue (mid noonDB −7.5): a shade more scooped than the JCM800's −7 — the
         // DSL's "modern" voicing. A/B the two: same family, the DSL smoother and
         // slightly hollower. If they are indistinguishable, widen this gap first.
