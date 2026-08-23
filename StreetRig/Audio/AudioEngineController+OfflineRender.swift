@@ -1459,6 +1459,39 @@ extension AudioEngineController {
                        String(format: "harmonics >400 Hz: Brown B cranked %.1f%% vs clean %.1f%%", dirty, quietHarm)))
 
 
+        // ---- 4b. THE INPUT EXPANDER DOES NOT MODULATE A NOTE. ----------------
+        // Reported by ear, and missed by every check here: chords sounded uneven
+        // and dulled and clean tones crackled. The expander applied its gain
+        // straight from a 1 ms peak follower, per sample — an envelope that
+        // ripples at the waveform rate on a low note, squared by `t·t` — so
+        // anything decaying near the threshold got audio-rate AM.
+        //
+        // A quiet note and a loud one differ in LEVEL and nothing else. Run the
+        // same tone through at both and the harmonic content must match: if the
+        // input stage is modulating the quiet one, its sidebands show up here.
+        // Amp and cab are bypassed so this sees the input stage alone.
+        func inputStageHarmonics(_ amplitude: Double) async -> Double {
+            let n = Int(sr)
+            let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(n))!
+            buf.frameLength = AVAudioFrameCount(n)
+            for i in 0..<n {
+                buf.floatChannelData![0][i] = Float(amplitude * sin(2.0 * Double.pi * 82.41 * Double(i) / sr))
+            }
+            var plan = RigDSPPlan()          // low E: the worst case for envelope ripple
+            plan.ampBypass = true
+            plan.cabBypass = true
+            let out = ((try? await renderRigPlan(plan, source: buf, fmt: fmt,
+                                                 outputLevel: Self.ampSuiteOutputLevel))
+                        ?? PassOutput()).samples
+            return Double(Self.brightness(out, sr: sr, cutoff: 200) * 100)
+        }
+        let loudTone82  = await inputStageHarmonics(0.5)     // −6 dBFS
+        let quietTone82 = await inputStageHarmonics(0.004)   // −48 dBFS: on the OLD threshold
+        checks.append(("a quiet note is not amplitude-modulated by the expander",
+                       abs(quietTone82 - loudTone82) < 1.0,
+                       String(format: "non-fundamental energy: %.2f%% at −6 dBFS vs %.2f%% at −48 dBFS",
+                              loudTone82, quietTone82)))
+
         // ---- 5. STRUCTURAL vs CONTINUOUS, read off the signature. ------------
         func sig(_ v: [String: Double]) -> String {
             var vals = Self.ampTestKnobs

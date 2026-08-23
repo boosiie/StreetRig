@@ -105,13 +105,35 @@ struct DSPKernel {
     ///
     /// A guitar at mic level brings its own hiss, and every dB of gain after it
     /// brings the hiss too. This works only BELOW the threshold, so it is doing
-    /// nothing at all while a note is sounding: playing runs from about −20 dBFS,
-    /// and this starts 30 dB underneath that. Below the line it is a 3:1 downward
+    /// nothing at all while a note is sounding. Below the line it is a 3:1 downward
     /// expander (`t·t`), not a gate — the gain slides rather than switching, so a
     /// note decaying through the threshold keeps its tail instead of being cut off
     /// at it, and there is no edge to hear opening and closing.
-    static constexpr float kGateThreshold = 0.00316f;   // −50 dBFS
+    ///
+    /// −62 dBFS, NOT −50. Reported by ear on an iPhone 17e: chords sounded uneven
+    /// and dulled and clean tones crackled faintly, and both were this. A guitar
+    /// arriving through a headphone adapter is ~40 dB down, which put ordinary
+    /// playing — and every chord's decay — right ON the old threshold instead of
+    /// 30 dB above it, so the expander was working during notes rather than
+    /// between them. 12 dB lower puts real playing clear of it again.
+    static constexpr float kGateThreshold = 0.00079f;   // −62 dBFS
+
+    /// GAIN SMOOTHING, and the actual cause of the crackle. The computed gain used
+    /// to be applied straight from the envelope, per sample. That envelope is a
+    /// peak follower with a 1 ms attack, so on a low note it RIPPLES at the
+    /// waveform rate — and `t·t` squares the ripple. The result is amplitude
+    /// modulation at audio rate: sidebands on a sustained note, and a chord whose
+    /// individual strings appear to wobble as the sum decays past the threshold.
+    ///
+    /// A gain that may only fall slowly cannot modulate at audio rate. Opening
+    /// stays fast so no pick attack is ever late — that asymmetry is the whole
+    /// design: instant when a note arrives, molasses on the way back down.
+    static constexpr double kGateOpenSec  = 0.001;   // 1 ms — never late
+    static constexpr double kGateCloseSec = 0.250;   // 250 ms — never rippling
     float gateEnv[8]{};
+    /// The expander's SMOOTHED gain, per channel. Starts open so the very first
+    /// buffer after a reset is not faded in.
+    float gateGain[8] = {1, 1, 1, 1, 1, 1, 1, 1};
 
     /// Limiter state, one set per channel — the render walks a channel at a time,
     /// and the guitar arrives mono and duplicated, so the sets track each other

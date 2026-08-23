@@ -102,6 +102,9 @@ void SRKernelReset(SRKernelRef kernel) {
     k->ampPower.reset();
     k->pedals.reset();
     k->processor.reset();
+    // Expander opens on reset. Left where it was, a session that stopped during a
+    // silence would fade the first notes of the next one in.
+    for (int c = 0; c < 8; ++c) { k->gateEnv[c] = 0.0f; k->gateGain[c] = 1.0f; }
 }
 
 // MARK: - Parameter bus
@@ -439,6 +442,9 @@ void SRKernelProcess(SRKernelRef kernel,
     const float gateAttack  = 1.0f - std::exp(-1.0f / (0.001f * srF));
     const float gateRelease = 1.0f - std::exp(-1.0f / (0.150f * srF));
     constexpr float invGateThreshold = 1.0f / DSPKernel::kGateThreshold;
+    // Gain smoothing, asymmetric on purpose: instant open, slow close.
+    const float gateOpen  = 1.0f - std::exp(-1.0f / float(DSPKernel::kGateOpenSec  * srF));
+    const float gateClose = 1.0f - std::exp(-1.0f / float(DSPKernel::kGateCloseSec * srF));
 
     // No fader-driven saturation any more: loudness is the limiter's job, dirt is
     // the amp's. See kCeilingKnee in the internal header for why.
@@ -481,15 +487,24 @@ void SRKernelProcess(SRKernelRef kernel,
         //    spends the rest of the chain amplifying.
         float g0 = inStart;
         float genv = k->gateEnv[limCh];
+        float ggain = k->gateGain[limCh];
         for (int i = 0; i < frameCount; ++i) {
             const float v = src[i] * g0;
             g0 += inStep;
             const float a = std::fabs(v);
             genv += (a > genv ? gateAttack : gateRelease) * (a - genv);
             const float t = std::fmin(1.0f, genv * invGateThreshold);
-            dst[i] = v * t * t;
+            // SMOOTHED, not applied raw. The envelope ripples at the waveform rate
+            // on a low note; `t·t` squares that ripple; applying it per sample put
+            // audio-rate AM on everything that decayed near the threshold. Opening
+            // is fast so an attack is never late, closing is slow so nothing can
+            // wobble. See kGateOpenSec / kGateCloseSec.
+            const float want = t * t;
+            ggain += (want > ggain ? gateOpen : gateClose) * (want - ggain);
+            dst[i] = v * ggain;
         }
         k->gateEnv[limCh] = genv;
+        k->gateGain[limCh] = ggain;
 
         // 2. PEDAL CHAIN — PRE span: everything in front of the amp, in
         //    on-screen chain order.
