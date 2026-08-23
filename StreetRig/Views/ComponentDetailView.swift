@@ -265,6 +265,19 @@ struct ComponentDetailView: View {
                                     onLight: light
                                 )
                                 .frame(width: knob, height: knob)
+                                // The shade sits ON THE KNOB, and is round like it
+                                // is. It used to cover the whole cell — knob, label
+                                // and the empty width either side — which drew a
+                                // grey slab across the panel instead of reading as
+                                // one dial being out of service.
+                                .overlay {
+                                    if param.isDisabled {
+                                        Circle()
+                                            .fill(.black.opacity(0.5))
+                                            .blendMode(.multiply)
+                                            .allowsHitTesting(false)
+                                    }
+                                }
                                 Text(param.displayName)
                                     .font(.system(size: knob < 40 ? 8 : 11, weight: .medium))
                                     .foregroundStyle(labelColor)
@@ -272,19 +285,12 @@ struct ComponentDetailView: View {
                                     .minimumScaleFactor(0.5)
                             }
                             .frame(maxWidth: .infinity)
-                            // A control the AMP has and this build cannot drive.
-                            // Drawn, so the panel stays a true picture of the
-                            // chassis, but shadowed and dead to the touch — which
-                            // reads as "not yet" rather than as a knob that lies.
-                            .opacity(param.isDisabled ? 0.32 : 1)
-                            .overlay {
-                                if param.isDisabled {
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(.black.opacity(0.45))
-                                        .blendMode(.multiply)
-                                        .allowsHitTesting(false)
-                                }
-                            }
+                            // A control the AMP has and this build cannot drive:
+                            // drawn so the panel stays a true picture of the
+                            // chassis, dimmed and dead to the touch so it reads as
+                            // "not yet" rather than as a knob that lies. The shade
+                            // itself is on the knob above; this only fades the pair.
+                            .opacity(param.isDisabled ? 0.45 : 1)
                             .allowsHitTesting(!param.isDisabled)
             }
         }
