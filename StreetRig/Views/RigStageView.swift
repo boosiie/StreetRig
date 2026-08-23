@@ -49,7 +49,15 @@ struct RigStageView: View {
 
     var body: some View {
         ZStack {
+            // Bled past the safe area on purpose. In landscape the page is inset on
+            // the notch side, and everything else on this screen paints its own
+            // background edge to edge — the top nav, the gear rail, the transport bar
+            // — so the inset showed as a dark strip down the right of the stage and
+            // the blue read as a floating rectangle with a border. Only the COLOUR
+            // bleeds; the 3D view below stays inside the safe area, where it is not
+            // under the camera housing and can still be touched.
             stageBackground
+                .ignoresSafeArea()
 
             if use3DStage {
                 // The whole rig orbits together as one scene — no SwiftUI warp.
