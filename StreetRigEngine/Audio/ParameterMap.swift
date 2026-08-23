@@ -155,7 +155,13 @@ public enum ParameterMap {
     /// Delay "Mix" → the WET SEND. The dry path is never attenuated (the engine
     /// adds `wet · echo` to it), because that is what a pedal in front of an amp
     /// does — Mix at 10 should be drenched with the played note still present.
-    public static func delayMix(_ v: Double) -> Float { norm(v) * 0.8 }
+    /// Reaches 1.0, not 0.8. Reported by ear: at full Level the repeat should
+    /// land as its own note — "two back to back notes" — and 0.8 leaves it
+    /// permanently behind the playing, which reads as a delay that will not
+    /// commit. The dry path is untouched either way, so 1.0 is a repeat AT the
+    /// played level rather than louder than it, and every setting below still
+    /// sits under the note.
+    public static func delayMix(_ v: Double) -> Float { norm(v) }
 
     /// Delay "Tone" → the feedback-path low-pass corner in Hz: 1.2 kHz → 9.6 kHz.
     /// Only the models that actually HAVE a tone control send this; the other
@@ -728,7 +734,7 @@ public enum ParameterMap {
     }
     /// Inverse of `delayMix(_:)`  (bus = norm·0.8).
     public static func invDelayMixKnob(_ bus: Float) -> Double {
-        clampKnob(Double(bus) / 0.8 * 10.0)
+        clampKnob(Double(bus) * 10.0)
     }
     /// Inverse of `delayToneHz(_:)`  (hz = 1200·2^(norm·3)).
     public static func invDelayToneKnob(_ hz: Float) -> Double {

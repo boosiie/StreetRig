@@ -74,8 +74,16 @@ DelayPedal::Voice DelayPedal::voiceFor(int voicing) noexcept {
                                       // and reconstruction filters are steep
         v.fbHighpassHz  = 60.0f;
         v.compandAmount = 0.60f;      // cue: repeats should squash, then bloom
-        v.noiseFloor    = 0.00025f;   // ≈ −72 dBFS at full signal, gated by the
-                                      // envelope so a dead tail is truly dead
+        // −86 dBFS, not −72. Reported by ear as "the delay creates a loud
+        // background sound", and it is generated INSIDE the feedback loop, so
+        // every repeat adds another helping and the running sum is roughly
+        // 1/(1−feedback) times one pass — at the Katana's pinned 0.38 that is
+        // 1.6×, and higher on a pedal set for long repeats. The compander then
+        // EXPANDS it further on the way out, which is the mechanism that made a
+        // number chosen as "a chip's quiet hiss" arrive as an audible wash.
+        // A BBD should whisper under the repeats, not sit behind the playing.
+        v.noiseFloor    = 0.00005f;   // gated by the envelope, so a dead tail
+                                      // is still truly dead
         v.satDrive      = 0.0f;
         v.wowHz         = 0.4f;   v.wowDepth = 0.0080f;   // the Memory Man's own
                                       // chorus section, riding the read pointer
