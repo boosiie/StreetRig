@@ -1477,6 +1477,32 @@ extension AudioEngineController {
                        String(format: "closest pair %@ = %.1f%% with the cab in (%.1f%% with it bypassed)",
                               worstCabPair, worstCab * 100, worstLoud * 100)))
 
+        // ---- 1d. EVERY TONE KNOB HAS TO MOVE ITS OWN BAND. -------------------
+        // "The bass knob isn't making any difference." There are only two
+        // explanations and they need different fixes: either the band is not
+        // reaching the DSP, or it is and a phone speaker cannot reproduce what it
+        // moves. This answers the first half; the second half is not fixable in
+        // software.
+        func bandSweep(_ knob: String, lo: Double, hi: Double) async -> (Double, Double) {
+            var v = Self.ampTestKnobs
+            v[knob] = 0
+            let down = await render(ampPlan("Marswell JCM800 2203", .amp, values: v).plan)
+            v[knob] = 10
+            let up = await render(ampPlan("Marswell JCM800 2203", .amp, values: v).plan)
+            return (Self.bandEnergy(down, sr: sr, lo: lo, hi: hi),
+                    Self.bandEnergy(up,   sr: sr, lo: lo, hi: hi))
+        }
+        let bass = await bandSweep("Bass", lo: 40, hi: 200)
+        checks.append(("Bass 0→10 moves the LOW band", bass.1 > bass.0 + 1.0,
+                       String(format: "40–200 Hz: %.1f%% → %.1f%%", bass.0, bass.1)))
+        let treble = await bandSweep("Treble", lo: 2000, hi: 6000)
+        checks.append(("Treble 0→10 moves the HIGH band", treble.1 > treble.0 + 1.0,
+                       String(format: "2–6 kHz: %.1f%% → %.1f%%", treble.0, treble.1)))
+        let midSweep = await bandSweep("Mid", lo: 300, hi: 1200)
+        checks.append(("Mid 0→10 moves the MID band", midSweep.1 > midSweep.0 + 1.0,
+                       String(format: "300–1.2k: %.1f%% → %.1f%% (asymmetric: full cut, third boost)",
+                              midSweep.0, midSweep.1)))
+
         // ---- 2. THE VOX CUT: a knob that works BACKWARDS. --------------------
         // The strongest form of "a brighter amp measures brighter": the same
         // control, on two amps, must move brightness in OPPOSITE directions,
