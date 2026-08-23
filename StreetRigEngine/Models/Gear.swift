@@ -179,8 +179,10 @@ public struct GearParameter: Codable, Hashable, Identifiable {
 
     /// A discrete selector: `min` 0 … `max` options.count − 1, stored as an index.
     public init(_ name: String, options: [String], defaultIndex: Int,
-                group: String? = nil, shortName: String? = nil, isDisabled: Bool = false) {
+                group: String? = nil, shortName: String? = nil, isDisabled: Bool = false,
+                rowLabel: String? = nil) {
         self.isDisabled = isDisabled
+        self.rowLabel = rowLabel
         self.name = name
         self.min = 0
         self.max = Double(Swift.max(0, options.count - 1))
@@ -406,6 +408,8 @@ enum PedalSpec {
             // volume for EACH input, bright and normal. No master, no gain knob;
             // the input volume IS the gain.
             if n.contains("bassman") {
+                // Four jacks like the Plexi — two BRIGHT, two NORMAL — and a
+                // volume for each pair, jumpered together the same way.
                 return [GearParameter("Presence", shortName: "PRESENCE"),
                         GearParameter("Mid",      shortName: "MIDDLE"),
                         GearParameter("Bass",     shortName: "BASS"),
@@ -430,22 +434,28 @@ enum PedalSpec {
                         GearParameter("Bass 2",   shortName: "BASS",   rowLabel: "VIBRATO"),
                         GearParameter("REVERB",    rowLabel: "VIBRATO"),
                         GearParameter("SPEED",     rowLabel: "VIBRATO"),
-                        GearParameter("INTENSITY", rowLabel: "VIBRATO")]
+                        GearParameter("INTENSITY", rowLabel: "VIBRATO"),
+                        GearParameter("Master", shortName: "MASTER VOLUME")]
             }
             // VOX AC30 — the Normal channel is one volume and nothing else; Top
             // Boost is the tone channel. CUT and MASTER VOLUME are the amp's
             // global pair, and Cut runs backwards (the profile's negative
             // presenceScale is what does that).
             if n.contains("ac30") {
-                return [GearParameter("Volume", shortName: "NORMAL VOLUME"),
-                        GearParameter("Gain",   shortName: "VOLUME",  rowLabel: "TOP BOOST"),
-                        GearParameter("Treble", shortName: "TREBLE",  rowLabel: "TOP BOOST"),
-                        GearParameter("Bass",   shortName: "BASS",    rowLabel: "TOP BOOST"),
-                        GearParameter("REVERB TONE",    rowLabel: "TOP BOOST"),
-                        GearParameter("REVERB LEVEL",   rowLabel: "TOP BOOST"),
-                        GearParameter("TREMOLO SPEED",  rowLabel: "TOP BOOST"),
-                        GearParameter("TREMOLO DEPTH",  rowLabel: "TOP BOOST"),
-                        GearParameter("Cut",    shortName: "MASTER TONE CUT"),
+                // Per the manual: NORMAL is a single volume, TOP BOOST adds the
+                // tone pair (and only TREBLE and BASS — there is no middle), while
+                // REVERB, TREMOLO and the MASTER pair serve BOTH channels and so
+                // sit on the global row rather than dimming with a selection.
+                return [GearParameter("CHANNEL", options: ["TOP BOOST", "NORMAL"], defaultIndex: 0),
+                        GearParameter("Gain",   shortName: "VOLUME", rowLabel: "TOP BOOST"),
+                        GearParameter("Treble", shortName: "TREBLE", rowLabel: "TOP BOOST"),
+                        GearParameter("Bass",   shortName: "BASS",   rowLabel: "TOP BOOST"),
+                        GearParameter("Gain 2", shortName: "VOLUME", rowLabel: "NORMAL"),
+                        GearParameter("REVERB TONE"),
+                        GearParameter("REVERB LEVEL"),
+                        GearParameter("TREMOLO SPEED"),
+                        GearParameter("TREMOLO DEPTH"),
+                        GearParameter("Cut",    shortName: "TONE CUT"),
                         GearParameter("Master", shortName: "MASTER VOLUME")]
             }
             // THE FRIEDMAN, LEFT TO RIGHT, exactly as it reads on the chassis.
@@ -461,8 +471,19 @@ enum PedalSpec {
             // THUMP is drawn DISABLED, as asked.
             // MARSHALL JCM800 / PLEXI — a master-volume head reads right to left
             // on the chassis, and these are the six it actually has.
-            if n.contains("jcm800") || n.contains("2203")
-                || n.contains("plexi") || n.contains("super lead") {
+            // PLEXI — no master volume. Four jacks (two channels, high and low
+            // sensitivity each) and two LOUDNESS controls; the patch lead from one
+            // channel's spare jack into the other is how both preamps end up
+            // feeding the same signal, which is the sound people are after.
+            if n.contains("plexi") || n.contains("super lead") {
+                return [GearParameter("Presence", shortName: "PRESENCE"),
+                        GearParameter("Bass",     shortName: "BASS"),
+                        GearParameter("Mid",      shortName: "MIDDLE"),
+                        GearParameter("Treble",   shortName: "TREBLE"),
+                        GearParameter("Gain",     shortName: "LOUDNESS I"),
+                        GearParameter("Volume",   shortName: "LOUDNESS II")]
+            }
+            if n.contains("jcm800") || n.contains("2203") {
                 return [GearParameter("Presence", shortName: "PRESENCE"),
                         GearParameter("Bass", shortName: "BASS"),
                         GearParameter("Mid", shortName: "MIDDLE"),
@@ -494,53 +515,72 @@ enum PedalSpec {
                 func sw(_ label: String, _ opts: [String], _ key: String? = nil) -> GearParameter {
                     GearParameter(key ?? label, options: opts, defaultIndex: 0, shortName: label)
                 }
+                // The two knob sets ARE the two channels: the first is HBE, the
+                // second BE, which is what the CHANNEL switch picks between. Naming
+                // the rows after the switch's options is what lets the panel dim
+                // the one you are not hearing.
+                func kr(_ label: String, _ key: String, _ row: String) -> GearParameter {
+                    GearParameter(key, shortName: label, rowLabel: row)
+                }
                 return [
+                    sw("CHANNEL", ["BE", "HBE"]),
+                    sw("VOICE", ["1", "2"]),
+                    sw("STRUCTURE", ["TIGHT", "LOOSE"]),
+                    sw("BRIGHT", ["OFF", "ON"]),
                     k("SYSTEM VOL"),
                     k("THUMP", disabled: true),
                     k("PRESENCE"),
-                    k("MASTER 2"),
-                    k("MASTER 1"),
-                    k("TREBLE", "TREBLE 2"),
-                    k("MIDDLE", "MIDDLE 2"),
-                    k("BASS",   "BASS 2"),
-                    sw("VOICE", ["1", "2"]),
-                    k("GAIN 2"),
-                    sw("STRUCTURE", ["TIGHT", "LOOSE"]),
-                    k("GAIN 1"),
-                    sw("CHANNEL", ["BE", "HBE"]),
-                    k("VOLUME"),
-                    k("TREBLE"),
-                    k("MIDDLE"),
-                    k("BASS"),
-                    sw("BRIGHT", ["OFF", "ON"]),
-                    k("GAIN"),
+                    kr("GAIN",   "Gain",     "BE"),
+                    kr("VOLUME", "Volume",   "BE"),
+                    kr("TREBLE", "Treble",   "BE"),
+                    kr("MIDDLE", "Mid",      "BE"),
+                    kr("BASS",   "Bass",     "BE"),
+                    kr("MASTER", "Master",   "BE"),
+                    kr("GAIN",   "Gain 2",   "HBE"),
+                    kr("VOLUME", "Volume 2", "HBE"),
+                    kr("TREBLE", "Treble 2", "HBE"),
+                    kr("MIDDLE", "Mid 2",    "HBE"),
+                    kr("BASS",   "Bass 2",   "HBE"),
+                    kr("MASTER", "Master 2", "HBE"),
                 ]
             }
             // MARSHALL DSL — two gain channels, a shared tone stack, and its own
             // reverb per channel. RESONANCE is real on this amp and is drawn here,
             // though the power amp models a single feedback shelf so it does
             // nothing yet.
+            // MARSHALL DSL — the two gain channels are a BLOCK ON THE LEFT, each a
+            // short row of its own controls, with everything shared sitting to
+            // their right. Stacking them full-width under the amp made two tiny
+            // rows floating in a lot of nothing.
+            //
+            // ONE MASTER. The panel had two and the amp has one that matters here;
+            // the second was me mirroring the channel pair where there is nothing
+            // to mirror.
+            //
+            // Each channel's REVERB rides with its channel, so it dims when the
+            // other one is selected — the amp has a reverb level per channel and
+            // that is what makes them per-channel rather than one control.
             if n.contains("dsl") {
-                return [GearParameter("CLEAN/CRUNCH", options: ["CLEAN", "CRUNCH"], defaultIndex: 1),
-                        GearParameter("OD1/OD2",      options: ["OD1", "OD2"], defaultIndex: 0),
+                return [GearParameter("CHANNEL", options: ["ULTRA GAIN", "CLASSIC GAIN"],
+                                      defaultIndex: 0),
+                        GearParameter("CLEAN/CRUNCH", options: ["CLEAN", "CRUNCH"], defaultIndex: 1,
+                                      rowLabel: "CLASSIC GAIN"),
+                        GearParameter("OD1/OD2",      options: ["OD1", "OD2"], defaultIndex: 0,
+                                      rowLabel: "ULTRA GAIN"),
                         GearParameter("TONE SHIFT",   options: ["OFF", "ON"], defaultIndex: 0),
-                        GearParameter("CHANNEL",      options: ["ULTRA GAIN", "CLASSIC GAIN"], defaultIndex: 0),
-                        GearParameter("Volume 2", shortName: "GAIN",   rowLabel: "CLASSIC GAIN"),
-                        GearParameter("Master 2", shortName: "VOLUME", rowLabel: "CLASSIC GAIN"),
                         GearParameter("Gain",     shortName: "GAIN",   rowLabel: "ULTRA GAIN"),
                         GearParameter("Volume",   shortName: "VOLUME", rowLabel: "ULTRA GAIN"),
+                        GearParameter("ULTRA REVERB", shortName: "REVERB", rowLabel: "ULTRA GAIN"),
+                        GearParameter("Gain 2",   shortName: "GAIN",   rowLabel: "CLASSIC GAIN"),
+                        GearParameter("Volume 2", shortName: "VOLUME", rowLabel: "CLASSIC GAIN"),
+                        GearParameter("CLASSIC REVERB", shortName: "REVERB", rowLabel: "CLASSIC GAIN"),
                         GearParameter("Treble",   shortName: "TREBLE"),
                         GearParameter("Mid",      shortName: "MIDDLE"),
                         GearParameter("Bass",     shortName: "BASS"),
                         GearParameter("Presence", shortName: "PRESENCE"),
                         GearParameter("RESONANCE", isDisabled: true),
-                        GearParameter("CLASSIC REVERB"),
-                        GearParameter("ULTRA REVERB"),
-                        GearParameter("Master",   shortName: "MASTER 1"),
-                        GearParameter("MASTER 2")]
+                        GearParameter("Master",   shortName: "MASTER")]
             }
-            // ORANGE ROCKERVERB — a channel switch, the shared reverb, then the
-            // dirty channel and the clean one on their own rows.
             if n.contains("rockerverb") {
                 return [GearParameter("CHANNEL", options: ["DIRTY", "CLEAN"], defaultIndex: 0),
                         GearParameter("REVERB", shortName: "REVERB"),

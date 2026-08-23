@@ -174,7 +174,9 @@ struct ComponentDetailView: View {
                     // dock's own floor means both are always reachable.
                     knobPanel(id: id)
                         .frame(height: min(knobPanelHeight, dense ? 132 : 178))
-                    if !switches.isEmpty { switchPanel(id: id, compact: dense) }
+                    if !switches.isEmpty {
+                        switchPanel(id: id, compact: dense)
+                    }
                     sliderDock(id: id)
                         .frame(minHeight: 132, maxHeight: .infinity)
                 } else {
@@ -266,17 +268,30 @@ struct ComponentDetailView: View {
                     let avail = geo.size.height - 12 - captions * 13 - spacing
                     let rowH = avail / CGFloat(max(1, dialRows.count))
                     let knob = max(22, min(rowH - 17, (geo.size.width - 28) / widest - 8))
-                    VStack(spacing: 4) {
-                        ForEach(Array(dialRows.enumerated()), id: \.offset) { _, row in
-                            if let label = row.label {
-                                Text(label)
-                                    .font(.system(size: 9, weight: .bold)).tracking(1.1)
-                                    .foregroundStyle(labelColor
-                                        .opacity(rowIsOffChannel(label) ? 0.4 : 0.75))
+                    // SHORT CHANNEL ROWS GO BESIDE the shared controls rather than
+                    // under them. Two rows of three knobs stacked full-width is two
+                    // slivers in a lot of empty panel; as a left-hand column next
+                    // to the amp's shared row it reads like the chassis does.
+                    let sideBySide = splitLeftColumn
+                    HStack(alignment: .center, spacing: 14) {
+                        if sideBySide {
+                            VStack(spacing: 4) {
+                                ForEach(Array(channelRows.enumerated()), id: \.offset) { _, row in
+                                    rowView(id: id, row, knob: knob,
+                                            light: light, labelColor: labelColor)
+                                }
                             }
-                            knobRow(id: id, row.dials, knob: knob,
-                                    light: light, labelColor: labelColor,
-                                    offChannel: rowIsOffChannel(row.label))
+                            .frame(width: geo.size.width * 0.34)
+                            Rectangle()
+                                .fill(labelColor.opacity(0.15))
+                                .frame(width: 1)
+                        }
+                        VStack(spacing: 4) {
+                            ForEach(Array((sideBySide ? sharedRows : dialRows).enumerated()),
+                                    id: \.offset) { _, row in
+                                rowView(id: id, row, knob: knob,
+                                        light: light, labelColor: labelColor)
+                            }
                         }
                     }
                     .padding(.horizontal, 14)
@@ -288,6 +303,33 @@ struct ComponentDetailView: View {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .strokeBorder(.white.opacity(0.10), lineWidth: 1)
             )
+    }
+
+    /// Channel rows and shared rows, split for the side-by-side layout.
+    private var channelRows: [(label: String?, dials: [GearParameter])] {
+        dialRows.filter { $0.label != nil }
+    }
+    private var sharedRows: [(label: String?, dials: [GearParameter])] {
+        dialRows.filter { $0.label == nil }
+    }
+    /// Put the channels in a left column when they are SHORT and there is a shared
+    /// row to sit beside. Long channel rows (the Friedman's six) still stack —
+    /// squeezing those into a third of the width would undo the point.
+    private var splitLeftColumn: Bool {
+        !channelRows.isEmpty && !sharedRows.isEmpty
+            && (channelRows.map(\.dials.count).max() ?? 0) <= 3
+    }
+
+    @ViewBuilder
+    private func rowView(id: UUID, _ row: (label: String?, dials: [GearParameter]),
+                         knob: CGFloat, light: Bool, labelColor: Color) -> some View {
+        if let label = row.label {
+            Text(label)
+                .font(.system(size: 9, weight: .bold)).tracking(1.1)
+                .foregroundStyle(labelColor.opacity(rowIsOffChannel(label) ? 0.4 : 0.75))
+        }
+        knobRow(id: id, row.dials, knob: knob, light: light, labelColor: labelColor,
+                offChannel: rowIsOffChannel(row.label))
     }
 
     /// One row of the knob panel.
@@ -368,10 +410,14 @@ struct ComponentDetailView: View {
                     let binding = store.binding(itemId: id, param: param.name)
                     let options = param.options ?? []
                     let selected = Int(binding.wrappedValue.rounded())
+                    // A switch that belongs to a channel dims with it — the Twin's
+                    // and the JC-120's BRIGHT switches are per-channel, so the one
+                    // you are not hearing should read the same way its knobs do.
+                    let off = rowIsOffChannel(param.rowLabel)
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(param.name.uppercased())
+                        Text(param.displayName.uppercased())
                             .font(.caption2.weight(.bold)).tracking(1.2)
-                            .foregroundStyle(RigTheme.textMuted)
+                            .foregroundStyle(RigTheme.textMuted.opacity(off ? 0.45 : 1))
                             .lineLimit(1)
                         HStack(spacing: 5) {
                             ForEach(Array(options.enumerated()), id: \.offset) { index, label in
@@ -399,12 +445,18 @@ struct ComponentDetailView: View {
                                 .buttonStyle(.plain)
                             }
                         }
+                        .opacity(off ? 0.55 : 1)
                     }
                     .frame(width: unit * counts[i])
                 }
             }
         }
-        .frame(height: compact ? 42 : 52)
+        // 52, NOT 42, in the compact case. A caption (14) over a 30 pt button row
+        // with 6 pt between them needs 50, so the dense layout — which is what
+        // every amp with an FX section gets, the Katana included — was drawing its
+        // switch strip 8 pt shorter than its own contents and clipping the bottom
+        // off the buttons.
+        .frame(height: compact ? 52 : 56)
         .padding(compact ? 8 : 14)
         .rigCard(cornerRadius: 16)
     }
