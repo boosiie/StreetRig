@@ -504,7 +504,7 @@ void SRKernelProcess(SRKernelRef kernel,
             // audio-rate AM on everything that decayed near the threshold. Opening
             // is fast so an attack is never late, closing is slow so nothing can
             // wobble. See kGateOpenSec / kGateCloseSec.
-            const float want = t * t;
+            const float want = t * t * t;   // 4:1 — see kGateRatioPowers
             ggain += (want > ggain ? gateOpen : gateClose) * (want - ggain);
             dst[i] = v * ggain;
         }

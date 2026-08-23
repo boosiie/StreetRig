@@ -116,7 +116,24 @@ struct DSPKernel {
     /// playing — and every chord's decay — right ON the old threshold instead of
     /// 30 dB above it, so the expander was working during notes rather than
     /// between them. 12 dB lower puts real playing clear of it again.
-    static constexpr float kGateThreshold = 0.00079f;   // −62 dBFS
+    /// −56 dBFS. It went to −62 to stop the expander chewing chords, and that
+    /// worked — but the real culprit was the UNSMOOTHED gain below, not the line
+    /// itself, and −62 gave up 6 dB of hiss suppression to fix something the
+    /// smoothing had already fixed. Reported back as "there's still some
+    /// background noise", which is exactly that 6 dB. Still ~35 dB under a played
+    /// note, so a chord's useful decay never reaches it.
+    static constexpr float kGateThreshold = 0.0016f;    // −56 dBFS
+
+    /// EXPANSION RATIO below the line: 4:1, was 3:1 (`t·t` → `t·t·t`).
+    ///
+    /// This is the lever that kills hiss WITHOUT touching playing, and it is
+    /// better than raising the threshold further. Above the line `t` clamps to 1
+    /// and the exponent is irrelevant — a note is untouched no matter what this
+    /// is. Below it, every extra power pushes the quiet stuff down harder: 10 dB
+    /// under the line, 3:1 gives −20 dB and 4:1 gives −30 dB. Hiss is steady and
+    /// sits well below; that is what makes it hiss, and what makes it the only
+    /// thing this reaches.
+    static constexpr int kGateRatioPowers = 3;
 
     /// GAIN SMOOTHING, and the actual cause of the crackle. The computed gain used
     /// to be applied straight from the envelope, per sample. That envelope is a
