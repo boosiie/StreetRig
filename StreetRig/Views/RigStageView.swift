@@ -75,9 +75,12 @@ struct RigStageView: View {
                     dropArea: stageArea,
                     controller: drag
                 )
+                // Full-bleed on purpose. The scene paints its own backdrop now
+                // (`RigDiorama.backdrop`), so any inset here is a strip of SwiftUI
+                // colour sitting beside a SceneKit colour that has been through the
+                // camera's grade — and they do not match, so the inset reads as a
+                // band along the top and sides. No inset, no band.
                 .background(stageFrameReader)
-                .padding(.horizontal, 8)
-                .padding(.top, 20)
             } else {
                 vectorRig
                     .rotation3DEffect(.degrees(Double(tilt.width)),  axis: (x: 0, y: 1, z: 0), perspective: 0.5)
@@ -280,15 +283,18 @@ struct RigStageView: View {
     /// blended TOO well: matched to the floor, the platform stopped reading as an
     /// object and the diorama lost its edge entirely.
     ///
-    /// The strip of backdrop around the 3D view, which sits inside a little padding.
+    /// Backdrop for the stage area, behind the 3D view.
     ///
-    /// Deliberately the SAME value as `RigDiorama.backdrop`, which the scene paints
-    /// itself — see the note there for why the scene has to. This used to be the only
-    /// backdrop, a SwiftUI gradient showing through a transparent SCNView, and it was
-    /// invisible: the camera's post-processing makes that view composite opaque, so
-    /// every colour set here was painted over. Keep the two in step.
+    /// This is `RigDiorama.backdrop` AS RENDERED, not as authored — #1D96C5 rather
+    /// than the #3296C1 the scene is handed. The camera grades every frame
+    /// (`saturation` 1.08, `contrast` 0.08) and the background goes through it like
+    /// everything else, which drops its red from 0.196 to 0.114. Matching the
+    /// authored value instead leaves a visible band wherever the two meet.
+    ///
+    /// With the 3D view full-bleed this should never actually be on screen — it is
+    /// what shows if the scene fails to build, and the point is that you cannot tell.
     private var stageBackground: some View {
-        Color(RigDiorama.backdrop)
+        Color(red: 0.114, green: 0.588, blue: 0.773)      // #1D96C5
     }
 
     // MARK: - Tilt gesture for the vector layout (rubber-band back to center)
