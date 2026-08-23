@@ -24,6 +24,13 @@
 //  It was plain text here on the grounds that iOS owned the output entirely,
 //  which left anyone whose rig was coming out of the EARPIECE nothing to press.
 //
+//  OUTPUT ALSO CARRIES THE LATENCY, because the port and its cost are one fact.
+//  The session has always measured input, output and buffer latency and shown the
+//  player none of it, so a 172 ms Bluetooth route looked exactly like a 25 ms
+//  wired one and the only symptom was "it feels laggy" with nothing to point at.
+//  Measured on the phone: 163 of those 172 ms were the output port alone. Naming
+//  a route "wireless" is worth more than the number next to it.
+//
 //  LEVELS LIVE HERE NOW. Each route carries its own lamp (dark → green when
 //  signal arrives → red on clip) and segment bar. That read-out is what the
 //  full-screen SIGNAL CHECK existed to show; folded into the panel it answers
@@ -187,7 +194,9 @@ struct ControlPanelSurface: View {
 
     /// iOS names the device; the session may only say speaker-or-not. So this is
     /// a control like INPUT, but a two-item one — the zone still reports the port
-    /// that is actually playing, and the menu sets the policy behind it.
+    /// that is actually playing, and the menu sets the policy behind it. It also
+    /// carries the round-trip read-out, because the port and its latency are the
+    /// same fact and belong on the same zone.
     private var outputZone: some View {
         Menu {
             Picker("Output", selection: outputBinding) {
@@ -201,13 +210,30 @@ struct ControlPanelSurface: View {
                       channel: .output,
                       monitor: audio.levels,
                       isLive: audio.isEngaged,
-                      selectable: true)
+                      selectable: true,
+                      badge: latencyBadge)
         }
         .frame(maxWidth: .infinity)
     }
 
     private var outputBinding: Binding<AudioEngineController.OutputChoice> {
         Binding(get: { audio.outputChoice }, set: { audio.selectOutput($0) })
+    }
+
+    /// THE NUMBER THAT EXPLAINS THE DELAY. The session has always measured input,
+    /// output and buffer latency — it just logged them and showed the player
+    /// nothing, so a 200 ms wireless route looked identical to an 8 ms wired one
+    /// and the only symptom was "it feels laggy". Round trip lives next to the
+    /// route that causes it, because on this app the route IS the answer almost
+    /// every time: no DSP change can beat A2DP's buffering.
+    private var latencyBadge: RouteZone.Badge? {
+        let ms = audio.roundTripMs
+        guard ms > 0 else { return nil }
+        if audio.outputIsWireless {
+            // Named explicitly: "wireless" is the actionable word, not the number.
+            return .init(text: String(format: "%.0f ms · wireless", ms), warn: true)
+        }
+        return .init(text: String(format: "%.0f ms", ms), warn: !audio.latencyIsPlayable)
     }
 
     // MARK: - Master
@@ -436,8 +462,16 @@ private struct RouteZone: View {
     let channel: LevelMeterView.Channel
     let monitor: AudioLevelMonitor
     let isLive: Bool
-    /// Draws the "there is a menu behind this" chevron. INPUT only.
+    /// Draws the "tapping this opens something" chevron. Both routes now do —
+    /// INPUT an in-app menu, OUTPUT the system route sheet.
     let selectable: Bool
+
+    /// Optional read-out on the caption row (OUTPUT uses it for round-trip
+    /// latency). It rides the CAPTION line, not the body, so it cannot push the
+    /// route name around or change the zone's height — the panel is on one shared
+    /// grid and a zone that grows steals space from the rig stage.
+    struct Badge { let text: String; let warn: Bool }
+    var badge: Badge? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: PanelMetrics.rowGap) {
@@ -449,6 +483,13 @@ private struct RouteZone: View {
                     .foregroundStyle(RigTheme.textMuted)
                     .fixedSize()
                 Spacer(minLength: 0)
+                if let badge {
+                    Text(badge.text)
+                        .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(badge.warn ? RigTheme.amber : RigTheme.textMuted)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
             }
             .frame(height: PanelMetrics.caption)
 

@@ -196,7 +196,7 @@ struct RigStage3DView: UIViewRepresentable {
         view.scene = scene
         view.pointOfView = scene.rootNode.childNode(withName: "camera", recursively: false)
         view.defaultCameraController.target = RigDiorama.lookTarget
-        context.coordinator.cacheKnobs(in: scene)
+        context.coordinator.cacheKnobs(in: scene, names: AmpScene.knobParamNames(for: amp))
         context.coordinator.applyAmp(values: amp?.values ?? [:])
         context.coordinator.signature = RigDiorama.signature(amp: amp, cabinet: cabinet,
                                                              pedals: pedals, guitar: guitar)
@@ -258,9 +258,9 @@ struct RigStage3DView: UIViewRepresentable {
         /// are part of the drawing (see `ProceduralAmp.build`) — so these lookups
         /// return nil, the keys never land in the dictionary, and `applyAmp`
         /// simply has nothing to turn. That is the expected quiet path, not a bug.
-        func cacheKnobs(in scene: SCNScene) {
+        func cacheKnobs(in scene: SCNScene, names: [String]) {
             knobs.removeAll()
-            for p in AmpScene.knobParamNames {
+            for p in names {
                 knobs[p] = scene.rootNode.childNode(withName: AmpScene.knobNodeName(p), recursively: true)
             }
         }

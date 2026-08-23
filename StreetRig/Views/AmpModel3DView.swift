@@ -65,7 +65,7 @@ struct AmpModel3DView: UIViewRepresentable {
         view.allowsCameraControl = true          // free drag-orbit + pinch-zoom
 
         // Cache knob nodes once so per-update value changes are cheap.
-        context.coordinator.cacheKnobs(in: scene)
+        context.coordinator.cacheKnobs(in: scene, names: AmpScene.knobParamNames(for: item))
 
         // Single tap → zoom, coexisting with the camera controller's gestures.
         let tap = UITapGestureRecognizer(target: context.coordinator,
@@ -90,8 +90,9 @@ struct AmpModel3DView: UIViewRepresentable {
 
         init(onTap: (() -> Void)?) { self.onTap = onTap }
 
-        func cacheKnobs(in scene: SCNScene) {
-            for name in AmpScene.knobParamNames {
+        func cacheKnobs(in scene: SCNScene, names: [String]) {
+            knobs.removeAll()
+            for name in names {
                 knobs[name] = scene.rootNode.childNode(withName: AmpScene.knobNodeName(name),
                                                        recursively: true)
             }
@@ -119,6 +120,21 @@ struct AmpModel3DView: UIViewRepresentable {
 enum AmpScene {
     /// The amp faceplate knobs, in panel order — single source of truth is the
     /// data model, so the 3D knobs never drift from `GearItem.values`.
+    ///
+    /// PER ITEM, not per category: a Katana's faceplate carries Volume and three
+    /// selectors the shared six do not, and a JC-120 has no Presence. Drawing the
+    /// category's list would put the wrong knobs on the model — and, worse, cache
+    /// knob nodes under names the item never sets, so they would sit frozen at
+    /// noon. `knobParamNames` (no argument) stays as the fallback for the generic
+    /// procedural head, which is built before any item is known.
+    ///
+    /// GROUPED controls are excluded: the Katana's five FX blocks are a panel
+    /// SECTION, not faceplate knobs, and drawing fifteen more rotaries across a
+    /// 3D amp face would turn a recognisable amp into a mixing desk.
+    static func knobParamNames(for item: GearItem?) -> [String] {
+        guard let item else { return knobParamNames }
+        return item.parameters.filter { $0.group == nil }.map { $0.name }
+    }
     static let knobParamNames: [String] = GearCategory.amp.parameters.map { $0.name }
 
     static func knobNodeName(_ param: String) -> String { "knob_\(param)" }
@@ -238,7 +254,7 @@ enum ProceduralAmp {
         let cabArt  = GearIconLoader.uiImage(for: cabinet)
         let layout  = Layout.forStack(headArt: headArt, cabArt: cabArt)
 
-        addHead(layout.head, art: headArt, to: root)
+        addHead(layout.head, art: headArt, knobNames: AmpScene.knobParamNames(for: amp), to: root)
         addCabinet(layout.cab, art: cabArt, to: root)
     }
 
@@ -323,7 +339,7 @@ enum ProceduralAmp {
 
     // MARK: Pieces
 
-    private static func addHead(_ box: Box, art: UIImage?, to root: SCNNode) {
+    private static func addHead(_ box: Box, art: UIImage?, knobNames: [String], to root: SCNNode) {
         if let art {
             addArtBox(box, art: art, to: root)
             return          // knobs, faceplate and jewel are all drawn IN the art
@@ -346,7 +362,7 @@ enum ProceduralAmp {
                         chamfer: 0.015, mat: creamMat, at: SCNVector3(0, panelY, z + 0.005), to: root)
 
         // ---- Knobs, one per amp parameter, in a row on the faceplate ----
-        let names = AmpScene.knobParamNames
+        let names = knobNames
         let span = box.width * 0.735
         let step = names.count > 1 ? span / Float(names.count - 1) : 0
         let knobScale = box.height / Layout.genericHead.height

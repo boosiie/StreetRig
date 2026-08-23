@@ -34,13 +34,17 @@ namespace streetrig {
 class ModulationPedal {
 public:
     static constexpr int kMaxChannels = 2;
-    static constexpr int kMaxAllpass  = 6;      // phaser uses 4, univibe 6
+    static constexpr int kMaxAllpass  = 12;     // phaser 6, univibe 6, deep phaser 12
     static constexpr int kDelayMax    = 4096;   // ~85 ms @48k — covers chorus
 
-    enum Voicing : int { Chorus = 0, Flanger = 1, Phaser = 2, Tremolo = 3, Univibe = 4 };
+    enum Voicing : int { Chorus = 0, Flanger = 1, Phaser = 2, Tremolo = 3, Univibe = 4,
+                         /// Twelve stages instead of four and much more resonance —
+                         /// the difference between "there is a phaser somewhere"
+                         /// and a sweep you can follow.
+                         DeepPhaser = 5 };
 
     void prepare(double sampleRate, int numChannels);
-    void configure(int voicing) noexcept { voicing_ = std::clamp(voicing, 0, (int)Univibe); }
+    void configure(int voicing) noexcept { voicing_ = std::clamp(voicing, 0, (int)DeepPhaser); }
     void reset() noexcept;
 
     /// params: [0] rate Hz, [1] depth 0..1, [2] mix 0..1.

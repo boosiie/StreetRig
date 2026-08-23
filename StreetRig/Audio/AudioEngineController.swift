@@ -198,6 +198,7 @@ final class AudioEngineController: ObservableObject {
             self.avAudioUnit = unit
             self.dspUnit = unit.auAudioUnit as? StreetRigDSPUnit
             applyMasterLevel()
+            applySpeakerComp()      // the DSP unit exists now; re-assert the route
 
             // Meter taps go on once the engine is RUNNING, so both nodes report a
             // settled stream format (a tap installed against a not-yet-negotiated
@@ -464,8 +465,84 @@ final class AudioEngineController: ObservableObject {
 
         currentInputName = pendingInputName ?? routeInput?.portName ?? "—"
         currentOutputName = route.outputs.first?.portName ?? "—"
+
+        // Re-measure latency here too: iOS re-negotiates the buffer and the port
+        // latencies on every route change, so these are only meaningful once the
+        // route has settled — which is exactly here.
+        //
+        // The sample rate is read here as well as in `configureSession`, and that
+        // matters: without it the whole read-out stays hidden until the player
+        // hits Proceed, which is precisely too late. Deciding whether to get off
+        // the AirPods is a BEFORE-you-engage decision. These are iOS's current
+        // session values rather than post-activation granted ones, so they are an
+        // estimate until engaged — and then they refine in place.
+        grantedSampleRate = session.sampleRate
+        grantedIOBufferDuration = session.ioBufferDuration
+        grantedInputLatency  = session.inputLatency
+        grantedOutputLatency = session.outputLatency
+        outputIsWireless = Self.wirelessPort(route.outputs.first?.portType)
+        outputIsPhoneSpeaker = route.outputs.first?.portType == .builtInSpeaker
+        applySpeakerComp()
         detectNewDevices(session)
     }
+
+    // MARK: - Latency, as a number the player can see
+
+    /// True when the OUTPUT is a wireless route. This is the single most useful
+    /// fact about latency on this app and it was previously invisible: A2DP
+    /// Bluetooth buffers by protocol design, and AirPlay is worse. Measured on an
+    /// iPhone 17e: a 172 ms round trip, of which the output port alone was 163 ms
+    /// — against 1.54 ms of input and a 5 ms buffer iOS granted in full. No amount
+    /// of DSP work touches that, so an amp sim that silently routes to AirPods
+    /// just feels broken. `.allowBluetoothA2DP` stays ON deliberately — monitoring
+    /// wirelessly while noodling is legitimate — but the cost is now stated.
+    @Published private(set) var outputIsWireless = false
+
+    /// True when the rig is coming out of the PHONE'S OWN SPEAKER — which is how
+    /// this app is meant to be used: phone on the floor, no headphones. That
+    /// driver makes almost nothing below a few hundred Hz, so the kernel switches
+    /// on a compensation stage that clears the sub-bass out of the limiter's way
+    /// and lifts the band the speaker is good at. Strictly route-following: a
+    /// wired output or an interface gets the full-range signal untouched.
+    @Published private(set) var outputIsPhoneSpeaker = false
+
+    private func applySpeakerComp() {
+        dspUnit?.parameterTree?
+            .parameter(withAddress: AUParameterAddress(SRParamSpeakerComp.rawValue))?
+            .value = outputIsPhoneSpeaker ? 1 : 0
+    }
+
+    private static func wirelessPort(_ type: AVAudioSession.Port?) -> Bool {
+        guard let type else { return false }
+        return type == .bluetoothA2DP || type == .bluetoothLE
+            || type == .bluetoothHFP || type == .airPlay
+    }
+
+    /// The DSP's own contribution, in samples — derived from the kernel rather
+    /// than assumed, so it stays honest if a future block adds real latency.
+    /// Today this is the cab convolver's 128-sample partition and nothing else:
+    /// the delay and reverb blocks report zero, because their dry path is never
+    /// delayed.
+    var dspLatencySamples: Int { dspUnit?.cabLatencySamples ?? 0 }
+
+    /// Measured round trip, milliseconds: hardware in + hardware out + the buffer
+    /// the render callback runs on + the DSP's own contribution.
+    var roundTripMs: Double {
+        guard grantedSampleRate > 0 else { return 0 }
+        let dspSeconds = Double(dspLatencySamples) / grantedSampleRate
+        return (grantedInputLatency + grantedOutputLatency
+                + grantedIOBufferDuration + dspSeconds) * 1_000
+    }
+
+    /// The amber line. NOT the ~15 ms textbook "playable" figure, deliberately:
+    /// this app buys output processing with latency on purpose. Mode `.default`
+    /// rather than `.measurement` is what gets iOS's speaker EQ and limiting —
+    /// the whole difference between this and every other music app on the phone —
+    /// and it was measured costing 9.73 → 15.35 ms of output latency on its own.
+    /// A healthy wired rig therefore lands near 25 ms and must not read as a
+    /// fault. Wireless lands near 180 ms. 40 ms separates the two with room to
+    /// spare, which is the only job this threshold has.
+    var latencyIsPlayable: Bool { roundTripMs > 0 && roundTripMs <= 40 }
 
     /// Choose the port the guitar comes in on. While the engine is idle this
     /// records a preference that iOS opens when the session goes live; while it
