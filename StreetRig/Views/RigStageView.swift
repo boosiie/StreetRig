@@ -280,13 +280,20 @@ struct RigStageView: View {
     /// blended TOO well: matched to the floor, the platform stopped reading as an
     /// object and the diorama lost its edge entirely.
     ///
-    /// Radial rather than linear so the light falls off toward the corners the way it
-    /// does behind the model in the source shot, instead of banding top-to-bottom.
-    /// No amber overlay any more — that glow was tuned to warm the old grey and just
-    /// muddies a blue.
+    /// NEARLY FLAT, and that is the whole trick. The first cut of this used the same
+    /// centre colour with a real radial falloff out to #175E7C, reasoning that the
+    /// light should drop toward the corners the way it does behind the model in the
+    /// source shot. On a phone that reads as simply dark: the falloff covers most of
+    /// the frame, so the colour you actually see is the OUTER stop, not the centre
+    /// one, and the outer stop was barely half the reference's brightness. The two
+    /// stops now sit within a few percent of each other — enough to keep the corners
+    /// from looking like flat fill, not enough to darken the field.
+    ///
+    /// No amber overlay any more — that glow was tuned to warm the old grey backdrop
+    /// and just muddies a blue.
     private var stageBackground: some View {
-        RadialGradient(colors: [Color(red: 0.176, green: 0.549, blue: 0.706),   // #2D8CB4
-                                Color(red: 0.090, green: 0.369, blue: 0.486)],  // #175E7C
+        RadialGradient(colors: [Color(red: 0.196, green: 0.588, blue: 0.757),   // #3296C1
+                                Color(red: 0.180, green: 0.561, blue: 0.722)],  // #2E8FB8
                        center: .center, startRadius: 0, endRadius: 700)
     }
 
