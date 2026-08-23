@@ -1413,6 +1413,70 @@ extension AudioEngineController {
                        String(format: "harmonics >400 Hz on a loud 220 Hz tone: JC-120 %.1f%% < JCM800 %.1f%% (headroom 3.00 vs 0.75)",
                               jcHarm, jcmHarm)))
 
+        // ---- 1b. …AND THEY MUST STILL DIFFER AT PLAYING LEVEL. ---------------
+        // Reported by ear: "every amp sounds exactly the same". The check above
+        // renders at 0.25 output to keep the limiter out of the measurement,
+        // which is right for characterising an amp and WRONG as the only test —
+        // nobody plays at 0.25. On the device the master defaults to 2.0 with the
+        // input trim aiming peaks at −8 dBFS, which lands the output stage tens of
+        // dB over the limiter's target, and a limiter doing that much work flattens
+        // the dynamics and harmonics that separate one amp from another.
+        //
+        // So: the same pairwise comparison, at the level the app actually ships.
+        func renderLoud(_ plan: RigDSPPlan) async -> [Float] {
+            ((try? await renderRigPlan(plan, source: dry, fmt: fmt,
+                                       outputLevel: 2.0)) ?? PassOutput()).samples
+        }
+        var loud: [(String, [Float])] = []
+        for (name, cat) in catalog {
+            loud.append((name, await renderLoud(ampPlan(name, cat, values: Self.ampTestKnobs).plan)))
+        }
+        var worstLoud = Double.greatestFiniteMagnitude, worstLoudPair = ""
+        for i in 0..<loud.count {
+            for j in (i + 1)..<loud.count {
+                let d = Self.levelMatchedDiff(loud[i].1, loud[j].1)
+                if d < worstLoud { worstLoud = d; worstLoudPair = "\(loud[i].0) vs \(loud[j].0)" }
+            }
+        }
+        lines.append(String(format: "  at PLAYING level (master 2.0): closest pair %@ = %.1f%% residual",
+                            worstLoudPair, worstLoud * 100))
+        checks.append(("amps still differ AT PLAYING LEVEL, not just isolated",
+                       worstLoud > 0.10,
+                       String(format: "closest pair %@ still %.1f%% apart at master 2.0 (isolated: they are 20%%+)",
+                              worstLoudPair, worstLoud * 100)))
+
+        // ---- 1c. …AND THROUGH THE SPEAKER, WHICH IS HOW THEY ARE HEARD. ------
+        // Every "amps differ" number above is measured with cabBypass = true. That
+        // isolates the amp, which is what characterising one requires — and it
+        // means NONE of them describe what comes out of the phone, because on the
+        // device the cab is always in. A cabinet is about half of what an amp
+        // sounds like, and StreetRig ships TWO synthetic placeholder IRs across
+        // eleven amps, so the speaker is very nearly a shared constant.
+        //
+        // If the amps converge here, the amps are not the problem — the cab is,
+        // and no amount of profile tuning fixes it.
+        func renderWithCab(_ name: String, _ cat: GearCategory) async -> [Float] {
+            var plan = ampPlan(name, cat, values: Self.ampTestKnobs).plan
+            plan.cabBypass = false                      // the speaker is IN
+            return ((try? await renderRigPlan(plan, source: dry, fmt: fmt,
+                                              outputLevel: 2.0)) ?? PassOutput()).samples
+        }
+        var cabbed: [(String, [Float])] = []
+        for (name, cat) in catalog { cabbed.append((name, await renderWithCab(name, cat))) }
+        var worstCab = Double.greatestFiniteMagnitude, worstCabPair = ""
+        for i in 0..<cabbed.count {
+            for j in (i + 1)..<cabbed.count {
+                let d = Self.levelMatchedDiff(cabbed[i].1, cabbed[j].1)
+                if d < worstCab { worstCab = d; worstCabPair = "\(cabbed[i].0) vs \(cabbed[j].0)" }
+            }
+        }
+        lines.append(String(format: "  THROUGH THE CAB, at playing level: closest pair %@ = %.1f%% residual",
+                            worstCabPair, worstCab * 100))
+        checks.append(("amps still differ THROUGH THE SPEAKER — how they are actually heard",
+                       worstCab > 0.10,
+                       String(format: "closest pair %@ = %.1f%% with the cab in (%.1f%% with it bypassed)",
+                              worstCabPair, worstCab * 100, worstLoud * 100)))
+
         // ---- 2. THE VOX CUT: a knob that works BACKWARDS. --------------------
         // The strongest form of "a brighter amp measures brighter": the same
         // control, on two amps, must move brightness in OPPOSITE directions,

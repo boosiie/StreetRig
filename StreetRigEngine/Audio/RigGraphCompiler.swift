@@ -424,7 +424,26 @@ public final class RigAudioBridge {
         }
     }
 
+    /// WHAT THE ENGINE WAS ACTUALLY TOLD, every time the topology moves.
+    ///
+    /// Two things have now been reported that the offline suite cannot reproduce
+    /// — "every amp sounds exactly the same" and effects "crossing over" between
+    /// blocks — and both are questions about what the chain IS at that moment on
+    /// that device. Measuring harder off-device has produced two wrong theories;
+    /// this prints the answer instead. Structural rebuilds only, so it is a line
+    /// per topology change and never per knob turn.
+    private func logChain(_ plan: RigDSPPlan) {
+        let slots = plan.pedals.enumerated().map { i, s in
+            let span = i < plan.splitPre ? "PRE" : (i < plan.splitPost ? "MID" : "POST")
+            return "[\(i) \(span) t\(s.type)/v\(s.character)\(s.enabled ? "" : " OFF")]"
+        }.joined(separator: " ")
+        print("[StreetRigChain] amp=\(plan.ampProfile) cab=\(plan.cabSlot)"
+              + " slots=\(plan.pedals.count)/\(SRMaxPedals)"
+              + " split=\(plan.splitPre)/\(plan.splitPost) \(slots)")
+    }
+
     private func applyStructural(_ plan: RigDSPPlan) {
+        logChain(plan)
         if isRenderLive() {
             RigGraphCompiler.applyHotSwap(plan, to: dsp, on: reconfigureQueue)
         } else {

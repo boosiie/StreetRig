@@ -48,7 +48,18 @@ public enum ParameterMap {
         let bipolar = (norm(v) - 0.5) * 2.0    // -1…+1, 0 at noon
         switch paramName {
         case "Presence": return bipolar * 9.0
-        default:         return bipolar * 12.0 // Bass / Mid / Treble
+        case "Mid":
+            // ASYMMETRIC, and that is the physics rather than a taste call. A
+            // passive TMB stack's mid control is mostly a CUT: turning it down
+            // scoops hard, turning it up mostly just stops scooping. It has very
+            // little boost above centre because the network cannot make gain.
+            //
+            // Modelled as a symmetric ±12 dB it was a 10 dB resonant peak at
+            // Q 0.85–0.95, and a resonant midrange peak is exactly what a wah
+            // pedal is — reported by ear as "the tone sounds like a wah when it's
+            // set to the max side". Full cut, a third of the boost.
+            return bipolar < 0 ? Float(bipolar) * 12.0 : Float(bipolar) * 4.0
+        default:         return bipolar * 12.0 // Bass / Treble
         }
     }
 
@@ -700,6 +711,11 @@ public enum ParameterMap {
 
     /// Inverse of `ampBandDB(_:knob:)`  (dB = ((norm−0.5)·2)·range; ±12, Presence ±9).
     static func invAmpBandKnob(_ paramName: String, dB: Float) -> Double {
+        if paramName == "Mid" {
+            // Mirror of the asymmetric forward curve above.
+            let bipolar = Double(dB) < 0 ? Double(dB) / 12.0 : Double(dB) / 4.0
+            return clampKnob((bipolar / 2.0 + 0.5) * 10.0)
+        }
         let range: Double = paramName == "Presence" ? 9.0 : 12.0
         return clampKnob((Double(dB) / (2.0 * range) + 0.5) * 10.0)
     }

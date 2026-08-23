@@ -548,8 +548,10 @@ AmpProfile profileFor(int voicing) noexcept {
                     1.70f, 0.10f, +1.0f, -4.0f, +2.0f, 1.00f, 1.00f, AmpClip::Triode});
         break;
 
-    // GAINS PULLED BACK, by ear on an iPhone 17e: Crunch, Lead and Brown were all
-    // "too extreme". Every one of these rows was Conf: L — Boss publishes nothing
+    // GAINS PULLED BACK TWICE, by ear on an iPhone 17e: Crunch, Lead and Brown
+    // were "too extreme", and still too extreme after the first −15%. Down another
+    // −15% here, so roughly −28% from where they started. Every one of these rows
+    // was Conf: L — Boss publishes nothing
     // about its models and they were reasoned, not measured — so a player's ear
     // outranks them. Roughly −15% on the saturating stages of each; the follower
     // stage is left alone because it sets level, not dirt. Brown B stays the most
@@ -557,29 +559,29 @@ AmpProfile profileFor(int voicing) noexcept {
     case KatanaCrunchA:     // chime, edge of breakup — the reference Katana row
         // Cue (gains 2.0 / 2.1 / 1.5): with Gain at noon it should sit RIGHT AT
         // edge-of-breakup. Already crunchy at 3 → lower. Clean at 7 → raise.
-        p = katana({3, {1.7f, 1.8f, 1.4f}, 60.0, {34.0, 42.0, 50.0},
+        p = katana({3, {1.45f, 1.55f, 1.30f}, 60.0, {34.0, 42.0, 50.0},
                     {420.0, 600.0, 0.0}, {6.0f, 5.0f, 0.0f},
                     1.00f, 0.20f, 0.0f, -2.0f, 0.0f, 1.00f, 1.00f, AmpClip::Triode});
         break;
     case KatanaCrunchB:     // plexi push
-        p = katana({3, {2.0f, 2.1f, 1.5f}, 72.0, {44.0, 54.0, 62.0},
+        p = katana({3, {1.70f, 1.80f, 1.40f}, 72.0, {44.0, 54.0, 62.0},
                     {480.0, 674.0, 0.0}, {8.0f, 6.0f, 0.0f},
                     0.90f, 0.22f, -1.0f, 0.0f, +1.0f, 1.10f, 0.95f, AmpClip::Triode});
         break;
 
     case KatanaLeadA:       // smooth, sustaining
-        p = katana({4, {1.9f, 2.0f, 1.9f, 1.3f}, 80.0, {50.0, 60.0, 70.0, 76.0},
+        p = katana({4, {1.60f, 1.70f, 1.60f, 1.20f}, 80.0, {50.0, 60.0, 70.0, 76.0},
                     {500.0, 650.0, 700.0, 0.0}, {6.0f, 6.0f, 5.0f, 0.0f},
                     0.85f, 0.25f, -1.0f, +2.0f, 0.0f, 1.00f, 0.85f, AmpClip::Triode});
         break;
     case KatanaLeadB:       // tighter, more attack
-        p = katana({4, {2.1f, 2.2f, 2.1f, 1.3f}, 95.0, {62.0, 74.0, 86.0, 92.0},
+        p = katana({4, {1.80f, 1.85f, 1.80f, 1.20f}, 95.0, {62.0, 74.0, 86.0, 92.0},
                     {560.0, 720.0, 780.0, 0.0}, {7.0f, 7.0f, 6.0f, 0.0f},
                     0.80f, 0.26f, -2.0f, +1.0f, +2.0f, 1.15f, 0.82f, AmpClip::Triode});
         break;
 
     case KatanaBrownA:      // classic brown
-        p = katana({4, {2.0f, 2.2f, 2.1f, 1.4f}, 85.0, {54.0, 66.0, 78.0, 84.0},
+        p = katana({4, {1.70f, 1.85f, 1.80f, 1.25f}, 85.0, {54.0, 66.0, 78.0, 84.0},
                     {450.0, 620.0, 700.0, 0.0}, {7.0f, 7.0f, 6.0f, 0.0f},
                     0.80f, 0.28f, 0.0f, +3.0f, +1.0f, 1.05f, 0.85f, AmpClip::Triode});
         break;
@@ -587,7 +589,7 @@ AmpProfile profileFor(int voicing) noexcept {
         // Cue (gains 2.9 / 3.1 / 2.9): the most saturated of the ten, and still
         // articulate on fast runs. MUSHY ON FAST PICKING → raise `couplingHz`,
         // do not lower the gain.
-        p = katana({4, {2.3f, 2.5f, 2.4f, 1.4f}, 105.0, {70.0, 84.0, 96.0, 104.0},
+        p = katana({4, {1.95f, 2.10f, 2.00f, 1.25f}, 105.0, {70.0, 84.0, 96.0, 104.0},
                     {520.0, 700.0, 780.0, 0.0}, {8.0f, 8.0f, 7.0f, 0.0f},
                     0.75f, 0.30f, -2.0f, -3.0f, +3.0f, 1.20f, 0.80f, AmpClip::Triode});
         break;
