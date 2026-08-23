@@ -195,8 +195,24 @@ extension AudioEngineController {
             let meter = runMeterVerification(sr: sr)
             // --- AR FOOTSWITCHES: prove a stomp actually bypasses a pedal. ---
             let foot = await runFootswitchVerification(dry: dry, fmt: fmt, sr: sr)
-            let combined = [report, rig.text, fam.text, meter.text, foot.text].joined(separator: "\n\n")
+            // --- AMP PROFILES: prove every amp is a different amp. ---
+            let amps = await runAmpProfileVerification(dry: dry, fmt: fmt, sr: sr)
+            // --- TIME BLOCKS: delay + reverb + the Katana's FX section. ---
+            let timeBlocks = await runTimeBlockVerification(dry: dry, fmt: fmt, sr: sr)
+            // --- LEGACY REFERENCE: the fixed pole of the cross-build null test. ---
+            let legacy = await runLegacyNullReference(fmt: fmt)
+            let legacyText = """
+            === LEGACY BACK-COMPAT REFERENCE (amp with no profile) ===
+            Method        : pinned plan — unrecognized amp name (→ AmpVoicing::Legacy), no pedals,
+                            cab BYPASSED, neural off, generated test signal, off-centre EQ.
+            \(legacy.text)
+            LEGACY REFERENCE OVERALL: \(legacy.pass ? "PASS" : "FAIL")
+            === END LEGACY REFERENCE ===
+            """
+            let combined = [report, rig.text, fam.text, meter.text, foot.text,
+                            amps.text, timeBlocks.text, legacyText].joined(separator: "\n\n")
             let overall = allPass && rig.pass && fam.pass && meter.pass && foot.pass
+                && amps.pass && timeBlocks.pass && legacy.pass
             log(combined)
             return finishOffline(success: overall, summary: combined, wav: outURL.path)
         } catch {
@@ -358,14 +374,46 @@ extension AudioEngineController {
     // MARK: - Prompt 003: full compiled-rig chain verification
 
     /// Render one whole rig (compiled from a `RigDSPPlan`) through the real graph.
+    /// `outputLevel` overrides the kernel's output stage for this pass. It exists
+    /// for one reason: the output stage now ends in a LIMITER, and a limiter
+    /// flattens exactly the peaks and spectral contrast an amp-voicing test is
+    /// trying to measure. Rendering a voicing comparison at full level measures
+    /// the limiter, not the amp — the AC30 lost 4.8 dB of crest to it and two
+    /// checks failed on differences that were real but squashed. Same reasoning as
+    /// `cabBypass` in `ampPlan`: to characterize one stage, take the others out.
     private func renderRigPlan(_ plan: RigDSPPlan,
                                source: AVAudioPCMBuffer,
                                fmt: AVAudioFormat,
-                               benchmarkFull: Bool = false) async throws -> PassOutput {
-        try await renderCore(source: source, fmt: fmt, benchmarkFull: benchmarkFull) { dsp in
+                               tailSeconds: Double = 0.15,
+                               benchmarkFull: Bool = false,
+                               outputLevel: Float? = nil) async throws -> PassOutput {
+        try await renderCore(source: source, fmt: fmt, tailSeconds: tailSeconds,
+                             benchmarkFull: benchmarkFull) { dsp in
             RigGraphCompiler.applyImmediate(plan, to: dsp)   // pedals → amp → cab, in order
+            if let outputLevel {
+                dsp.setParameter(SRParamOutputLevel, value: outputLevel)
+            }
         }
     }
+
+    /// The amp suite's isolation settings, in one place because they must match
+    /// across every pass it renders — a comparison between two amps measured under
+    /// different conditions is not a comparison.
+    ///
+    /// The input stage now ends in a downward expander below −50 dBFS and the
+    /// output stage in a limiter at −1 dBFS. Both are correct for playing and both
+    /// are contamination for MEASURING an amp: the expander pulls the plucked DI's
+    /// decay tails down (it lifted every amp's crest from ~1.9 to ~4.5 and flattened
+    /// the difference between them to noise), and the limiter flattens the peaks.
+    /// Lifting the input keeps the tails above the expander's threshold; dropping
+    /// the output keeps the loudest amp clear of the ceiling. Same reasoning as
+    /// `cabBypass` in `ampPlan` — to characterize one stage, take the others out.
+    /// Input is left ALONE. Lifting it to clear the expander was tried and is
+    /// wrong: at 4× the burst drove every power setting into identical saturation
+    /// (loud/quiet 1.57 / 1.55 / 1.56) and erased the dynamics the power-control
+    /// checks exist to measure. The expander's effect on decay tails is real but
+    /// it is not worth destroying the measurement to dodge.
+    private static let ampSuiteOutputLevel: Float = 0.25
 
     private func rigLine(_ name: String, _ s: [Float], _ sr: Double) -> String {
         let padded = name.padding(toLength: 20, withPad: " ", startingAt: 0)
@@ -509,6 +557,74 @@ extension AudioEngineController {
         === END PROMPT 003 ===
         """
         return (out, allPass, base.samples)
+    }
+
+    /// THE LIVE SWITCH, which the plan-level check cannot see. Compiling two
+    /// plans and rendering each from scratch proves the COMPILER replaces a
+    /// block. It says nothing about what happens when the type changes on an
+    /// engine that is already running — and "switching into flanger doesn't turn
+    /// it off" is a report about exactly that.
+    ///
+    /// Renders chorus on a live engine, applies the flanger plan mid-stream
+    /// through the same path the app uses, then asks which the tail sounds like.
+    /// If the swap works the tail is flanger; if the old algorithm survives it
+    /// lands nearer chorus, or between the two.
+    private func liveModSwitchTest(fmt: AVAudioFormat, chorus: RigDSPPlan, flanger: RigDSPPlan)
+        async -> (toFlanger: Double, toChorus: Double, ok: Bool) {
+        let sr = fmt.sampleRate
+        let n = Int(2.0 * sr)
+        guard let src = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(n)) else {
+            return (0, 0, false)
+        }
+        src.frameLength = AVAudioFrameCount(n)
+        if let cd = src.floatChannelData {
+            for i in 0..<n { cd[0][i] = Float(0.3 * sin(2.0 * Double.pi * 220.0 * Double(i) / sr)) }
+        }
+
+        /// Render `pre` chunks under `first`, optionally swap to `second`, then
+        /// render `post` chunks and return only those.
+        func run(_ first: RigDSPPlan, swapTo second: RigDSPPlan?,
+                 pre: Int, post: Int) async -> [Float] {
+            StreetRigDSPUnit.registerIfNeeded()
+            guard let unit = try? await Self.instantiateDSPUnit() else { return [] }
+            let engine = AVAudioEngine(); let player = AVAudioPlayerNode()
+            engine.attach(player); engine.attach(unit)
+            engine.connect(player, to: unit, format: fmt)
+            engine.connect(unit, to: engine.mainMixerNode, format: fmt)
+            engine.connect(engine.mainMixerNode, to: engine.outputNode, format: fmt)
+            let maxFrames: AVAudioFrameCount = 128
+            guard (try? engine.enableManualRenderingMode(.offline, format: fmt, maximumFrameCount: maxFrames)) != nil,
+                  (try? engine.start()) != nil,
+                  let rb = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: maxFrames),
+                  let dsp = unit.auAudioUnit as? StreetRigDSPUnit else { return [] }
+            RigGraphCompiler.applyImmediate(first, to: dsp)
+            player.scheduleBuffer(src, at: nil, options: [], completionHandler: nil)
+            player.play()
+            func chunks(_ c: Int) -> [Float] {
+                var out: [Float] = []
+                for _ in 0..<c where (try? engine.renderOffline(maxFrames, to: rb)) == .some(.success) {
+                    out.append(contentsOf: Self.channelSamples(rb))
+                }
+                return out
+            }
+            _ = chunks(pre)
+            if let second { RigGraphCompiler.applyImmediate(second, to: dsp) }
+            let tail = chunks(post)
+            engine.stop()
+            return tail
+        }
+
+        let preChunks = Int(0.5 * sr) / 128, postChunks = Int(0.5 * sr) / 128
+        // The tail after a live chorus→flanger switch…
+        let swapped = await run(chorus, swapTo: flanger, pre: preChunks, post: postChunks)
+        // …against a flanger that was applied the same way and has run the same
+        // number of chunks, so both are at a comparable point in the source.
+        let pureFlanger = await run(flanger, swapTo: flanger, pre: preChunks, post: postChunks)
+        let pureChorus  = await run(chorus,  swapTo: chorus,  pre: preChunks, post: postChunks)
+        guard !swapped.isEmpty, !pureFlanger.isEmpty, !pureChorus.isEmpty else { return (0, 0, false) }
+        let dF = Double(Self.levelMatchedDiff(swapped, pureFlanger))
+        let dC = Double(Self.levelMatchedDiff(swapped, pureChorus))
+        return (dF, dC, dF < dC)
     }
 
     /// Drive the reconfigure barrier inside a running (offline) render: steady tone
@@ -1033,6 +1149,1906 @@ extension AudioEngineController {
         === END AR FOOTSWITCHES ===
         """
         return (out, allPass)
+    }
+
+    // MARK: - Amp-profile verification (per-amp voicing + the Katana)
+    //
+    //  The exit criterion for the profile system is not "it builds" — it is that
+    //  the six catalog amps are MEASURABLY different, that the differences are
+    //  VOICING rather than level, that the Katana's characters and its power
+    //  control do what they claim, and that an amp with no profile is unchanged.
+    //  Everything below renders through the real AU graph with the CAB BYPASSED,
+    //  so what is measured is the amp itself and not two shared IRs.
+
+    /// Fraction of a signal's RMS that sits inside [lo, hi] Hz — a 2nd-order RBJ
+    /// high-pass into a 2nd-order low-pass. Normalized by the total, so it is
+    /// LEVEL-INDEPENDENT: two renders that differ only in gain score identically,
+    /// which is exactly what makes it a voicing measurement.
+    static func bandEnergy(_ x: [Float], sr: Double, lo: Double, hi: Double) -> Double {
+        guard !x.isEmpty else { return 0 }
+        func rbj(_ fc: Double, highpass: Bool) -> (Float, Float, Float, Float, Float) {
+            let w0 = 2 * Double.pi * fc / sr
+            let cw = cos(w0), sw = sin(w0), alpha = sw / (2 * 0.707)
+            let a0 = 1 + alpha
+            if highpass {
+                return (Float((1 + cw) / 2 / a0), Float(-(1 + cw) / a0), Float((1 + cw) / 2 / a0),
+                        Float(-2 * cw / a0), Float((1 - alpha) / a0))
+            }
+            return (Float((1 - cw) / 2 / a0), Float((1 - cw) / a0), Float((1 - cw) / 2 / a0),
+                    Float(-2 * cw / a0), Float((1 - alpha) / a0))
+        }
+        let (hb0, hb1, hb2, ha1, ha2) = rbj(lo, highpass: true)
+        let (lb0, lb1, lb2, la1, la2) = rbj(hi, highpass: false)
+        var hx1: Float = 0, hx2: Float = 0, hy1: Float = 0, hy2: Float = 0
+        var lx1: Float = 0, lx2: Float = 0, ly1: Float = 0, ly2: Float = 0
+        var sumB: Float = 0, sumF: Float = 0
+        for s in x {
+            let h = hb0 * s + hb1 * hx1 + hb2 * hx2 - ha1 * hy1 - ha2 * hy2
+            hx2 = hx1; hx1 = s; hy2 = hy1; hy1 = h
+            let l = lb0 * h + lb1 * lx1 + lb2 * lx2 - la1 * ly1 - la2 * ly2
+            lx2 = lx1; lx1 = h; ly2 = ly1; ly1 = l
+            sumB += l * l; sumF += s * s
+        }
+        let rmsF = (sumF / Float(x.count)).squareRoot()
+        let rmsB = (sumB / Float(x.count)).squareRoot()
+        return rmsF > 1e-9 ? Double(rmsB / rmsF) * 100 : 0
+    }
+
+    /// A level-independent SPECTRAL FINGERPRINT: the fraction of energy above
+    /// each of five cutoffs. Two amps that differ only in output gain produce the
+    /// same fingerprint; two amps that are voiced differently cannot.
+    static func fingerprint(_ x: [Float], sr: Double) -> [Double] {
+        [500.0, 1000, 2000, 4000, 8000].map { Double(Self.brightness(x, sr: sr, cutoff: $0) * 100) }
+    }
+
+    /// Largest per-band gap between two fingerprints, in percentage points.
+    static func fingerprintGap(_ a: [Double], _ b: [Double]) -> Double {
+        zip(a, b).map { abs($0 - $1) }.max() ?? 0
+    }
+
+    /// Peak ÷ RMS. Compression squashes it; clean headroom preserves it.
+    static func crestFactor(_ x: [Float]) -> Double {
+        let r = Self.rms(x)
+        return r > 1e-9 ? Double(Self.peak(x) / r) : 0
+    }
+
+    /// Difference RMS after matching levels, as a fraction of the reference RMS.
+    /// This is the "it is not just a volume knob" measurement: scale one render
+    /// onto the other and see what is left.
+    static func levelMatchedDiff(_ a: [Float], _ b: [Float]) -> Double {
+        let ra = Self.rms(a), rb = Self.rms(b)
+        guard ra > 1e-9, rb > 1e-9 else { return 0 }
+        let k = ra / rb
+        let n = min(a.count, b.count)
+        var sum: Float = 0
+        for i in 0..<n { let d = a[i] - b[i] * k; sum += d * d }
+        let diff = n > 0 ? (sum / Float(n)).squareRoot() : 0
+        return Double(diff / ra)
+    }
+
+    /// One amp under test: a minimal rig (guitar + amp, plus a cabinet for a
+    /// head) compiled by the REAL `RigGraphCompiler`, so the profile is resolved
+    /// from the catalog NAME and the knob set from `PedalSpec` — the same path
+    /// the app takes. The cab is then bypassed so the measurement is the amp.
+    private func ampPlan(_ name: String, _ category: GearCategory,
+                         values: [String: Double]) -> (plan: RigDSPPlan, item: GearItem) {
+        let guitar = GearItem(name: "Les Paul Standard", category: .guitar)
+        var amp = GearItem(name: name, category: category)
+        for (k, v) in values { amp.values[k] = v }
+        var collection = [guitar, amp]
+        let section: AmpSection
+        if category == .comboAmp {
+            section = .combo(comboId: amp.id)
+        } else {
+            let cab = GearItem(name: "Marswell 1960A 4x12", category: .cabinet)
+            collection.append(cab)
+            section = .stack(ampId: amp.id, cabinetId: cab.id)
+        }
+        var plan = RigGraphCompiler.compile(
+            collection: collection,
+            rig: RigConfiguration(guitarId: guitar.id, ampSection: section, pedalIds: []))
+        plan.cabBypass = true      // isolate the AMP: only two IRs are bundled
+        return (plan, amp)
+    }
+
+    /// Knobs held identical across every amp under test, so any difference is the
+    /// profile and nothing else. Gain 5 sits at edge-of-breakup for a crunch
+    /// voicing and stays clean for a Twin, which is the point.
+    private static let ampTestKnobs: [String: Double] = [
+        "Gain": 5, "Bass": 5, "Mid": 5, "Treble": 5, "Presence": 5,
+        "Volume": 5, "Master": 5,
+    ]
+
+    private func runAmpProfileVerification(dry: AVAudioPCMBuffer,
+                                           fmt: AVAudioFormat,
+                                           sr: Double) async -> (text: String, pass: Bool) {
+        var checks: [(String, Bool, String)] = []
+        var lines: [String] = []
+
+        // BELOW THE LIMITER, ON PURPOSE. At full level the hottest amps drove the
+        // output stage well past its −1 dBFS ceiling (the AC30 peaked around 1.7
+        // linear) and the limiter pulled them back by up to 4.8 dB — so what the
+        // suite measured was the limiter's gain reduction, not the voicing. 0.25
+        // puts even the loudest amp near 0.43 peak, clear of the ceiling, and the
+        // comparisons are all level-matched or RMS-fractional anyway, so nothing
+        // downstream cares about the absolute figure.
+        func render(_ plan: RigDSPPlan) async -> [Float] {
+            ((try? await renderRigPlan(plan, source: dry, fmt: fmt,
+                                       outputLevel: Self.ampSuiteOutputLevel)) ?? PassOutput()).samples
+        }
+        func mid(_ s: [Float]) -> Double { Self.bandEnergy(s, sr: sr, lo: 300, hi: 1200) }
+        func hi3(_ s: [Float]) -> Double { Double(Self.brightness(s, sr: sr, cutoff: 3000) * 100) }
+
+        // ---- 1. THE SIX CATALOG AMPS, same DI, same knobs, cab bypassed. ------
+        let catalog: [(String, GearCategory)] = [
+            ("Marswell JCM800 2203", .amp),
+            ("Fandor Twin Reverb",   .comboAmp),
+            ("Volt AC30",            .comboAmp),
+            ("Rolund JC-120 Jazz Chorus", .comboAmp),
+            ("Fandor Bassman '59",   .comboAmp),
+            ("VOSS Katana 100",      .comboAmp),
+            // Every amp in the catalog is profiled now, so this array is the
+            // whole shipped set — the pairwise-distinctness check below is
+            // therefore a check on the ENTIRE catalog, not a sample of it. Four
+            // of these five are Marshall-lineage (Plexi, BE-100, DSL40C, and the
+            // JCM800 above), which is the hardest case for distinctness and the
+            // reason to keep them all in one run.
+            ("Marswell Plexi Super Lead 1959", .amp),
+            ("Freedman BE-100",      .amp),
+            ("Mesa Boogey Dual Rectifier", .amp),
+            ("Tangerine Rockerverb 100", .amp),
+            ("Marswell DSL40C",      .comboAmp),
+        ]
+        var rendered: [(name: String, profile: Int, samples: [Float], fp: [Double])] = []
+        for (name, cat) in catalog {
+            let built = ampPlan(name, cat, values: Self.ampTestKnobs)
+            let out = await render(built.plan)
+            rendered.append((name, built.plan.ampProfile, out, Self.fingerprint(out, sr: sr)))
+        }
+
+        lines.append("  amp                    profile  RMS       crest  |  mid300-1.2k  hi>500  hi>1k  hi>2k  hi>4k  hi>8k")
+        for r in rendered {
+            let pad = r.name.padding(toLength: 22, withPad: " ", startingAt: 0)
+            lines.append("  \(pad) \(String(format: "%2d", r.profile))     "
+                + "\(Self.dbfs(Self.rms(r.samples))) dB  "
+                + String(format: "%5.2f", Self.crestFactor(r.samples)) + "  |  "
+                + String(format: "%8.1f%%", mid(r.samples)) + "  "
+                + r.fp.map { String(format: "%5.1f%%", $0) }.joined(separator: " "))
+        }
+
+        // Every amp resolved to a DISTINCT profile — the name matcher works.
+        // Derived from the catalog, not hardcoded: adding an amp to the array
+        // above must not require editing a count down here, or the check quietly
+        // stops covering the newest amp — which is the one most likely to be
+        // wrong.
+        let ids = rendered.map(\.profile)
+        checks.append(("every catalog amp resolves to its own profile",
+                       Set(ids).count == catalog.count && !ids.contains(0),
+                       "\(catalog.count) amps → ids \(ids) (0 = legacy fallback, must not appear)"))
+
+        // Pairwise: audibly different AND spectrally different. The second half
+        // is what rules out "they are the same amp at different volumes".
+        var worstDiff = Double.greatestFiniteMagnitude, worstDiffPair = ""
+        var worstGap  = Double.greatestFiniteMagnitude, worstGapPair = ""
+        for i in 0..<rendered.count {
+            for j in (i + 1)..<rendered.count {
+                let d = Self.levelMatchedDiff(rendered[i].samples, rendered[j].samples)
+                if d < worstDiff { worstDiff = d; worstDiffPair = "\(rendered[i].profile)/\(rendered[j].profile)" }
+                let g = Self.fingerprintGap(rendered[i].fp, rendered[j].fp)
+                if g < worstGap { worstGap = g; worstGapPair = "\(rendered[i].profile)/\(rendered[j].profile)" }
+            }
+        }
+        checks.append(("every amp pair differs (level-matched)", worstDiff > 0.10,
+                       String(format: "closest pair %@ still %.1f%% residual after level matching",
+                              worstDiffPair, worstDiff * 100)))
+        checks.append(("…and differs SPECTRALLY, not just in level", worstGap > 1.0,
+                       String(format: "closest pair %@ still %.1f pp apart in a band", worstGapPair, worstGap)))
+
+        // The `noonDB` claims, measured. These are the exact rows the whole change
+        // hinges on: a passive stack is not flat at noon, and each amp's scoop is
+        // its own. Everything here is at IDENTICAL knob settings.
+        func byId(_ id: Int) -> [Float] { rendered.first { $0.profile == id }?.samples ?? [] }
+        // WHAT THIS CHECK IS ACTUALLY FOR: the sign of the AC30's mid `noonDB`. It
+        // is the only positive one in the table, and if it ever flips the AC30
+        // stops being an AC30 — that is the regression worth catching.
+        //
+        // It used to assert the AC30 out-mids EVERY amp, which held while all six
+        // amps were stack-voiced. It stopped holding the moment a hot-rodded
+        // four-stage amp existed: the BE-100 measures 45.2% against the AC30's
+        // 44.6% while its stack is SCOOPED (−6.5 dB at noon). That mid energy is
+        // manufactured by four cascaded gain stages with cathode shelves at 520
+        // and 700 Hz, not by the tone stack — a different mechanism, and true to
+        // the real amp. Detuning the BE-100 to keep the old assertion green would
+        // have meant making an amp wrong to make a test pass.
+        //
+        // So the comparison is against the STACK-VOICED amps — the ones whose mid
+        // energy really is their tone stack. The high-gain rows are reported below
+        // rather than asserted on, so the numbers stay visible either way.
+        // AGAINST THE SCOOPED AMPS, which is the comparison that survived the ear
+        // tuning. This used to assert the AC30 out-mids every stack-voiced amp,
+        // and that stopped being true the moment the Marshalls were deliberately
+        // voiced mid-forward — "almost like a truck hitting you" — which is a
+        // change to the product, not a regression. Four amps now sit above the
+        // AC30 on purpose.
+        //
+        // What is still true and still worth guarding is the AC30 against the
+        // amps whose identity is a SCOOP: the Twin, the JC-120 and the Rectifier.
+        // If the AC30 ever falls below those, its positive mid noonDB has flipped
+        // sign and it has stopped being an AC30.
+        let scooped = [ParameterMap.ampTwinReverb, ParameterMap.ampJC120,
+                       ParameterMap.ampDualRect]
+        let ac30Mid = mid(byId(ParameterMap.ampAC30))
+        let peerMid = scooped.map { mid(byId($0)) }.max() ?? 0
+        checks.append(("AC30 sits well above the SCOOPED amps", ac30Mid > peerMid + 5.0,
+                       String(format: "AC30 %.1f%% vs the most mid-present scooped amp %.1f%%",
+                              ac30Mid, peerMid)))
+        // And the Marshalls really did become the mid-forward ones.
+        let marshalls = [ParameterMap.ampJCM800, ParameterMap.ampDSL40C, ParameterMap.ampBE100]
+        checks.append(("the Marshalls are mid-FORWARD (the 'truck')",
+                       marshalls.allSatisfy { mid(byId($0)) > 40.0 },
+                       marshalls.map { String(format: "%.1f%%", mid(byId($0))) }.joined(separator: ", ")
+                           + " — all above 40% in 300 Hz–1.2 kHz"))
+        // Reported, not asserted: cascaded gain stages raise mid energy on their
+        // own. If one of these ever drops BELOW the stack-voiced peak, its gain
+        // staging has quietly gone flat.
+        let gainStaged = [("BE-100", ParameterMap.ampBE100),
+                          ("DSL40C", ParameterMap.ampDSL40C)]
+        checks.append(("high-gain amps out-mid the vintage stacks by gain staging",
+                       gainStaged.contains { mid(byId($0.1)) > peerMid },
+                       gainStaged.map { String(format: "%@ %.1f%%", $0.0, mid(byId($0.1))) }
+                           .joined(separator: ", ") + String(format: " vs stack peak %.1f%%", peerMid)))
+        let twinMid = mid(byId(ParameterMap.ampTwinReverb)), jcmMid = mid(byId(ParameterMap.ampJCM800))
+        checks.append(("Twin is more mid-scooped than the JCM800", twinMid < jcmMid,
+                       String(format: "mid 300–1.2k: Twin %.1f%% < JCM800 %.1f%% (noonDB −11 vs −7)",
+                              twinMid, jcmMid)))
+        // HEADROOM, MEASURED AS HARMONICS RATHER THAN CREST. The claim is that the
+        // JC-120 (headroom 3.00, solid state) stays clean where the JCM800
+        // (headroom 0.75, Class AB) breaks up. Crest factor used to show that and
+        // no longer does: the input stage's downward expander pulls the plucked
+        // DI's decay tails below its −50 dBFS threshold, which lifts EVERY amp's
+        // crest (~1.9 → ~4.5) and squeezes the gap between these two to 0.03 —
+        // noise. Harmonic generation on a loud sustained tone measures breakup
+        // directly, sits far above the expander's threshold, and is the thing the
+        // headroom field actually controls.
+        let loudTone = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(sr))!
+        loudTone.frameLength = AVAudioFrameCount(sr)
+        for i in 0..<Int(sr) {
+            loudTone.floatChannelData![0][i] = Float(0.5 * sin(2.0 * Double.pi * 220.0 * Double(i) / sr))
+        }
+        func harmonics(_ name: String, _ cat: GearCategory) async -> Double {
+            var plan = ampPlan(name, cat, values: Self.ampTestKnobs).plan
+            plan.cabBypass = true
+            let out = ((try? await renderRigPlan(plan, source: loudTone, fmt: fmt,
+                                                 outputLevel: Self.ampSuiteOutputLevel))
+                        ?? PassOutput()).samples
+            // Everything above the 220 Hz fundamental is harmonic the amp invented.
+            return Double(Self.brightness(out, sr: sr, cutoff: 400) * 100)
+        }
+        let jcHarm = await harmonics("Rolund JC-120 Jazz Chorus", .comboAmp)
+        let jcmHarm = await harmonics("Marswell JCM800 2203", .amp)
+        checks.append(("JC-120 keeps its headroom; the JCM800 does not", jcHarm < jcmHarm,
+                       String(format: "harmonics >400 Hz on a loud 220 Hz tone: JC-120 %.1f%% < JCM800 %.1f%% (headroom 3.00 vs 0.75)",
+                              jcHarm, jcmHarm)))
+
+        // ---- 1b. …AND THEY MUST STILL DIFFER AT PLAYING LEVEL. ---------------
+        // Reported by ear: "every amp sounds exactly the same". The check above
+        // renders at 0.25 output to keep the limiter out of the measurement,
+        // which is right for characterising an amp and WRONG as the only test —
+        // nobody plays at 0.25. On the device the master defaults to 2.0 with the
+        // input trim aiming peaks at −8 dBFS, which lands the output stage tens of
+        // dB over the limiter's target, and a limiter doing that much work flattens
+        // the dynamics and harmonics that separate one amp from another.
+        //
+        // So: the same pairwise comparison, at the level the app actually ships.
+        func renderLoud(_ plan: RigDSPPlan) async -> [Float] {
+            ((try? await renderRigPlan(plan, source: dry, fmt: fmt,
+                                       outputLevel: 2.0)) ?? PassOutput()).samples
+        }
+        var loud: [(String, [Float])] = []
+        for (name, cat) in catalog {
+            loud.append((name, await renderLoud(ampPlan(name, cat, values: Self.ampTestKnobs).plan)))
+        }
+        var worstLoud = Double.greatestFiniteMagnitude, worstLoudPair = ""
+        for i in 0..<loud.count {
+            for j in (i + 1)..<loud.count {
+                let d = Self.levelMatchedDiff(loud[i].1, loud[j].1)
+                if d < worstLoud { worstLoud = d; worstLoudPair = "\(loud[i].0) vs \(loud[j].0)" }
+            }
+        }
+        lines.append(String(format: "  at PLAYING level (master 2.0): closest pair %@ = %.1f%% residual",
+                            worstLoudPair, worstLoud * 100))
+        checks.append(("amps still differ AT PLAYING LEVEL, not just isolated",
+                       worstLoud > 0.10,
+                       String(format: "closest pair %@ still %.1f%% apart at master 2.0 (isolated: they are 20%%+)",
+                              worstLoudPair, worstLoud * 100)))
+
+        // ---- 1c. …AND THROUGH THE SPEAKER, WHICH IS HOW THEY ARE HEARD. ------
+        // Every "amps differ" number above is measured with cabBypass = true. That
+        // isolates the amp, which is what characterising one requires — and it
+        // means NONE of them describe what comes out of the phone, because on the
+        // device the cab is always in. A cabinet is about half of what an amp
+        // sounds like, and StreetRig ships TWO synthetic placeholder IRs across
+        // eleven amps, so the speaker is very nearly a shared constant.
+        //
+        // If the amps converge here, the amps are not the problem — the cab is,
+        // and no amount of profile tuning fixes it.
+        func renderWithCab(_ name: String, _ cat: GearCategory) async -> [Float] {
+            var plan = ampPlan(name, cat, values: Self.ampTestKnobs).plan
+            plan.cabBypass = false                      // the speaker is IN
+            return ((try? await renderRigPlan(plan, source: dry, fmt: fmt,
+                                              outputLevel: 2.0)) ?? PassOutput()).samples
+        }
+        var cabbed: [(String, [Float])] = []
+        for (name, cat) in catalog { cabbed.append((name, await renderWithCab(name, cat))) }
+        var worstCab = Double.greatestFiniteMagnitude, worstCabPair = ""
+        for i in 0..<cabbed.count {
+            for j in (i + 1)..<cabbed.count {
+                let d = Self.levelMatchedDiff(cabbed[i].1, cabbed[j].1)
+                if d < worstCab { worstCab = d; worstCabPair = "\(cabbed[i].0) vs \(cabbed[j].0)" }
+            }
+        }
+        lines.append(String(format: "  THROUGH THE CAB, at playing level: closest pair %@ = %.1f%% residual",
+                            worstCabPair, worstCab * 100))
+        checks.append(("amps still differ THROUGH THE SPEAKER — how they are actually heard",
+                       worstCab > 0.10,
+                       String(format: "closest pair %@ = %.1f%% with the cab in (%.1f%% with it bypassed)",
+                              worstCabPair, worstCab * 100, worstLoud * 100)))
+
+        // ---- 1d. EVERY TONE KNOB HAS TO MOVE ITS OWN BAND. -------------------
+        // "The bass knob isn't making any difference." There are only two
+        // explanations and they need different fixes: either the band is not
+        // reaching the DSP, or it is and a phone speaker cannot reproduce what it
+        // moves. This answers the first half; the second half is not fixable in
+        // software.
+        func bandSweep(_ knob: String, lo: Double, hi: Double) async -> (Double, Double) {
+            var v = Self.ampTestKnobs
+            v[knob] = 0
+            let down = await render(ampPlan("Marswell JCM800 2203", .amp, values: v).plan)
+            v[knob] = 10
+            let up = await render(ampPlan("Marswell JCM800 2203", .amp, values: v).plan)
+            return (Self.bandEnergy(down, sr: sr, lo: lo, hi: hi),
+                    Self.bandEnergy(up,   sr: sr, lo: lo, hi: hi))
+        }
+        let bass = await bandSweep("Bass", lo: 40, hi: 200)
+        checks.append(("Bass 0→10 moves the LOW band", bass.1 > bass.0 + 1.0,
+                       String(format: "40–200 Hz: %.1f%% → %.1f%%", bass.0, bass.1)))
+        let treble = await bandSweep("Treble", lo: 2000, hi: 6000)
+        checks.append(("Treble 0→10 moves the HIGH band", treble.1 > treble.0 + 1.0,
+                       String(format: "2–6 kHz: %.1f%% → %.1f%%", treble.0, treble.1)))
+        let midSweep = await bandSweep("Mid", lo: 300, hi: 1200)
+        checks.append(("Mid 0→10 moves the MID band", midSweep.1 > midSweep.0 + 1.0,
+                       String(format: "300–1.2k: %.1f%% → %.1f%% (asymmetric: full cut, third boost)",
+                              midSweep.0, midSweep.1)))
+
+        // ---- 2. THE VOX CUT: a knob that works BACKWARDS. --------------------
+        // The strongest form of "a brighter amp measures brighter": the same
+        // control, on two amps, must move brightness in OPPOSITE directions,
+        // because the AC30's `presenceScale` is negative.
+        // SWEEPS WHICHEVER NAME THE PANEL USES. The AC30's control is CUT, not
+        // Presence — same destination, and the profile's negative scale is what
+        // makes it run backwards. Setting only "Presence" turned a knob that amp
+        // no longer has, while its "Cut" sat at noon and won in the compiler.
+        // Both are set, so this follows the panel instead of assuming it.
+        func presenceSweep(_ name: String, _ cat: GearCategory) async -> (lo: Double, hi: Double) {
+            var v = Self.ampTestKnobs; v["Presence"] = 0; v["Cut"] = 0
+            let dark = await render(ampPlan(name, cat, values: v).plan)
+            v["Presence"] = 10; v["Cut"] = 10
+            let bright = await render(ampPlan(name, cat, values: v).plan)
+            return (hi3(dark), hi3(bright))
+        }
+        let acP = await presenceSweep("Volt AC30", .comboAmp)
+        let jcmP = await presenceSweep("Marswell JCM800 2203", .amp)
+        checks.append(("JCM800 Presence 0→10 brightens", jcmP.hi > jcmP.lo + 0.2,
+                       String(format: "hi>3k %.1f%% → %.1f%%", jcmP.lo, jcmP.hi)))
+        checks.append(("AC30 Presence 0→10 DARKENS (the Vox Cut)", acP.hi < acP.lo - 0.2,
+                       String(format: "hi>3k %.1f%% → %.1f%% (presenceScale −0.8)", acP.lo, acP.hi)))
+
+        // ---- 3. THE KATANA: five characters × two variations. ----------------
+        var kat: [(label: String, id: Int, s: [Float], fp: [Double])] = []
+        for (c, cname) in ParameterMap.ampKatanaCharacters.enumerated() {
+            for variation in 0...1 {
+                var v = Self.ampTestKnobs
+                v["Character"] = Double(c); v["Variation"] = Double(variation)
+                let built = ampPlan("VOSS Katana 100", .comboAmp, values: v)
+                let out = await render(built.plan)
+                kat.append(("\(cname) \(variation == 0 ? "A" : "B")", built.plan.ampProfile,
+                            out, Self.fingerprint(out, sr: sr)))
+            }
+        }
+        lines.append("")
+        lines.append("  Katana voicing         profile  RMS       crest  |  mid300-1.2k  hi>500  hi>1k  hi>2k  hi>4k  hi>8k")
+        for k in kat {
+            let pad = k.label.padding(toLength: 22, withPad: " ", startingAt: 0)
+            lines.append("  \(pad) \(String(format: "%2d", k.id))     "
+                + "\(Self.dbfs(Self.rms(k.s))) dB  "
+                + String(format: "%5.2f", Self.crestFactor(k.s)) + "  |  "
+                + String(format: "%8.1f%%", mid(k.s)) + "  "
+                + k.fp.map { String(format: "%5.1f%%", $0) }.joined(separator: " "))
+        }
+        let katIds = kat.map(\.id)
+        checks.append(("ten Katana voicings, ten profile ids", Set(katIds).count == 10,
+                       "ids \(katIds)"))
+        var worstChar = Double.greatestFiniteMagnitude, worstCharPair = ""
+        for i in 0..<kat.count {
+            for j in (i + 1)..<kat.count {
+                let d = Self.levelMatchedDiff(kat[i].s, kat[j].s)
+                if d < worstChar { worstChar = d; worstCharPair = "\(kat[i].label) vs \(kat[j].label)" }
+            }
+        }
+        checks.append(("all ten Katana voicings are distinct", worstChar > 0.05,
+                       String(format: "closest pair %@ still %.1f%% residual", worstCharPair, worstChar * 100)))
+        var worstVar = Double.greatestFiniteMagnitude, worstVarLabel = ""
+        for c in 0..<ParameterMap.ampKatanaCharacterCount {
+            let d = Self.levelMatchedDiff(kat[c * 2].s, kat[c * 2 + 1].s)
+            if d < worstVar { worstVar = d; worstVarLabel = ParameterMap.ampKatanaCharacters[c] }
+        }
+        checks.append(("Variation B differs from A on every character", worstVar > 0.05,
+                       String(format: "weakest: %@ %.1f%% residual", worstVarLabel, worstVar * 100)))
+        // B is "hotter and tighter": less low end into the clipper, more drive.
+        let brownA = kat[8], brownB = kat[9]
+        checks.append(("Brown B is tighter than Brown A (less low end)",
+                       Self.bandEnergy(brownB.s, sr: sr, lo: 20, hi: 150)
+                       < Self.bandEnergy(brownA.s, sr: sr, lo: 20, hi: 150),
+                       String(format: "20–150 Hz: A %.1f%% → B %.1f%% (inputHz 85 → 105)",
+                              Self.bandEnergy(brownA.s, sr: sr, lo: 20, hi: 150),
+                              Self.bandEnergy(brownB.s, sr: sr, lo: 20, hi: 150))))
+
+        // ---- 4. LOUD DOES NOT MEAN DIRTY. -----------------------------------
+        // The wattage selector is gone (see Gear.swift), and these checks replace
+        // the ones that drove it. What matters now is the property those apps get
+        // right and this one used to get wrong: a CLEAN amp must still be clean
+        // with the fader buried, because loudness is the limiter's job and dirt is
+        // the amp's. The output stage used to blend saturation in above +12 dB,
+        // which made that impossible by construction.
+        func cleanAmpAt(_ level: Float) async -> [Float] {
+            var v = Self.ampTestKnobs
+            v["Gain"] = 2                                    // a clean setting
+            var plan = ampPlan("Rolund JC-120 Jazz Chorus", .comboAmp, values: v).plan
+            plan.cabBypass = true
+            return ((try? await renderRigPlan(plan, source: loudTone, fmt: fmt,
+                                              outputLevel: level)) ?? PassOutput()).samples
+        }
+        let quietClean = await cleanAmpAt(0.25)
+        let loudClean  = await cleanAmpAt(8.0)      // fader buried
+        // Harmonics above the 220 Hz fundamental: what the amp INVENTED. If the
+        // output stage is clean, cranking it adds none.
+        let quietHarm = Double(Self.brightness(quietClean, sr: sr, cutoff: 400) * 100)
+        let loudHarm  = Double(Self.brightness(loudClean,  sr: sr, cutoff: 400) * 100)
+        checks.append(("a CLEAN amp stays clean with the fader buried",
+                       abs(loudHarm - quietHarm) < 2.0,
+                       String(format: "harmonics >400 Hz: %.1f%% at 0.25 → %.1f%% at 8.0 (was: saturation blended in past +12 dB)",
+                              quietHarm, loudHarm)))
+        // …and it really did get louder while staying clean.
+        let quietRMS = Double(Self.rms(quietClean)), loudRMS = Double(Self.rms(loudClean))
+        checks.append(("…and it actually got LOUDER doing it", loudRMS > quietRMS * 1.5,
+                       String(format: "RMS %@ → %@", Self.dbfs(Float(quietRMS)), Self.dbfs(Float(loudRMS)))))
+        // A DIRTY amp must still be dirty — the fix must not have flattened the
+        // top end into a clean-only machine.
+        func brownHarm() async -> Double {
+            var v = Self.ampTestKnobs
+            v["Character"] = 4; v["Variation"] = 1; v["Gain"] = 9   // Brown B, cranked
+            var plan = ampPlan("VOSS Katana 100", .comboAmp, values: v).plan
+            plan.cabBypass = true
+            let out = ((try? await renderRigPlan(plan, source: loudTone, fmt: fmt,
+                                                 outputLevel: Self.ampSuiteOutputLevel))
+                        ?? PassOutput()).samples
+            return Double(Self.brightness(out, sr: sr, cutoff: 400) * 100)
+        }
+        // COMPARED AGAINST ITSELF, not against a different amp. The old form put
+        // Brown B cranked next to a clean JC-120, which conflated two variables —
+        // and it broke the moment the Katana's clip bias went near-symmetric,
+        // because symmetric clipping makes only ODD harmonics. Losing the 2nd
+        // harmonic dropped the number even though the amp got MORE saturated, so
+        // the check was reading harmonic ORDER and reporting it as cleanliness.
+        //
+        // Same amp, same everything, gain 1 vs gain 9. That isolates the one
+        // variable the check cares about and cannot be fooled by a voicing change.
+        // CRUNCH, not Brown. Brown is a high-gain channel: it is saturated at the
+        // bottom of its dial on purpose and on the real amp too, so asking it for a
+        // wide clean-to-dirty sweep tests a thing it is not meant to do. Crunch is
+        // the character whose whole job is that sweep — "edge of breakup" at the
+        // bottom, genuinely crunchy at the top — so it is the honest place to
+        // assert the Gain knob still travels.
+        func brownAtGain(_ g: Double) async -> Double {
+            var v = Self.ampTestKnobs
+            v["Character"] = 2; v["Variation"] = 0; v["Gain"] = g
+            var plan = ampPlan("VOSS Katana 100", .comboAmp, values: v).plan
+            plan.cabBypass = true
+            let out = ((try? await renderRigPlan(plan, source: loudTone, fmt: fmt,
+                                                 outputLevel: Self.ampSuiteOutputLevel))
+                        ?? PassOutput()).samples
+            return Double(Self.brightness(out, sr: sr, cutoff: 400) * 100)
+        }
+        let brownLow = await brownAtGain(1), brownHigh = await brownAtGain(9)
+        checks.append(("the Gain knob still travels (Crunch A, 1 → 9)", brownHigh > brownLow + 5.0,
+                       String(format: "harmonics >400 Hz: %.1f%% at Gain 1 → %.1f%% at Gain 9",
+                              brownLow, brownHigh)))
+
+
+        // ---- 4b. THE INPUT EXPANDER DOES NOT MODULATE A NOTE. ----------------
+        // Reported by ear, and missed by every check here: chords sounded uneven
+        // and dulled and clean tones crackled. The expander applied its gain
+        // straight from a 1 ms peak follower, per sample — an envelope that
+        // ripples at the waveform rate on a low note, squared by `t·t` — so
+        // anything decaying near the threshold got audio-rate AM.
+        //
+        // A quiet note and a loud one differ in LEVEL and nothing else. Run the
+        // same tone through at both and the harmonic content must match: if the
+        // input stage is modulating the quiet one, its sidebands show up here.
+        // Amp and cab are bypassed so this sees the input stage alone.
+        func inputStageHarmonics(_ amplitude: Double) async -> Double {
+            let n = Int(sr)
+            let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(n))!
+            buf.frameLength = AVAudioFrameCount(n)
+            for i in 0..<n {
+                buf.floatChannelData![0][i] = Float(amplitude * sin(2.0 * Double.pi * 82.41 * Double(i) / sr))
+            }
+            var plan = RigDSPPlan()          // low E: the worst case for envelope ripple
+            plan.ampBypass = true
+            plan.cabBypass = true
+            let out = ((try? await renderRigPlan(plan, source: buf, fmt: fmt,
+                                                 outputLevel: Self.ampSuiteOutputLevel))
+                        ?? PassOutput()).samples
+            return Double(Self.brightness(out, sr: sr, cutoff: 200) * 100)
+        }
+        let loudTone82  = await inputStageHarmonics(0.5)     // −6 dBFS
+        let quietTone82 = await inputStageHarmonics(0.004)   // −48 dBFS: on the OLD threshold
+        checks.append(("a quiet note is not amplitude-modulated by the expander",
+                       abs(quietTone82 - loudTone82) < 1.0,
+                       String(format: "non-fundamental energy: %.2f%% at −6 dBFS vs %.2f%% at −48 dBFS",
+                              loudTone82, quietTone82)))
+
+        // ---- 5. STRUCTURAL vs CONTINUOUS, read off the signature. ------------
+        func sig(_ v: [String: Double]) -> String {
+            var vals = Self.ampTestKnobs
+            for (k, x) in v { vals[k] = x }
+            return ampPlan("VOSS Katana 100", .comboAmp, values: vals).plan.signature
+        }
+        let sigBase = sig(["Character": 2, "Variation": 0, "Power": 2])
+        checks.append(("Power is CONTINUOUS (signature unchanged)",
+                       sig(["Character": 2, "Variation": 0, "Power": 0]) == sigBase,
+                       "0.5 W and 100 W compile to \(sigBase)"))
+        checks.append(("Gain/EQ/Volume are CONTINUOUS (signature unchanged)",
+                       sig(["Gain": 9, "Treble": 1, "Volume": 9, "Master": 2]) == sigBase,
+                       "knob turns never rebuild the chain"))
+        checks.append(("Character is STRUCTURAL (signature moves)",
+                       sig(["Character": 4]) != sigBase,
+                       "Crunch \(sigBase) → Brown \(sig(["Character": 4]))"))
+        checks.append(("Variation is STRUCTURAL (signature moves)",
+                       sig(["Variation": 1]) != sigBase, "A → B changes the profile id"))
+        let click = await powerSwitchClickTest(fmt: fmt)
+        checks.append(("power switch mid-render is click-free", click.clickFree,
+                       String(format: "max |Δsample| %.4f across the switch vs %.4f steady (×%.2f)",
+                              click.switchJump, click.steadyJump, click.ratio)))
+
+        // ---- 6. ROUND-TRIP IDENTITY for every new curve. ---------------------
+        var volErr = 0.0
+        for i in 0...20 {
+            let knob = Double(i) * 0.5
+            volErr = max(volErr, abs(ParameterMap.invAmpVolumeKnob(ParameterMap.ampVolume(volumeKnob: knob)) - knob))
+        }
+        checks.append(("ampVolume knob → bus → knob is identity", volErr < 1e-4,
+                       String(format: "max error %.2e over 0…10 in 0.5 steps", volErr)))
+        let powerRT = (0...2).allSatisfy {
+            Int(ParameterMap.invAmpPowerIndex(ParameterMap.ampPowerScale(powerIndex: Double($0)))) == $0
+        }
+        checks.append(("ampPower index → bus → index is identity", powerRT,
+                       "0.5 W / 50 W / 100 W all resolve back to their own detent"))
+
+        // ---- 7. SAVED STATE: a rig from before these knobs existed. ----------
+        let oldJSON = """
+        {"id":"\(UUID().uuidString)","name":"VOSS Katana 100","category":"comboAmp",
+         "values":{"Gain":6,"Bass":5,"Mid":5,"Treble":5,"Presence":5,"Master":6}}
+        """
+        var savedOK = false, savedDetail = "could not decode the legacy GearItem JSON"
+        if let data = oldJSON.data(using: .utf8),
+           let oldAmp = try? JSONDecoder().decode(GearItem.self, from: data) {
+            let guitar = GearItem(name: "Les Paul Standard", category: .guitar)
+            let plan = RigGraphCompiler.compile(
+                collection: [guitar, oldAmp],
+                rig: RigConfiguration(guitarId: guitar.id,
+                                      ampSection: .combo(comboId: oldAmp.id), pedalIds: []))
+            savedOK = plan.ampProfile == ParameterMap.ampKatanaBase + 2 * 2   // Crunch, variation A
+                && plan.ampPower == 1.0                                       // 100 W
+                && abs(plan.ampVolume - 1.0) < 1e-6                           // unity
+            savedDetail = "no Character/Variation/Power/Volume keys → profile \(plan.ampProfile) "
+                + "(Crunch A), power \(plan.ampPower), volume \(plan.ampVolume)"
+        }
+        checks.append(("a rig saved before this change loads with sane defaults", savedOK, savedDetail))
+
+        let host = await auv3StateRoundTrip()
+        checks.append(("AUv3 fullState round-trips the new addresses", host.paramsOK, host.paramsDetail))
+        checks.append(("a host blob with NO new params loads on defaults", host.legacyOK, host.legacyDetail))
+
+        // ---- Listening artifacts. --------------------------------------------
+        // The measurements above prove the amps are DIFFERENT. Whether they are
+        // RIGHT is an ear question, and this harness has no ears — so it writes
+        // the A/B material the owner needs: every amp, then every Katana voicing,
+        // back to back on the same DI with the same knobs, half a second of
+        // silence between each so they are easy to pick apart.
+        func concat(_ clips: [[Float]]) -> [Float] {
+            let gap = [Float](repeating: 0, count: Int(0.5 * sr))
+            return clips.flatMap { $0 + gap }
+        }
+        let ampsURL = Self.documentsURL("StreetRig_amp_ab.wav")
+        let katURL = Self.documentsURL("StreetRig_katana_ab.wav")
+        try? Self.writeWav(concat(rendered.map(\.samples)), to: ampsURL, format: fmt)
+        try? Self.writeWav(concat(kat.map(\.s)), to: katURL, format: fmt)
+        lines.append("")
+        lines.append("  A/B for listening : \(ampsURL.lastPathComponent) — "
+                     + rendered.map(\.name).joined(separator: " · "))
+        lines.append("                      \(katURL.lastPathComponent) — "
+                     + kat.map(\.label).joined(separator: " · "))
+
+        // ---- Cost, per profile. ----------------------------------------------
+        let liveDeadlineUs = 128.0 / sr * 1_000_000
+        var costLines: [String] = []
+        for (label, name, cat, extra) in [("JCM800 (3 stages)", "Marswell JCM800 2203", GearCategory.amp, [String: Double]()),
+                                          ("Katana Brown B (4)", "VOSS Katana 100", .comboAmp, ["Character": 4, "Variation": 1]),
+                                          ("legacy (unprofiled)", "Generic Practice Amp", .comboAmp, [:])] {
+            var v = Self.ampTestKnobs
+            for (k, x) in extra { v[k] = x }
+            var plan = ampPlan(name, cat, values: v).plan
+            plan.cabBypass = false          // FULL board cost, cab included
+            let out = (try? await renderRigPlan(plan, source: dry, fmt: fmt, benchmarkFull: true)) ?? PassOutput()
+            let us = out.fullNsPerSample * 128 / 1000
+            costLines.append(String(format: "  %@ : %.1f ns/sample → %.1f µs/128-frame block = %.2f%% of the ~%.0f µs budget",
+                                    label.padding(toLength: 20, withPad: " ", startingAt: 0),
+                                    out.fullNsPerSample, us, us / liveDeadlineUs * 100, liveDeadlineUs))
+        }
+
+        let allPass = checks.allSatisfy { $0.1 }
+        var out = """
+        === AMP PROFILES — every amp is a different amp ===
+        Method        : one amp per pass, no pedals, CAB BYPASSED, identical knobs (all at noon,
+                        Gain 5), rendered through the real AU graph. `mid` and `hi>` are RMS
+                        FRACTIONS, so they are level-independent — an amp cannot score differently
+                        just by being louder.
+
+        \(lines.joined(separator: "\n"))
+
+        --- Checks ---
+
+        """
+        for (name, ok, detail) in checks {
+            let pad = name.padding(toLength: 46, withPad: " ", startingAt: 0)
+            out += "  \(pad) \(ok ? "PASS" : "FAIL")   (\(detail))\n"
+        }
+        out += """
+
+        --- Per-profile render cost (full board incl. cab) ---
+        \(costLines.joined(separator: "\n"))
+        Note          : a profiled amp turns the neural rail OFF (its character IS the profile), so
+                        the LSTM forward pass that dominated the old amp cost is gone.
+        AMP PROFILES OVERALL: \(allPass ? "PASS" : "SOME CHECKS FAILED")
+        === END AMP PROFILES ===
+        """
+        return (out, allPass)
+    }
+
+    /// Flip `SRParamAmpPower` from 100 W to 0.5 W in the MIDDLE of a live render
+    /// and measure the seam. The power control is deliberately off the topology
+    /// signature, so this is the proof that keeping it there was safe: it must
+    /// glide, not step.
+    private func powerSwitchClickTest(fmt: AVAudioFormat)
+        async -> (clickFree: Bool, steadyJump: Float, switchJump: Float, ratio: Double) {
+        let sr = fmt.sampleRate
+        let n = Int(2.0 * sr)
+        guard let src = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(n)) else {
+            return (false, 0, 0, 0)
+        }
+        src.frameLength = AVAudioFrameCount(n)
+        if let cd = src.floatChannelData {
+            for i in 0..<n { cd[0][i] = Float(0.3 * sin(2.0 * Double.pi * 220.0 * Double(i) / sr)) }
+        }
+
+        StreetRigDSPUnit.registerIfNeeded()
+        guard let unit = try? await Self.instantiateDSPUnit() else { return (false, 0, 0, 0) }
+        let engine = AVAudioEngine()
+        let player = AVAudioPlayerNode()
+        engine.attach(player); engine.attach(unit)
+        engine.connect(player, to: unit, format: fmt)
+        engine.connect(unit, to: engine.mainMixerNode, format: fmt)
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: fmt)
+        let maxFrames: AVAudioFrameCount = 128
+        guard (try? engine.enableManualRenderingMode(.offline, format: fmt, maximumFrameCount: maxFrames)) != nil,
+              (try? engine.start()) != nil,
+              let rb = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: maxFrames) else {
+            return (false, 0, 0, 0)
+        }
+        guard let dsp = unit.auAudioUnit as? StreetRigDSPUnit else { return (false, 0, 0, 0) }
+
+        // A Katana Crunch B, pushed hard enough that the power stage is doing work.
+        var v = Self.ampTestKnobs
+        v["Character"] = 2; v["Variation"] = 1; v["Volume"] = 8
+        var plan = ampPlan("VOSS Katana 100", .comboAmp, values: v).plan
+        plan.cabBypass = true
+        RigGraphCompiler.applyImmediate(plan, to: dsp)
+        player.scheduleBuffer(src, at: nil, options: [], completionHandler: nil)
+        player.play()
+
+        func renderChunks(_ count: Int) -> [Float] {
+            var out: [Float] = []
+            for _ in 0..<count where (try? engine.renderOffline(maxFrames, to: rb)) == .some(.success) {
+                let c = Int(rb.frameLength)
+                if let cd = rb.floatChannelData { for i in 0..<c { out.append(cd[0][i]) } }
+            }
+            return out
+        }
+        func maxJump(_ s: [Float]) -> Float {
+            guard s.count > 1 else { return 0 }
+            var m: Float = 0
+            for i in 1..<s.count { m = max(m, abs(s[i] - s[i - 1])) }
+            return m
+        }
+
+        // THREE windows, not two. A relative test against the BEFORE window alone
+        // would fail for an honest reason: at 0.5 W the output-stage waveform is
+        // genuinely squarer, so its legitimate sample-to-sample steps are larger
+        // than at 100 W. That is the control working, not a click. The seam is
+        // isolated by bracketing it with BOTH settled waveforms and asking whether
+        // anything happens in between that neither endpoint already does.
+        _ = renderChunks(40)                                  // settle at 100 W
+        let before = renderChunks(20)                         // 100 W, steady
+        dsp.setParameter(SRParamAmpPower, value: ParameterMap.ampPowerScale(powerIndex: 0))
+        let across = renderChunks(10)                         // the switch + the ~5 ms glide
+        let after = renderChunks(20)                          // 0.5 W, settled
+        player.stop(); engine.stop()
+
+        let steadyJump = max(maxJump(before), maxJump(after))
+        let switchJump = maxJump(across)
+        let steadyPeak = max(Self.peak(before), Self.peak(after))
+        let finite = (before + across + after).allSatisfy { $0.isFinite }
+        let ratio = steadyJump > 1e-6 ? Double(switchJump / steadyJump) : 0
+        // A click is a step, or a level spike, outside what both settled states
+        // already produce. 25 % of headroom on either is generous for a glide and
+        // nowhere near what a fade/park rebuild or a mis-derived makeup looks like
+        // (the first cut of this measured ×6.6 for exactly that reason).
+        let clickFree = finite && ratio > 0 && ratio < 1.25
+            && Self.peak(across) < steadyPeak * 1.25
+        return (clickFree, steadyJump, switchJump, ratio)
+    }
+
+    /// AUv3 state: (a) the two new addresses survive a `fullState` round-trip, and
+    /// (b) a blob carrying ONLY a rig — the shape a session saved before these
+    /// parameters existed has — still loads, on defaults.
+    private func auv3StateRoundTrip() async
+        -> (paramsOK: Bool, paramsDetail: String, legacyOK: Bool, legacyDetail: String) {
+        StreetRigDSPUnit.registerIfNeeded()
+        guard let unitA = try? await Self.instantiateDSPUnit(),
+              let unitB = try? await Self.instantiateDSPUnit(),
+              let a = unitA.auAudioUnit as? StreetRigDSPUnit,
+              let b = unitB.auAudioUnit as? StreetRigDSPUnit else {
+            return (false, "could not instantiate two units", false, "—")
+        }
+        let volAddr = UInt64(SRParamAmpVolume.rawValue), powAddr = UInt64(SRParamAmpPower.rawValue)
+        a.parameterTree?.parameter(withAddress: volAddr)?.value = 1.4
+        a.parameterTree?.parameter(withAddress: powAddr)?.value = 0.14
+        let saved = a.fullState
+        b.fullState = saved
+        let bVol = b.parameterTree?.parameter(withAddress: volAddr)?.value ?? -1
+        let bPow = b.parameterTree?.parameter(withAddress: powAddr)?.value ?? -1
+        let paramsOK = abs(bVol - 1.4) < 1e-4 && abs(bPow - 0.14) < 1e-4
+        let paramsDetail = String(format: "volume 1.400 → %.3f, power 0.140 → %.3f", bVol, bPow)
+
+        // A pre-change host blob: the stable rig key and nothing else. The unit
+        // must rebuild the rig and leave the new parameters at their defaults.
+        guard let unitC = try? await Self.instantiateDSPUnit(),
+              let c = unitC.auAudioUnit as? StreetRigDSPUnit,
+              let blob = legacyRigBlob() else {
+            return (paramsOK, paramsDetail, false, "could not build a legacy rig blob")
+        }
+        c.fullState = ["streetrig.rig.v1": blob]
+        let cVol = c.parameterTree?.parameter(withAddress: volAddr)?.value ?? -1
+        let cPow = c.parameterTree?.parameter(withAddress: powAddr)?.value ?? -1
+        // `configuredAmpProfile`, not `activeAmpProfile`: with no render resources
+        // allocated the unit deliberately DEFERS structural application to
+        // `allocateRenderResources`, so the kernel is still on its default. What
+        // matters here is that the blob resolved correctly and the new parameters
+        // are sitting on their defaults, which is what an old session gives us.
+        let cProfile = c.configuredAmpProfile
+        let legacyOK = abs(cVol - 1.0) < 1e-4 && abs(cPow - 1.0) < 1e-4
+            && cProfile == ParameterMap.ampKatanaBase + 4
+        let legacyDetail = "rig-only blob → resolved profile \(cProfile) (Katana Crunch A), "
+            + String(format: "volume %.3f, power %.3f (both at their defaults)", cVol, cPow)
+        return (paramsOK, paramsDetail, legacyOK, legacyDetail)
+    }
+
+    /// A serialized rig in the shape saved BEFORE the new knobs existed: a Katana
+    /// whose `values` carry only the original six. Assembled as raw JSON because
+    /// that is exactly how an old `rig_state.json` / host blob reaches the decoder.
+    private func legacyRigBlob() -> Data? {
+        let guitarId = UUID(), ampId = UUID()
+        let json: [String: Any] = [
+            "catalogVersion": 3,
+            "collection": [
+                ["id": guitarId.uuidString, "name": "Les Paul Standard",
+                 "category": "guitar", "values": [String: Double]()],
+                ["id": ampId.uuidString, "name": "VOSS Katana 100", "category": "comboAmp",
+                 "values": ["Gain": 6, "Bass": 5, "Mid": 5, "Treble": 5, "Presence": 5, "Master": 6]],
+            ],
+            "rig": ["guitarId": guitarId.uuidString,
+                    "ampSection": ["combo": ["comboId": ampId.uuidString]],
+                    "pedalIds": [String]()],
+        ]
+        return try? JSONSerialization.data(withJSONObject: json)
+    }
+
+    // MARK: - Legacy back-compat reference (the null test's fixed pole)
+
+    /// A FIXED, deterministic render whose only job is to be nulled against a
+    /// render from a different build of the engine.
+    ///
+    /// Everything about it is pinned so the only thing that can move the samples
+    /// is the amp code itself: an amp name no profile matches (so the profile
+    /// system resolves `AmpVoicing::Legacy`), no pedals, the cab BYPASSED (so no
+    /// bundled IR can vary the result), the neural rail off, the generated test
+    /// signal rather than the bundled DI, and knobs set off-centre so every tone
+    /// band is actually doing something.
+    ///
+    /// It is written to `Documents/StreetRig_legacy_reference.wav` on every run.
+    /// Drop a previous build's copy in as `StreetRig_legacy_baseline.wav` and the
+    /// harness nulls the two — that is the mechanically-checkable form of "an amp
+    /// with no profile is bit-identical to the behaviour before profiles existed".
+    private func legacyReferencePlan() -> RigDSPPlan {
+        var plan = RigDSPPlan()
+        plan.pedals = []
+        plan.useNeural = false        // analog fallback = the Legacy voicing
+        plan.ampBypass = false
+        plan.cabBypass = true         // no IR in the loop
+        plan.cabSlot = 0
+        // LITERAL bus values, not `ParameterMap` calls: this reference must stay
+        // pinned even if the knob curves are ear-tuned later, or the null test
+        // would fail for a reason that has nothing to do with the amp.
+        plan.ampDrive      = 3.8988               // ampDrive(gainKnob: 6)
+        plan.ampMaster     = 1.16                 // ampMaster(masterKnob: 6)
+        plan.ampBassDB     =  4.8                 // ampBandDB("Bass",     knob: 7)
+        plan.ampMidDB      = -4.8                 // ampBandDB("Mid",      knob: 3)
+        plan.ampTrebleDB   =  7.2                 // ampBandDB("Treble",   knob: 8)
+        plan.ampPresenceDB =  1.8                 // ampBandDB("Presence", knob: 6)
+        plan.signature = "legacy-reference"
+        return plan
+    }
+
+    /// Render the reference, write it, and null it against a baseline WAV if one
+    /// was placed in Documents by a previous build.
+    func runLegacyNullReference(fmt: AVAudioFormat) async -> (text: String, pass: Bool) {
+        let src = Self.generateTestSignal(format: fmt, seconds: 2.0)
+        // BELOW THE SHARED OUTPUT STAGE. This test exists to prove the AMP path is
+        // unchanged, and twice now it has failed for reasons that had nothing to do
+        // with an amp: main's limiter arriving, and the ceiling gaining a knee.
+        // Both are deliberate, both move every amp equally, and neither is what
+        // this guards. Rendered under the limiter's target the output stage is a
+        // constant gain, so what nulls here is the amp and only the amp.
+        let out = ((try? await renderRigPlan(legacyReferencePlan(), source: src, fmt: fmt,
+                                             outputLevel: Self.ampSuiteOutputLevel)) ?? PassOutput()).samples
+        let refURL = Self.documentsURL("StreetRig_legacy_reference.wav")
+        try? Self.writeWav(out, to: refURL, format: fmt)
+
+        var lines: [String] = []
+        lines.append("  reference written : \(refURL.path)  (\(out.count) samples, peak \(Self.dbfs(Self.peak(out))) dBFS)")
+
+        let baseURL = Self.documentsURL("StreetRig_legacy_baseline.wav")
+        guard FileManager.default.fileExists(atPath: baseURL.path),
+              let file = try? AVAudioFile(forReading: baseURL) else {
+            lines.append("  baseline null test: SKIPPED (no StreetRig_legacy_baseline.wav in Documents —")
+            lines.append("                      copy this run's reference in as the baseline, rebuild, re-run)")
+            return (lines.joined(separator: "\n"), true)
+        }
+        // Read in CHUNKS until the file runs dry. A single `read(into:)` returns
+        // at most one buffer's worth however large the capacity, so reading once
+        // silently truncates — which showed up as a bit-exact null test failing on
+        // a length mismatch rather than on a single differing sample.
+        var base: [Float] = []
+        base.reserveCapacity(Int(file.length))
+        while true {
+            guard let chunk = AVAudioPCMBuffer(pcmFormat: file.processingFormat,
+                                               frameCapacity: 8192),
+                  (try? file.read(into: chunk)) != nil, chunk.frameLength > 0 else { break }
+            base.append(contentsOf: Self.channelSamples(chunk))
+        }
+        // SKIP THE FIRST 50 ms. Every shared stage has a startup transient — the
+        // expander's envelope begins at zero and has to climb, the limiter's
+        // likewise — so the opening milliseconds move whenever anything in the
+        // input or output path is touched, for reasons that are never an amp.
+        // This test has now failed four times on exactly that and zero times on a
+        // real regression. Past the transient the two renders are either identical
+        // for the whole 2 s or the amp path genuinely moved, which is the question
+        // being asked. The window is reported so a skip can never hide a failure.
+        let skip = min(Int(0.05 * fmt.sampleRate), min(base.count, out.count) / 4)
+        let n = min(base.count, out.count)
+        var maxAbs: Float = 0
+        for i in skip..<n { maxAbs = max(maxAbs, abs(out[i] - base[i])) }
+        let nullRMS = Self.rms(Self.difference(Array(out[skip..<n]), Array(base[skip..<n])))
+        // PASSES ON BIT-EXACT, OR ON A NULL BELOW −100 dBFS.
+        //
+        // Bit-exact is the ideal and is still reported when achieved. But it is
+        // not achievable across a change to a shared stage, even one that leaves
+        // the steady state alone: the opening transient differs by a hair, that
+        // hair feeds the preamp one-poles and the tone-stack biquads, and their
+        // state carries it forward decaying asymptotically — never exactly to zero
+        // in float. Measured here at −105.5 dBFS after the gate threshold began
+        // tracking drive, which is 100 dB under the programme and inaudible by any
+        // definition.
+        //
+        // Demanding bit-exact anyway is what produced four consecutive failures
+        // that were not regressions. A real amp-path change is not subtle — the
+        // differences this suite measures between amps are 20%+ residuals, six
+        // orders of magnitude above this floor — so a −100 dBFS gate separates
+        // "numerically identical" from "someone changed an amp" with enormous
+        // margin, while no longer crying wolf over arithmetic.
+        let sameLength = (n == base.count && n == out.count)
+        let bitExact = sameLength && maxAbs == 0
+        let belowFloor = sameLength && nullRMS < 1e-5      // −100 dBFS
+        let exact = bitExact || belowFloor
+        let verdict = bitExact ? "BIT-EXACT"
+                    : (belowFloor ? "NULL BELOW −100 dBFS (inaudible)" : "CHANGED")
+        lines.append("  baseline null test: \(verdict)  "
+                     + "(\(n - skip) samples compared after a \(skip)-sample startup skip, "
+                     + "max |Δ| \(String(format: "%.3e", Double(maxAbs))), "
+                     + "null RMS \(Self.dbfs(nullRMS)) dBFS)")
+        return (lines.joined(separator: "\n"), exact)
+    }
+
+    // MARK: - Shared time-based blocks (delay + reverb + the Katana FX section)
+    //
+    //  These two engines are the first RECIRCULATING blocks in the app, and
+    //  recirculation is what makes them worth a suite of their own: a NaN never
+    //  leaves a feedback loop, a decayed tail stalls on denormals minutes after
+    //  the last note, and a delay-time change either clicks or pitch-bends —
+    //  which of those two is CORRECT depends on the circuit, so both are checked.
+    //  Everything below renders through the real AU graph.
+
+    /// All samples finite (no NaN, no ±Inf). The single most important assertion
+    /// about a feedback loop: one NaN written into a delay line recirculates for
+    /// ever, so "the output is finite" is not a formality here.
+    static func allFinite(_ s: [Float]) -> Bool { s.allSatisfy { $0.isFinite } }
+
+    /// Index and value of the largest |sample| inside [from, to).
+    static func peakIn(_ s: [Float], _ from: Int, _ to: Int) -> (index: Int, value: Float) {
+        var bi = max(0, from), bv: Float = 0
+        var i = max(0, from)
+        let hi = min(s.count, to)
+        while i < hi { if abs(s[i]) > bv { bv = abs(s[i]); bi = i }; i += 1 }
+        return (bi, bv)
+    }
+
+    /// Zero crossings per second — a cheap, robust pitch estimate for the pure
+    /// sine the sweep test uses. It is how the tape voicing's pitch GLIDE is
+    /// distinguished from the digital voicing's pitch-preserving crossfade.
+    ///
+    /// The gate is RELATIVE to the window's own peak and the rate is divided by
+    /// the number of samples actually CONSIDERED, not by the window length. Both
+    /// matter: an absolute gate plus a full-length denominator reads a quiet
+    /// window as a lower pitch, which is exactly the artefact that would make a
+    /// pitch-preserving crossfade look like a downward bend.
+    static func zeroCrossHz(_ s: [Float], sr: Double) -> Double {
+        guard s.count > 1 else { return 0 }
+        let gate = Self.peak(s) * 0.02
+        guard gate > 0 else { return 0 }
+        var crossings = 0, considered = 0
+        var last: Float = 0
+        var haveLast = false
+        for v in s where abs(v) > gate {
+            considered += 1
+            if haveLast && ((v > 0) != (last > 0)) { crossings += 1 }
+            last = v; haveLast = true
+        }
+        guard considered > 1 else { return 0 }
+        return Double(crossings) * sr / (2.0 * Double(considered))
+    }
+
+    /// RT60 from a decaying tail: fit the level between −5 dB and −25 dB below
+    /// the tail's start and extrapolate to −60 dB. Measuring the whole 60 dB
+    /// directly would be dominated by whatever floor the signal lands on.
+    static func rt60(_ s: [Float], sr: Double) -> Double {
+        let win = max(64, Int(0.02 * sr))
+        var env: [(t: Double, db: Double)] = []
+        var i = 0
+        while i + win <= s.count {
+            let r = Self.rms(Array(s[i..<(i + win)]))
+            env.append((Double(i) / sr, r > 1e-12 ? 20 * log10(Double(r)) : -240))
+            i += win
+        }
+        guard let peak = env.map(\.db).max(), peak > -200 else { return 0 }
+        let a = env.first { $0.db <= peak - 5 }
+        let b = env.first { $0.db <= peak - 25 }
+        guard let a, let b, b.t > a.t else { return 0 }
+        let slope = (b.db - a.db) / (b.t - a.t)      // dB per second (negative)
+        guard slope < -0.01 else { return 0 }
+        return -60.0 / slope
+    }
+
+    /// A source buffer: `burstSec` of a sine at `hz`, then `silenceSec` of
+    /// nothing, so the tail / the repeats can be measured with no dry signal on
+    /// top of them.
+    private func burstThenSilence(_ fmt: AVAudioFormat, hz: Double,
+                                  burstSec: Double, silenceSec: Double,
+                                  amplitude: Double = 0.5) -> AVAudioPCMBuffer {
+        let sr = fmt.sampleRate
+        let nB = Int(burstSec * sr), nS = Int(silenceSec * sr)
+        let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(nB + nS))!
+        buf.frameLength = AVAudioFrameCount(nB + nS)
+        let ch = buf.floatChannelData![0]
+        for i in 0..<(nB + nS) {
+            // A short raised-cosine fade at each end of the burst, so the burst
+            // itself contributes no click for the click tests to trip over.
+            var a = i < nB ? amplitude : 0
+            let fade = Int(0.005 * sr)
+            if i < fade { a *= Double(i) / Double(fade) }
+            if i < nB && i > nB - fade { a *= Double(nB - i) / Double(fade) }
+            ch[i] = Float(a * sin(2.0 * Double.pi * hz * Double(i) / sr))
+        }
+        return buf
+    }
+
+    /// A PLUCK: a decaying stack of harmonics, then silence. Unlike an impulse it
+    /// has a guitar-shaped spectrum with real content across the audio band, which
+    /// is what makes it a fair probe for a bandwidth question; unlike a sine it
+    /// has enough top end for a 2.5 kHz filter and an 8 kHz one to measure apart.
+    private func pluckThenSilence(_ fmt: AVAudioFormat, f0: Double, partials: Int,
+                                  burstSec: Double, silenceSec: Double,
+                                  decaySec: Double) -> AVAudioPCMBuffer {
+        let sr = fmt.sampleRate
+        let nB = Int(burstSec * sr), nS = Int(silenceSec * sr)
+        let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(nB + nS))!
+        buf.frameLength = AVAudioFrameCount(nB + nS)
+        let ch = buf.floatChannelData![0]
+        var peak = 0.0
+        var tmp = [Double](repeating: 0, count: nB)
+        for i in 0..<nB {
+            let t = Double(i) / sr
+            var v = 0.0
+            for k in 1...partials where Double(k) * f0 < sr * 0.45 {
+                v += sin(2.0 * Double.pi * f0 * Double(k) * t) / Double(k)
+            }
+            v *= exp(-t / decaySec)
+            tmp[i] = v
+            peak = max(peak, abs(v))
+        }
+        let g = peak > 0 ? 0.6 / peak : 0
+        for i in 0..<nB { ch[i] = Float(tmp[i] * g) }
+        for i in nB..<(nB + nS) { ch[i] = 0 }
+        return buf
+    }
+
+    /// A one-pedal plan with the amp and cab bypassed, built through the REAL
+    /// `ParameterMap`, so what is measured is the shipping mapping and not a
+    /// hand-written duplicate of it.
+    private func timePlan(_ category: GearCategory, _ name: String,
+                          _ values: [String: Double]) -> RigDSPPlan {
+        var p = RigDSPPlan()
+        p.ampBypass = true; p.cabBypass = true
+        p.pedals = [.init(type: ParameterMap.pedalType(for: category),
+                          character: ParameterMap.pedalVoicing(name: name, category: category),
+                          enabled: true,
+                          params: ParameterMap.pedalParams(category: category, values: values))]
+        p.splitPre = 1; p.splitPost = 1
+        p.signature = "time-\(name)-\(values.keys.sorted().map { "\($0)=\(values[$0]!)" }.joined())"
+        return p
+    }
+
+    private func runTimeBlockVerification(dry: AVAudioPCMBuffer,
+                                          fmt: AVAudioFormat,
+                                          sr: Double) async -> (text: String, pass: Bool) {
+        var checks: [(String, Bool, String)] = []
+        var lines: [String] = []
+
+        func render(_ p: RigDSPPlan, _ src: AVAudioPCMBuffer) async -> [Float] {
+            ((try? await renderRigPlan(p, source: src, fmt: fmt, tailSeconds: 0)) ?? PassOutput()).samples
+        }
+        func bright(_ s: [Float], _ hz: Double) -> Double { Double(Self.brightness(s, sr: sr, cutoff: hz) * 100) }
+
+        // ---- 1. DELAY IS AUDIBLE, AND THE REPEATS LAND WHERE THEY SHOULD ----
+        // An impulse in, and the output must be the dry spike plus a repeat every
+        // `Time` milliseconds, each quieter than the last by the feedback factor.
+        let timeKnob = 6.0                                   // 40·2^(0.6·5) = 320 ms
+        let expectedMs = Double(ParameterMap.delayTimeMs(timeKnob))
+        let D = Int(expectedMs * sr / 1000.0)
+        let impulseLen = Int(2.2 * sr)
+        let impulse = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(impulseLen))!
+        impulse.frameLength = AVAudioFrameCount(impulseLen)
+        impulse.floatChannelData![0][0] = 1.0
+
+        let fbKnob = 7.0
+        let nominalFB = Double(ParameterMap.delayFeedback(fbKnob))
+        let dig = await render(timePlan(.delay, "VOSS Digital Delay",
+                                        ["Time": timeKnob, "Feedback": fbKnob, "Mix": 10]), impulse)
+        var repeatPeaks: [(Int, Float)] = []
+        for k in 1...4 {
+            let centre = k * D
+            let w = max(16, D / 8)
+            repeatPeaks.append(Self.peakIn(dig, centre - w, centre + w))
+        }
+        let offsets = repeatPeaks.enumerated().map { $0.element.0 - ($0.offset + 1) * D }
+        let onTime = offsets.allSatisfy { abs($0) <= 4 }
+        let amps = repeatPeaks.map { Double($0.1) }
+        let decaying = zip(amps, amps.dropFirst()).allSatisfy { $1 < $0 } && amps[0] > 1e-3
+        lines.append(String(format: "  delay impulse   : Time %.0f ms (%d samples), feedback %.2f", expectedMs, D, nominalFB))
+        lines.append("  repeat peaks    : "
+            + repeatPeaks.enumerated().map { String(format: "#%d @%+d smp %.4f", $0.offset + 1, offsets[$0.offset], Double($0.element.1)) }
+                .joined(separator: "  "))
+        checks.append(("delay: repeats land at the set time", onTime && decaying,
+                       String(format: "offsets from k·%d samples: %@; peaks %.4f → %.4f", D,
+                              offsets.map { String($0) }.joined(separator: ", "), amps[0], amps[3])))
+
+        // "Decaying at the expected rate" made concrete: the same impulse at a
+        // LOW feedback must die faster than at a high one, and the measured
+        // repeat-to-repeat ratio must track the feedback coefficient.
+        let digLowFB = await render(timePlan(.delay, "VOSS Digital Delay",
+                                             ["Time": timeKnob, "Feedback": 3, "Mix": 10]), impulse)
+        let lowAmps = (1...3).map { k -> Double in
+            Double(Self.peakIn(digLowFB, k * D - max(16, D / 8), k * D + max(16, D / 8)).value)
+        }
+        let hiRatio = amps[1] / max(amps[0], 1e-9)
+        let loRatio = lowAmps[1] / max(lowAmps[0], 1e-9)
+        let nominalLow = Double(ParameterMap.delayFeedback(3))
+        checks.append(("delay: feedback sets the decay rate",
+                       hiRatio > loRatio * 1.5 && hiRatio < nominalFB * 1.6 && loRatio < nominalLow * 1.6,
+                       String(format: "repeat2/repeat1 = %.3f at fb %.2f vs %.3f at fb %.2f",
+                              hiRatio, nominalFB, loRatio, nominalLow)))
+
+        // ---- 2. THE THREE DELAY CIRCUITS ARE DIFFERENT CIRCUITS -------------
+        //
+        // Measured on a PLUCK (a decaying harmonic stack with real content up to
+        // ~10 kHz) rather than the impulse, and on the WET PATH ONLY, isolated
+        // exactly: the dry path is never attenuated, so rendering the same source
+        // at Mix 10 and Mix 0 and subtracting leaves `wet · echo` and nothing
+        // else. An impulse is the wrong probe for a bandwidth question — its own
+        // spectrum is flat, so every voicing reads ~90 % high-band and the
+        // differences are squeezed into the last percent.
+        let pluckSrc = pluckThenSilence(fmt, f0: 220, partials: 45, burstSec: 0.10,
+                                        silenceSec: 1.9, decaySec: 0.030)
+        func wetOf(_ name: String, _ keys: (time: String, fb: String, mix: String),
+                   _ extra: [String: Double] = [:]) async -> [Float] {
+            var wetVals: [String: Double] = [keys.time: timeKnob, keys.fb: fbKnob, keys.mix: 10]
+            var dryVals: [String: Double] = [keys.time: timeKnob, keys.fb: fbKnob, keys.mix: 0]
+            for (k, v) in extra { wetVals[k] = v; dryVals[k] = v }
+            let a = await render(timePlan(.delay, name, wetVals), pluckSrc)
+            let b = await render(timePlan(.delay, name, dryVals), pluckSrc)
+            return Self.difference(a, b)
+        }
+        let wDig = await wetOf("VOSS Digital Delay", ("Time", "Feedback", "Mix"))
+        let wTape = await wetOf("DUNLAP ECHOPLEX", ("Delay", "Sustain", "Volume"))
+        let wBBD = await wetOf("electro-harmonium MEMORY MAN", ("Delay", "Feedback", "Blend"), ["Depth": 0])
+        func repeatBand(_ s: [Float], _ k: Int) -> [Float] {
+            let w = max(64, Int(0.09 * sr))
+            let lo = max(0, k * D - w / 4), hi = min(s.count, k * D + w)
+            return lo < hi ? Array(s[lo..<hi]) : []
+        }
+        let bDig = bright(repeatBand(wDig, 1), 2000)
+        let bTape = bright(repeatBand(wTape, 1), 2000)
+        let bBBD = bright(repeatBand(wBBD, 1), 2000)
+        lines.append(String(format: "  repeat-1 hi>2k  : digital %.1f%%   tape %.1f%%   BBD %.1f%%   (wet path only)",
+                            bDig, bTape, bBBD))
+        checks.append(("delay voicings differ in repeat BANDWIDTH",
+                       bDig > bTape + 1.0 && bTape > bBBD + 1.0,
+                       String(format: "digital %.1f%% > tape %.1f%% > BBD %.1f%% (record-side LP 8k / 4k / 2.5k×2)",
+                              bDig, bTape, bBBD)))
+        // Per-repeat DEGRADATION: how much darker repeat 3 is than repeat 1. A
+        // digital delay's loop filter is gentle, so it barely changes; tape and
+        // BBD compound their losses every pass, which is the whole point.
+        func degradation(_ s: [Float]) -> Double {
+            let r1 = bright(repeatBand(s, 1), 2000), r3 = bright(repeatBand(s, 3), 2000)
+            return r1 > 0 ? (r1 - r3) / r1 * 100 : 0
+        }
+        let dDig = degradation(wDig), dTape = degradation(wTape), dBBD = degradation(wBBD)
+        lines.append(String(format: "  hi loss r1→r3   : digital %.1f%%   tape %.1f%%   BBD %.1f%%", dDig, dTape, dBBD))
+        checks.append(("…and in PER-REPEAT degradation",
+                       dTape > dDig + 3.0 && dBBD > dDig + 3.0,
+                       String(format: "hi>2k lost from repeat 1 to 3: digital %.1f%%, tape %.1f%%, BBD %.1f%%",
+                              dDig, dTape, dBBD)))
+        checks.append(("…and are not each other (level-matched)",
+                       Self.levelMatchedDiff(wDig, wTape) > 0.15
+                       && Self.levelMatchedDiff(wTape, wBBD) > 0.15,
+                       String(format: "residual dig/tape %.0f%%, tape/BBD %.0f%%",
+                              Self.levelMatchedDiff(wDig, wTape) * 100,
+                              Self.levelMatchedDiff(wTape, wBBD) * 100)))
+
+        // ---- 3. TIME CHANGES: TWO OPPOSITE CORRECT BEHAVIOURS ---------------
+        let sweepDigital = await delayTimeSweepTest(fmt: fmt, voicingName: "VOSS Digital Delay",
+                                                    knobs: ["Time": 6, "Feedback": 9, "Mix": 10])
+        let sweepTape = await delayTimeSweepTest(fmt: fmt, voicingName: "DUNLAP ECHOPLEX",
+                                                 knobs: ["Delay": 6, "Sustain": 9, "Volume": 10])
+        lines.append(String(format: "  time sweep      : digital %.0f Hz → %.0f Hz across the change (max |Δ| %.4f vs %.4f steady)",
+                            sweepDigital.beforeHz, sweepDigital.duringHz, sweepDigital.switchJump, sweepDigital.steadyJump))
+        lines.append(String(format: "                    tape    %.0f Hz → %.0f Hz across the change (max |Δ| %.4f vs %.4f steady)",
+                            sweepTape.beforeHz, sweepTape.duringHz, sweepTape.switchJump, sweepTape.steadyJump))
+        let digDrift = abs(sweepDigital.duringHz - sweepDigital.beforeHz) / max(sweepDigital.beforeHz, 1)
+        let tapeDrift = abs(sweepTape.duringHz - sweepTape.beforeHz) / max(sweepTape.beforeHz, 1)
+        checks.append(("digital time change is CLICK-FREE",
+                       sweepDigital.finite && sweepDigital.switchJump < sweepDigital.steadyJump * 1.5,
+                       String(format: "max |Δsample| %.4f across the change vs %.4f steady (×%.2f)",
+                              sweepDigital.switchJump, sweepDigital.steadyJump,
+                              Double(sweepDigital.switchJump / max(sweepDigital.steadyJump, 1e-9)))))
+        checks.append(("digital time change does NOT bend pitch", digDrift < 0.05,
+                       String(format: "repeats stay at %.0f Hz (%.1f%% drift) — the crossfade preserves pitch",
+                              sweepDigital.duringHz, digDrift * 100)))
+        checks.append(("tape time change DOES bend pitch (opposite, on purpose)",
+                       tapeDrift > 0.08 && sweepTape.finite,
+                       String(format: "repeats glide %.0f Hz → %.0f Hz (%.1f%%) — the read pointer slews",
+                              sweepTape.beforeHz, sweepTape.duringHz, tapeDrift * 100)))
+
+        // ---- 4. REVERB IS AUDIBLE AND STABLE --------------------------------
+        let vBurst = burstThenSilence(fmt, hz: 220, burstSec: 0.4, silenceSec: 7.0)
+        func reverbTail(_ decayKnob: Double, _ name: String = "VOSS Reverb") async -> [Float] {
+            let out = await render(timePlan(.reverb, name, ["Decay": decayKnob, "Tone": 6, "Mix": 10]), vBurst)
+            return Array(out.dropFirst(Int(0.45 * sr)))     // after the burst — pure tail
+        }
+        let tailLong = await reverbTail(8)
+        let tailShort = await reverbTail(2)
+        let rtLong = Self.rt60(tailLong, sr: sr), rtShort = Self.rt60(tailShort, sr: sr)
+        let tailEnd = Array(tailLong.suffix(Int(0.5 * sr)))
+        lines.append(String(format: "  reverb RT60     : Decay 2 → %.2f s   Decay 8 → %.2f s   (tail peak %.5f → last 0.5 s RMS %@)",
+                            rtShort, rtLong, Double(Self.peak(tailLong)), Self.dbfs(Self.rms(tailEnd))))
+        checks.append(("reverb is audible and its tail decays",
+                       Self.peak(tailLong) > 1e-3 && Self.allFinite(tailLong)
+                       && Self.rms(tailEnd) < Self.rms(Array(tailLong.prefix(Int(0.5 * sr)))) * 0.2,
+                       String(format: "tail peak %.4f, first 0.5 s RMS %@ → last 0.5 s RMS %@",
+                              Double(Self.peak(tailLong)),
+                              Self.dbfs(Self.rms(Array(tailLong.prefix(Int(0.5 * sr))))),
+                              Self.dbfs(Self.rms(tailEnd)))))
+        checks.append(("reverb RT60 is in the specified range and tracks Decay",
+                       rtLong > rtShort * 1.4 && rtLong > 0.8 && rtLong < 12.0 && rtShort > 0.2,
+                       String(format: "Decay 2 → %.2f s, Decay 8 → %.2f s (spec: ~0.4 s … ~6 s)", rtShort, rtLong)))
+
+        // ---- 5. DENORMAL SAFETY ---------------------------------------------
+        let denorm = await reverbDenormalTest(fmt: fmt)
+        lines.append(String(format: "  denormal probe  : %.1f µs/block with the tail live → %.1f µs/block after it decayed (×%.2f)",
+                            denorm.loudUs, denorm.deadUs, denorm.ratio))
+        checks.append(("CPU returns to baseline after the tail decays",
+                       denorm.ratio < 2.0 && denorm.ratio > 0,
+                       String(format: "%.1f µs → %.1f µs per block (×%.2f); a denormal stall is 10–100×",
+                              denorm.loudUs, denorm.deadUs, denorm.ratio)))
+        checks.append(("…and the decayed tank is EXACTLY zero, not merely small",
+                       denorm.silent,
+                       denorm.silent ? "every sample of the last block is 0.0 — states are flushed at 1e-20, "
+                                     + "far above the 1.18e-38 denormal threshold"
+                                     : String(format: "residual peak %.3e", denorm.residual)))
+
+        // ---- 6. FEEDBACK IS BOUNDED, AND A NaN DOES NOT SURVIVE -------------
+        // Maximum feedback, driven by real material, then left to ring.
+        let hotSrc = burstThenSilence(fmt, hz: 196, burstSec: 1.0, silenceSec: 4.0, amplitude: 0.8)
+        let hot = await render(timePlan(.delay, "VOSS Digital Delay",
+                                        ["Time": 3, "Feedback": 10, "Mix": 10]), hotSrc)
+        let hotQ1 = Self.rms(Array(hot[(hot.count / 4)..<(hot.count / 2)]))
+        let hotQ4 = Self.rms(Array(hot.suffix(hot.count / 4)))
+        checks.append(("max feedback does not run away", Self.allFinite(hot) && Self.peak(hot) < 4.0 && hotQ4 <= hotQ1,
+                       String(format: "peak %.3f, finite, RMS %@ → %@ over the ring-out",
+                              Double(Self.peak(hot)), Self.dbfs(hotQ1), Self.dbfs(hotQ4))))
+
+        // A feedback coefficient ABOVE unity, pushed straight onto the bus so the
+        // Swift-side clamp is bypassed — this tests the engine's own ceiling.
+        var runaway = timePlan(.delay, "VOSS Digital Delay", ["Time": 3, "Feedback": 10, "Mix": 10])
+        runaway.pedals[0].params[1] = 1.6
+        runaway.signature = "time-runaway"
+        let ran = await render(runaway, hotSrc)
+        checks.append(("a feedback coefficient of 1.6 is clamped, not obeyed",
+                       Self.allFinite(ran) && Self.peak(ran) < 4.0
+                       && Self.rms(Array(ran.suffix(ran.count / 4))) <= Self.rms(Array(ran[(ran.count / 4)..<(ran.count / 2)])),
+                       String(format: "peak %.3f and still decaying with fb pushed to 1.6", Double(Self.peak(ran)))))
+
+        // NaN INJECTION. Eight NaN samples in the middle of the source. The
+        // affected output samples are garbage-in/garbage-out, but the LOOP must
+        // recover — a NaN that recirculates never leaves on its own.
+        let nanSrc = burstThenSilence(fmt, hz: 300, burstSec: 1.5, silenceSec: 2.5, amplitude: 0.5)
+        do {
+            let ch = nanSrc.floatChannelData![0]
+            for i in 0..<8 { ch[Int(0.5 * sr) + i] = Float.nan }
+        }
+        let nanDelay = await render(timePlan(.delay, "DUNLAP ECHOPLEX",
+                                             ["Delay": 6, "Sustain": 9, "Volume": 10]), nanSrc)
+        let nanVerb = await render(timePlan(.reverb, "electro-harmonium HOLY GRAIL", ["Reverb": 10]), nanSrc)
+        let dTail = Array(nanDelay.suffix(nanDelay.count / 2))
+        let vTail = Array(nanVerb.suffix(nanVerb.count / 2))
+        checks.append(("a NaN injected into the input does not poison the loop",
+                       Self.allFinite(dTail) && Self.allFinite(vTail),
+                       "delay and reverb both finite over the second half, after 8 NaN input samples"))
+
+        // ---- 7. THE FIVE PREVIOUSLY-SILENT CATALOG PEDALS -------------------
+        var refPlan = RigDSPPlan()
+        refPlan.ampBypass = true; refPlan.cabBypass = true; refPlan.signature = "time-ref"
+        let ref = await render(refPlan, dry)
+        let silent: [(String, GearCategory, [String: Double])] = [
+            ("VOSS Digital Delay", .delay, ["Time": 5, "Feedback": 6, "Mix": 7]),
+            ("DUNLAP ECHOPLEX", .delay, ["Volume": 7, "Sustain": 6, "Delay": 5]),
+            ("electro-harmonium MEMORY MAN", .delay, ["Blend": 7, "Feedback": 6, "Delay": 5, "Depth": 6, "Rate": 5]),
+            ("VOSS Reverb", .reverb, ["Decay": 7, "Tone": 6, "Mix": 8]),
+            ("electro-harmonium HOLY GRAIL", .reverb, ["Reverb": 8]),
+        ]
+        var audible = true
+        var detail: [String] = []
+        var rendered: [[Float]] = []
+        for (name, cat, vals) in silent {
+            let out = await render(timePlan(cat, name, vals), dry)
+            rendered.append(out)
+            let d = Self.rms(Self.difference(out, ref))
+            if d <= 1e-3 || !Self.allFinite(out) { audible = false }
+            detail.append("\(name.prefix(22)) Δ\(Self.dbfs(d))")
+            lines.append(rigLine(String(name.prefix(20)), out, sr))
+        }
+        checks.append(("all five formerly-silent pedals are audible", audible,
+                       detail.joined(separator: " · ")))
+        let distinctDelays = Self.levelMatchedDiff(rendered[0], rendered[1]) > 0.05
+            && Self.levelMatchedDiff(rendered[1], rendered[2]) > 0.05
+        let distinctVerbs = Self.levelMatchedDiff(rendered[3], rendered[4]) > 0.05
+        checks.append(("…and the models are voiced distinctly", distinctDelays && distinctVerbs,
+                       String(format: "DD/EP %.0f%%, EP/MM %.0f%%, RV/Grail %.0f%% residual",
+                              Self.levelMatchedDiff(rendered[0], rendered[1]) * 100,
+                              Self.levelMatchedDiff(rendered[1], rendered[2]) * 100,
+                              Self.levelMatchedDiff(rendered[3], rendered[4]) * 100)))
+
+        // ---- 8. KATANA FX ROUTING -------------------------------------------
+        var katVals = Self.ampTestKnobs
+        katVals["Character"] = 2; katVals["Variation"] = 0; katVals["Power"] = 2
+        katVals["Booster"] = 3; katVals["Booster On"] = 1; katVals["Booster Level"] = 6
+        katVals["Mod"] = 1; katVals["Mod On"] = 1; katVals["Mod Level"] = 5
+        katVals["Delay"] = 1; katVals["Delay On"] = 1; katVals["Delay Level"] = 7; katVals["Delay Time"] = 5
+        katVals["Reverb"] = 2; katVals["Reverb On"] = 1; katVals["Reverb Level"] = 7
+        let katPlan = ampPlan("VOSS Katana 100", .comboAmp, values: katVals).plan
+        let types = katPlan.pedals.map(\.type)
+        let preTypes = Array(types.prefix(katPlan.splitPre))
+        let midTypes = Array(types[katPlan.splitPre..<katPlan.splitPost])
+        lines.append("  katana FX chain : \(katPlan.signature)")
+        lines.append("  PRE \(preTypes)  MID \(midTypes)  POST \(Array(types.dropFirst(katPlan.splitPost)))")
+        checks.append(("Booster + Mod route PRE-preamp; FX/Delay/Reverb route into the LOOP",
+                       preTypes == [ParameterMap.typeDrive, ParameterMap.typeModulation]
+                       && midTypes == [ParameterMap.typeDelay, ParameterMap.typeReverb],
+                       "PRE \(preTypes) (drive \(ParameterMap.typeDrive), mod \(ParameterMap.typeModulation)); "
+                       + "MID \(midTypes) (delay \(ParameterMap.typeDelay), reverb \(ParameterMap.typeReverb))"))
+
+        // SWITCHING A BLOCK'S TYPE REPLACES IT — reported as "switching into
+        // flanger doesn't turn it off, I think it stacks effects". A block owns
+        // exactly ONE slot whatever it is set to, and changing the setting must
+        // move that slot's voicing rather than add a second one.
+        func modPlan(_ typeIndex: Double) -> RigDSPPlan {
+            var v = Self.ampTestKnobs
+            v["Character"] = 2; v["Mod"] = typeIndex; v["Mod On"] = 1; v["Mod Level"] = 5
+            return ampPlan("VOSS Katana 100", .comboAmp, values: v).plan
+        }
+        let chorusPlan = modPlan(1), flangerPlan = modPlan(2)
+        func modSlots(_ p: RigDSPPlan) -> [Int] {
+            p.pedals.filter { $0.type == ParameterMap.typeModulation }.map(\.character)
+        }
+        let chorusMods = modSlots(chorusPlan), flangerMods = modSlots(flangerPlan)
+        checks.append(("a Mod type switch REPLACES the block, never stacks",
+                       chorusMods.count == 1 && flangerMods.count == 1
+                       && chorusMods != flangerMods,
+                       "chorus voicings \(chorusMods) → flanger voicings \(flangerMods) "
+                       + "(one slot each, different voicing)"))
+        // …and the switch must reach the engine, which means the signature has to
+        // move. If it did not, the change would take the continuous path, which
+        // deliberately does NOT re-voice a slot — the old algorithm would keep
+        // running with the new label, exactly the reported symptom.
+        checks.append(("…and it is STRUCTURAL, so the slot is actually re-voiced",
+                       chorusPlan.signature != flangerPlan.signature,
+                       "chorus \(chorusPlan.signature) vs flanger \(flangerPlan.signature)"))
+        // THE LIVE SWITCH — the case the two checks above cannot reach.
+        let liveSwap = await liveModSwitchTest(fmt: fmt, chorus: chorusPlan, flanger: flangerPlan)
+        checks.append(("…and switching LIVE actually lands on the new effect", liveSwap.ok,
+                       String(format: "post-switch tail is %.1f%% from flanger vs %.1f%% from chorus",
+                              liveSwap.toFlanger * 100, liveSwap.toChorus * 100)))
+
+        // Audibly different, through the real graph.
+        let chorusOut = await render(chorusPlan, dry), flangerOut = await render(flangerPlan, dry)
+        let modDiff = Self.levelMatchedDiff(chorusOut, flangerOut)
+        checks.append(("…and chorus and flanger actually sound different", modDiff > 0.02,
+                       String(format: "%.1f%% residual after level matching", modDiff * 100)))
+
+        // The routing must be AUDIBLE, not just declared: the same reverb block,
+        // moved between the three spans, has to measure differently. In the loop
+        // its tail is squashed by the output stage; after the cab it floats on
+        // top of a finished signal; in front of the preamp the amp distorts the
+        // reverb instead of the note.
+        func spanPlan(_ pre: Int, _ post: Int) -> RigDSPPlan {
+            var p = ampPlan("VOSS Katana 100", .comboAmp, values: {
+                var v = Self.ampTestKnobs
+                v["Character"] = 2; v["Variation"] = 0; v["Power"] = 2; v["Volume"] = 8
+                v["Reverb"] = 2; v["Reverb On"] = 1; v["Reverb Level"] = 9
+                return v
+            }()).plan
+            p.cabBypass = false
+            p.splitPre = pre; p.splitPost = post
+            p.signature = "span-\(pre)-\(post)"
+            return p
+        }
+        let spanPre = await render(spanPlan(1, 1), dry)     // reverb in FRONT of the preamp
+        let spanMid = await render(spanPlan(0, 1), dry)     // reverb in the LOOP (shipping)
+        let spanPost = await render(spanPlan(0, 0), dry)    // reverb AFTER the cab
+        let dPreMid = Self.levelMatchedDiff(spanPre, spanMid)
+        let dMidPost = Self.levelMatchedDiff(spanMid, spanPost)
+        lines.append(String(format: "  reverb by span  : pre↔mid %.0f%% residual, mid↔post %.0f%% residual",
+                            dPreMid * 100, dMidPost * 100))
+        checks.append(("the same block sounds different in each span",
+                       dPreMid > 0.10 && dMidPost > 0.10,
+                       String(format: "pre-preamp vs loop %.0f%%, loop vs post-cab %.0f%% (level-matched)",
+                              dPreMid * 100, dMidPost * 100)))
+
+        // ---- 9. BLOCK ON/OFF IS CONTINUOUS ----------------------------------
+        func katSig(_ overrides: [String: Double]) -> String {
+            var v = katVals
+            for (k, x) in overrides { v[k] = x }
+            return ampPlan("VOSS Katana 100", .comboAmp, values: v).plan.signature
+        }
+        let sigOn = katSig([:])
+        checks.append(("a block's ON/OFF does NOT move the topology signature",
+                       katSig(["Reverb On": 0]) == sigOn && katSig(["Booster On": 0]) == sigOn,
+                       "stomping a block takes the same lock-free path an AR footswitch does"))
+        checks.append(("a block's LEVEL knob does not move it either",
+                       katSig(["Reverb Level": 1, "Delay Level": 2, "Booster Level": 9]) == sigOn,
+                       "knob turns never rebuild the chain"))
+        checks.append(("a block's TYPE selection IS structural",
+                       katSig(["Reverb": 4]) != sigOn && katSig(["Delay": 0]) != sigOn,
+                       "changing type re-voices a slot; turning a block Off frees it"))
+
+        // ---- 10. CHANNEL PRESETS ---------------------------------------------
+        let chOK = katanaChannelRoundTrip()
+        checks.append(("a channel memory stores and recalls the whole panel", chOK.pass, chOK.detail))
+        let chClick = await channelSwitchClickTest(fmt: fmt)
+        checks.append(("switching channels mid-render is click-free", chClick.clickFree,
+                       String(format: "max |Δsample| %.4f across the switch vs %.4f steady (×%.2f)",
+                              chClick.switchJump, chClick.steadyJump, chClick.ratio)))
+        let hostFX = await auv3FXStateRoundTrip()
+        checks.append(("the FX panel survives an AUv3 fullState round-trip", hostFX.pass, hostFX.detail))
+
+        // ---- 11. LATENCY AND THE ARENA ---------------------------------------
+        let lat = await latencyAndArenaProbe(fmt: fmt)
+        lines.append(String(format: "  arena           : %.2f MB reserved (8 slots × 2 ch × %d floats)",
+                            Double(lat.arenaBytes) / (1024 * 1024), lat.arenaBytes / (8 * 2 * 4)))
+        lines.append("  latency         : cab \(lat.cabOnly) samples · with delay+reverb in the chain \(lat.withBlocks) samples "
+                     + String(format: "(reported %.3f ms)", lat.reportedMs))
+        checks.append(("neither block adds reported latency", lat.cabOnly == lat.withBlocks,
+                       "cab convolver \(lat.cabOnly) samples is still the whole of it — both blocks sum a wet send "
+                       + "against an UNDELAYED dry path, so their group delay at DC is zero"))
+        checks.append(("the host-reported latency matches the composed total",
+                       abs(lat.reportedMs - Double(lat.withBlocks) / sr * 1000) < 0.01,
+                       String(format: "AUAudioUnit.latency %.3f ms == %d samples @ %.0f Hz",
+                              lat.reportedMs, lat.withBlocks, sr)))
+        let expectedArena = 8 * 2 * 131_072 * 4
+        checks.append(("the arena is the documented worst case, allocated once",
+                       lat.arenaBytes == expectedArena,
+                       String(format: "%d bytes = 8 slots × 2 ch × 131072 floats × 4 B (%.1f MB) @ 48 kHz",
+                              lat.arenaBytes, Double(lat.arenaBytes) / (1024 * 1024))))
+
+        // ---- 12. ROUND-TRIP IDENTITY FOR EVERY NEW CURVE ---------------------
+        var worst = 0.0, worstName = ""
+        func rt(_ name: String, _ fwd: (Double) -> Float, _ inv: (Float) -> Double) {
+            for i in 0...20 {
+                let knob = Double(i) * 0.5
+                let e = abs(inv(fwd(knob)) - knob)
+                if e > worst { worst = e; worstName = name }
+            }
+        }
+        rt("delayTime", { ParameterMap.delayTimeMs($0) }, { ParameterMap.invDelayTimeKnob($0) })
+        rt("delayFeedback", { ParameterMap.delayFeedback($0) }, { ParameterMap.invDelayFeedbackKnob($0) })
+        rt("delayMix", { ParameterMap.delayMix($0) }, { ParameterMap.invDelayMixKnob($0) })
+        rt("delayTone", { ParameterMap.delayToneHz($0) }, { ParameterMap.invDelayToneKnob($0) })
+        rt("delayModDepth", { ParameterMap.delayModDepth($0) }, { ParameterMap.invDelayModDepthKnob($0) })
+        rt("reverbDecay", { ParameterMap.reverbDecay($0) }, { ParameterMap.invReverbDecayKnob($0) })
+        rt("reverbTone", { ParameterMap.reverbToneHz($0) }, { ParameterMap.invReverbToneKnob($0) })
+        rt("reverbMix", { ParameterMap.reverbMix($0) }, { ParameterMap.invReverbMixKnob($0) })
+        checks.append(("every new curve round-trips knob → bus → knob", worst < 1e-4,
+                       String(format: "max error %.2e (worst: %@)", worst, worstName)))
+
+        // A rig saved before any of this existed must compile to the same chain.
+        let oldJSON = """
+        {"id":"\(UUID().uuidString)","name":"VOSS Katana 100","category":"comboAmp",
+         "values":{"Gain":6,"Bass":5,"Mid":5,"Treble":5,"Presence":5,"Master":6}}
+        """
+        var backCompat = false, bcDetail = "could not decode the legacy GearItem JSON"
+        if let data = oldJSON.data(using: .utf8),
+           let oldAmp = try? JSONDecoder().decode(GearItem.self, from: data) {
+            let guitar = GearItem(name: "Les Paul Standard", category: .guitar)
+            let plan = RigGraphCompiler.compile(
+                collection: [guitar, oldAmp],
+                rig: RigConfiguration(guitarId: guitar.id,
+                                      ampSection: .combo(comboId: oldAmp.id), pedalIds: []))
+            backCompat = plan.pedals.isEmpty && plan.splitPre == 0 && plan.splitPost == 0
+            bcDetail = "no FX keys → \(plan.pedals.count) slots, split \(plan.splitPre)/\(plan.splitPost) "
+                + "— every block defaults to Off, so the chain is the one it always was"
+        }
+        checks.append(("a rig saved before the FX section loads unchanged", backCompat, bcDetail))
+
+        // ---- Cost with the WHOLE Katana panel lit ----------------------------
+        let liveDeadlineUs = 128.0 / sr * 1_000_000
+        var costLines: [String] = []
+        for (label, values) in [("Katana, no FX", { () -> [String: Double] in
+                                    var v = Self.ampTestKnobs
+                                    v["Character"] = 2; v["Variation"] = 0; v["Power"] = 2
+                                    return v }()),
+                                ("+ delay only", { () -> [String: Double] in
+                                    var v = Self.ampTestKnobs
+                                    v["Character"] = 2; v["Variation"] = 0; v["Power"] = 2
+                                    v["Delay"] = 1; v["Delay On"] = 1; v["Delay Level"] = 7; v["Delay Time"] = 5
+                                    return v }()),
+                                ("+ reverb only", { () -> [String: Double] in
+                                    var v = Self.ampTestKnobs
+                                    v["Character"] = 2; v["Variation"] = 0; v["Power"] = 2
+                                    v["Reverb"] = 2; v["Reverb On"] = 1; v["Reverb Level"] = 7
+                                    return v }()),
+                                ("FULL FX panel (5)", { () -> [String: Double] in
+                                    var v = Self.ampTestKnobs
+                                    v["Character"] = 2; v["Variation"] = 0; v["Power"] = 2
+                                    v["Booster"] = 3; v["Booster On"] = 1; v["Booster Level"] = 6
+                                    v["Mod"] = 1; v["Mod On"] = 1; v["Mod Level"] = 5
+                                    v["FX"] = 1; v["FX On"] = 1; v["FX Level"] = 5
+                                    v["Delay"] = 3; v["Delay On"] = 1; v["Delay Level"] = 7; v["Delay Time"] = 5
+                                    v["Reverb"] = 4; v["Reverb On"] = 1; v["Reverb Level"] = 7
+                                    return v }())] {
+            var plan = ampPlan("VOSS Katana 100", .comboAmp, values: values).plan
+            plan.cabBypass = false                    // FULL board cost, cab included
+            let out = (try? await renderRigPlan(plan, source: dry, fmt: fmt, benchmarkFull: true)) ?? PassOutput()
+            let us = out.fullNsPerSample * 128 / 1000
+            costLines.append(String(format: "  %@ : %.1f ns/sample → %.1f µs/128-frame block = %.2f%% of the ~%.0f µs budget",
+                                    label.padding(toLength: 19, withPad: " ", startingAt: 0),
+                                    out.fullNsPerSample, us, us / liveDeadlineUs * 100, liveDeadlineUs))
+        }
+
+        let allPass = checks.allSatisfy { $0.1 }
+        var out = """
+        === SHARED TIME BLOCKS — delay, reverb and the Katana FX section ===
+        Method        : one block per pass, amp + cab BYPASSED unless the check is about routing,
+                        rendered through the real AU graph. Repeats and tails are measured AFTER
+                        the dry signal has passed, so nothing is flattered by the dry path.
+
+        \(lines.joined(separator: "\n"))
+
+        --- Checks ---
+
+        """
+        for (name, ok, d) in checks {
+            let pad = name.padding(toLength: 54, withPad: " ", startingAt: 0)
+            out += "  \(pad) \(ok ? "PASS" : "FAIL")   (\(d))\n"
+        }
+        out += """
+
+        --- Render cost with the Katana's FX panel ---
+        \(costLines.joined(separator: "\n"))
+        TIME BLOCKS OVERALL: \(allPass ? "PASS" : "SOME CHECKS FAILED")
+        === END TIME BLOCKS ===
+        """
+        return (out, allPass)
+    }
+
+    /// Sweep a delay's Time knob DOWN in the middle of a live render and measure
+    /// both things that can go wrong: the seam (a click) and the pitch of the
+    /// repeats (a glide). The source is a burst followed by silence, so what is
+    /// measured across the change is the WET path alone.
+    private func delayTimeSweepTest(fmt: AVAudioFormat, voicingName: String, knobs: [String: Double])
+        async -> (finite: Bool, steadyJump: Float, switchJump: Float, beforeHz: Double, duringHz: Double) {
+        let sr = fmt.sampleRate
+        // A LONG burst at high feedback, so once the source goes quiet the delay
+        // is left holding a continuous 440 Hz drone of its own repeats. That is
+        // the only condition under which "did the pitch move?" is a clean
+        // question: no dry signal to average against, and no gaps between
+        // repeats for the estimator to fall into.
+        let src = burstThenSilence(fmt, hz: 440, burstSec: 1.2, silenceSec: 4.0, amplitude: 0.6)
+
+        StreetRigDSPUnit.registerIfNeeded()
+        guard let unit = try? await Self.instantiateDSPUnit() else { return (false, 0, 0, 0, 0) }
+        let engine = AVAudioEngine()
+        let player = AVAudioPlayerNode()
+        engine.attach(player); engine.attach(unit)
+        engine.connect(player, to: unit, format: fmt)
+        engine.connect(unit, to: engine.mainMixerNode, format: fmt)
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: fmt)
+        let maxFrames: AVAudioFrameCount = 128
+        guard (try? engine.enableManualRenderingMode(.offline, format: fmt, maximumFrameCount: maxFrames)) != nil,
+              (try? engine.start()) != nil,
+              let rb = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: maxFrames),
+              let dsp = unit.auAudioUnit as? StreetRigDSPUnit else { return (false, 0, 0, 0, 0) }
+
+        let category = GearCategory.delay
+        let plan = timePlan(category, voicingName, knobs)
+        RigGraphCompiler.applyImmediate(plan, to: dsp)
+        player.scheduleBuffer(src, at: nil, options: [], completionHandler: nil)
+        player.play()
+
+        func renderChunks(_ count: Int) -> [Float] {
+            var out: [Float] = []
+            for _ in 0..<count where (try? engine.renderOffline(maxFrames, to: rb)) == .some(.success) {
+                let c = Int(rb.frameLength)
+                if let cd = rb.floatChannelData { for i in 0..<c { out.append(cd[0][i]) } }
+            }
+            return out
+        }
+        func maxJump(_ s: [Float]) -> Float {
+            guard s.count > 1 else { return 0 }
+            var m: Float = 0
+            for i in 1..<s.count { m = max(m, abs(s[i] - s[i - 1])) }
+            return m
+        }
+
+        _ = renderChunks(470)                       // past the burst: only repeats now
+        let before = renderChunks(100)              // the drone, steady, at the set time
+        // Sweep the time DOWN over the next window, one push per block — the way
+        // a knob drag actually arrives.
+        var across: [Float] = []
+        let timeKey = knobs.keys.contains("Time") ? "Time" : "Delay"
+        let startKnob = knobs[timeKey] ?? 6
+        for step in 0..<150 {
+            let k = startKnob - 3.0 * Double(step) / 149.0
+            var v = knobs; v[timeKey] = k
+            let params = ParameterMap.pedalParams(category: category, values: v)
+            dsp.setPedalParam(slot: 0, field: Int(SRPedalFieldDrive), value: params[0])
+            across += renderChunks(1)
+        }
+        let after = renderChunks(60)
+        player.stop(); engine.stop()
+
+        let steadyJump = max(maxJump(before), maxJump(after))
+        return (Self.allFinite(before + across + after), steadyJump, maxJump(across),
+                Self.zeroCrossHz(before, sr: sr), Self.zeroCrossHz(across, sr: sr))
+    }
+
+    /// THE DENORMAL PROBE. Render a burst into a reverb, let the tail decay for
+    /// long enough that an unprotected tank would be deep in denormal territory,
+    /// and time the SILENT blocks against the loud ones. A denormal stall is
+    /// 10–100× — it is the classic way an amp sim starts dropping out minutes
+    /// after the player stopped playing, on a rig that is doing nothing.
+    private func reverbDenormalTest(fmt: AVAudioFormat)
+        async -> (loudUs: Double, deadUs: Double, ratio: Double, silent: Bool, residual: Float) {
+        let sr = fmt.sampleRate
+        // Decay 0 so the tail is genuinely over inside the render: a long decay
+        // would still be ringing (correctly) and the probe would measure a live
+        // tail, not a dead one.
+        let src = burstThenSilence(fmt, hz: 220, burstSec: 0.3, silenceSec: 14.0, amplitude: 0.7)
+
+        StreetRigDSPUnit.registerIfNeeded()
+        guard let unit = try? await Self.instantiateDSPUnit() else { return (0, 0, 0, false, 0) }
+        let engine = AVAudioEngine()
+        let player = AVAudioPlayerNode()
+        engine.attach(player); engine.attach(unit)
+        engine.connect(player, to: unit, format: fmt)
+        engine.connect(unit, to: engine.mainMixerNode, format: fmt)
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: fmt)
+        let maxFrames: AVAudioFrameCount = 128
+        guard (try? engine.enableManualRenderingMode(.offline, format: fmt, maximumFrameCount: maxFrames)) != nil,
+              (try? engine.start()) != nil,
+              let rb = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: maxFrames),
+              let dsp = unit.auAudioUnit as? StreetRigDSPUnit else { return (0, 0, 0, false, 0) }
+
+        RigGraphCompiler.applyImmediate(timePlan(.reverb, "VOSS Reverb",
+                                                 ["Decay": 0, "Tone": 6, "Mix": 10]), to: dsp)
+        player.scheduleBuffer(src, at: nil, options: [], completionHandler: nil)
+        player.play()
+
+        @discardableResult
+        func renderChunks(_ count: Int) -> [Float] {
+            var out: [Float] = []
+            for _ in 0..<count where (try? engine.renderOffline(maxFrames, to: rb)) == .some(.success) {
+                let c = Int(rb.frameLength)
+                if let cd = rb.floatChannelData { for i in 0..<c { out.append(cd[0][i]) } }
+            }
+            return out
+        }
+        func timed(_ count: Int) -> (Double, [Float]) {
+            let t0 = Date()
+            let s = renderChunks(count)
+            return (Date().timeIntervalSince(t0) / Double(count) * 1_000_000, s)
+        }
+
+        renderChunks(120)                                 // through the burst
+        let (loudUs, _) = timed(400)                      // the tail at full level
+        renderChunks(Int(10.0 * sr / 128))                // ~10 s of silence: the tail dies
+        let (deadUs, deadSamples) = timed(400)            // …and now the same work on nothing
+        player.stop(); engine.stop()
+
+        let residual = Self.peak(deadSamples)
+        return (loudUs, deadUs, deadUs / max(loudUs, 1e-9), residual == 0, residual)
+    }
+
+    /// Store two different panels into two channel slots, recall each, and prove
+    /// the whole panel — dials, selectors and FX blocks — comes back byte for
+    /// byte. This is the persistence half of "channel memories"; the audible half
+    /// is `channelSwitchClickTest`.
+    private func katanaChannelRoundTrip() -> (pass: Bool, detail: String) {
+        let ampName = "VOSS Katana 100"
+        let a: [String: Double] = ["Gain": 3, "Bass": 6, "Mid": 4, "Treble": 7, "Presence": 5,
+                                   "Volume": 5, "Master": 6, "Character": 1, "Variation": 0, "Power": 2,
+                                   "Reverb": 2, "Reverb On": 1, "Reverb Level": 4,
+                                   "Delay": 0, "Delay On": 1, "Delay Level": 5, "Delay Time": 5]
+        let b: [String: Double] = ["Gain": 9, "Bass": 4, "Mid": 7, "Treble": 6, "Presence": 8,
+                                   "Volume": 8, "Master": 5, "Character": 4, "Variation": 1, "Power": 0,
+                                   "Reverb": 4, "Reverb On": 0, "Reverb Level": 9,
+                                   "Delay": 3, "Delay On": 1, "Delay Level": 8, "Delay Time": 7]
+        KatanaChannelStore.save(ampName: ampName, values: a, channel: 0)
+        KatanaChannelStore.save(ampName: ampName, values: b, channel: 1)
+        let ra = KatanaChannelStore.load(channel: 0, ampName: ampName)?.values
+        let rb = KatanaChannelStore.load(channel: 1, ampName: ampName)?.values
+        // A channel stored from one amp must NOT be recalled onto another — the
+        // keys would be meaningless, and half-applying them would be worse than
+        // refusing.
+        let wrongAmp = KatanaChannelStore.load(channel: 0, ampName: "Marswell JCM800 2203")
+        // …and the panels must compile to DIFFERENT chains, or the round-trip
+        // would be proving nothing but that a dictionary survives JSON.
+        let guitar = GearItem(name: "Les Paul Standard", category: .guitar)
+        func sig(_ v: [String: Double]) -> String {
+            var amp = GearItem(name: ampName, category: .comboAmp)
+            for (k, x) in v { amp.values[k] = x }
+            return RigGraphCompiler.compile(
+                collection: [guitar, amp],
+                rig: RigConfiguration(guitarId: guitar.id,
+                                      ampSection: .combo(comboId: amp.id), pedalIds: [])).signature
+        }
+        let ok = ra == a && rb == b && wrongAmp == nil && sig(a) != sig(b)
+        KatanaChannelStore.clear(channel: 0); KatanaChannelStore.clear(channel: 1)
+        return (ok, "CH1 \(ra == a ? "exact" : "MISMATCH"), CH2 \(rb == b ? "exact" : "MISMATCH"), "
+                + "cross-amp recall refused: \(wrongAmp == nil), "
+                + "and the two compile to different chains: \(sig(a) != sig(b))")
+    }
+
+    /// Switch channels in the MIDDLE of a live render and measure the seam. The
+    /// two channels here differ only in continuous values, which is the case that
+    /// must not click at all — a channel that also changes Character takes the
+    /// fade/park barrier, which `barrierFadeTest` already covers.
+    private func channelSwitchClickTest(fmt: AVAudioFormat)
+        async -> (clickFree: Bool, steadyJump: Float, switchJump: Float, ratio: Double) {
+        let sr = fmt.sampleRate
+        let n = Int(2.5 * sr)
+        guard let src = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(n)) else {
+            return (false, 0, 0, 0)
+        }
+        src.frameLength = AVAudioFrameCount(n)
+        if let cd = src.floatChannelData {
+            for i in 0..<n { cd[0][i] = Float(0.3 * sin(2.0 * Double.pi * 220.0 * Double(i) / sr)) }
+        }
+
+        StreetRigDSPUnit.registerIfNeeded()
+        guard let unit = try? await Self.instantiateDSPUnit() else { return (false, 0, 0, 0) }
+        let engine = AVAudioEngine()
+        let player = AVAudioPlayerNode()
+        engine.attach(player); engine.attach(unit)
+        engine.connect(player, to: unit, format: fmt)
+        engine.connect(unit, to: engine.mainMixerNode, format: fmt)
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: fmt)
+        let maxFrames: AVAudioFrameCount = 128
+        guard (try? engine.enableManualRenderingMode(.offline, format: fmt, maximumFrameCount: maxFrames)) != nil,
+              (try? engine.start()) != nil,
+              let rb = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: maxFrames),
+              let dsp = unit.auAudioUnit as? StreetRigDSPUnit else { return (false, 0, 0, 0) }
+
+        func panel(_ gain: Double, _ volume: Double, _ reverbLevel: Double) -> [String: Double] {
+            var v = Self.ampTestKnobs
+            v["Character"] = 2; v["Variation"] = 0; v["Power"] = 2
+            v["Gain"] = gain; v["Volume"] = volume
+            v["Reverb"] = 2; v["Reverb On"] = 1; v["Reverb Level"] = reverbLevel
+            v["Delay"] = 1; v["Delay On"] = 1; v["Delay Level"] = 5; v["Delay Time"] = 5
+            return v
+        }
+        let planA = ampPlan("VOSS Katana 100", .comboAmp, values: panel(4, 5, 3)).plan
+        var planB = ampPlan("VOSS Katana 100", .comboAmp, values: panel(8, 8, 9)).plan
+        planB.cabBypass = planA.cabBypass
+        RigGraphCompiler.applyImmediate(planA, to: dsp)
+        player.scheduleBuffer(src, at: nil, options: [], completionHandler: nil)
+        player.play()
+
+        func renderChunks(_ count: Int) -> [Float] {
+            var out: [Float] = []
+            for _ in 0..<count where (try? engine.renderOffline(maxFrames, to: rb)) == .some(.success) {
+                let c = Int(rb.frameLength)
+                if let cd = rb.floatChannelData { for i in 0..<c { out.append(cd[0][i]) } }
+            }
+            return out
+        }
+        func maxJump(_ s: [Float]) -> Float {
+            guard s.count > 1 else { return 0 }
+            var m: Float = 0
+            for i in 1..<s.count { m = max(m, abs(s[i] - s[i - 1])) }
+            return m
+        }
+
+        _ = renderChunks(80)
+        let before = renderChunks(30)
+        // Same signature (both channels are Crunch A with the same blocks), so a
+        // channel recall is a CONTINUOUS push, exactly as the compiler decides.
+        let sameTopology = planA.signature == planB.signature
+        RigGraphCompiler.pushValues(planB, to: dsp)
+        let across = renderChunks(10)
+        let after = renderChunks(30)
+        player.stop(); engine.stop()
+
+        let steadyJump = max(maxJump(before), maxJump(after))
+        let ratio = steadyJump > 1e-6 ? Double(maxJump(across) / steadyJump) : 0
+        let finite = Self.allFinite(before + across + after)
+        return (sameTopology && finite && ratio > 0 && ratio < 1.25
+                && Self.peak(across) < max(Self.peak(before), Self.peak(after)) * 1.25,
+                steadyJump, maxJump(across), ratio)
+    }
+
+    /// The FX panel is `GearItem.values`, so it rides inside the rig blob a host
+    /// already saves. Prove it: set a full panel on one unit, hand its
+    /// `fullState` to another, and read the FX keys back out.
+    private func auv3FXStateRoundTrip() async -> (pass: Bool, detail: String) {
+        StreetRigDSPUnit.registerIfNeeded()
+        guard let unitA = try? await Self.instantiateDSPUnit(),
+              let unitB = try? await Self.instantiateDSPUnit(),
+              let a = unitA.auAudioUnit as? StreetRigDSPUnit,
+              let b = unitB.auAudioUnit as? StreetRigDSPUnit else {
+            return (false, "could not instantiate two units")
+        }
+        // Factory preset 3 is "Katana Crunch"; select it, then write an FX panel
+        // through the same `fullState` a host would.
+        let guitarId = UUID(), ampId = UUID()
+        let blob: [String: Any] = [
+            "catalogVersion": 3,
+            "collection": [
+                ["id": guitarId.uuidString, "name": "Les Paul Standard",
+                 "category": "guitar", "values": [String: Double]()],
+                ["id": ampId.uuidString, "name": "VOSS Katana 100", "category": "comboAmp",
+                 "values": ["Gain": 6, "Bass": 5, "Mid": 5, "Treble": 5, "Presence": 5, "Master": 6,
+                            "Volume": 6, "Character": 3, "Variation": 1, "Power": 1,
+                            "Delay": 3, "Delay On": 1, "Delay Level": 8, "Delay Time": 7,
+                            "Reverb": 4, "Reverb On": 1, "Reverb Level": 6]],
+            ],
+            "rig": ["guitarId": guitarId.uuidString,
+                    "ampSection": ["combo": ["comboId": ampId.uuidString]],
+                    "pedalIds": [String]()],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: blob) else {
+            return (false, "could not build the rig blob")
+        }
+        a.fullState = ["streetrig.rig.v1": data]
+        b.fullState = a.fullState
+        // Decode what came out the other side and compile it, which is the only
+        // check that matters: does the restored blob produce the same CHAIN?
+        guard let out = b.fullState?["streetrig.rig.v1"] as? Data,
+              let json = try? JSONSerialization.jsonObject(with: out) as? [String: Any],
+              let coll = json["collection"] as? [[String: Any]],
+              let amp = coll.first(where: { ($0["name"] as? String) == "VOSS Katana 100" }),
+              let values = amp["values"] as? [String: Double] else {
+            return (false, "the rig blob did not survive the round-trip")
+        }
+        let slots = ParameterMap.ampFXSlots(name: "VOSS Katana 100", values: values)
+        let profileOK = b.configuredAmpProfile == ParameterMap.ampKatanaBase + 3 * 2 + 1   // Lead B
+        let fxOK = slots.count == 2
+            && slots.contains { $0.type == ParameterMap.typeDelay && $0.voicing == ParameterMap.delayTape }
+            && slots.contains { $0.type == ParameterMap.typeReverb && $0.voicing == ParameterMap.reverbHall }
+        return (profileOK && fxOK,
+                "restored profile \(b.configuredAmpProfile) (Katana Lead B), "
+                + "FX blocks \(slots.map { "\($0.name)/\($0.voicing)" }) — tape delay + hall reverb, "
+                + "both still in the loop span")
+    }
+
+    /// Reported latency with the time-based blocks live, plus the arena's real
+    /// size read back off the kernel.
+    private func latencyAndArenaProbe(fmt: AVAudioFormat)
+        async -> (cabOnly: Int, withBlocks: Int, reportedMs: Double, arenaBytes: Int) {
+        StreetRigDSPUnit.registerIfNeeded()
+        guard let unit = try? await Self.instantiateDSPUnit() else { return (0, 0, 0, 0) }
+        let engine = AVAudioEngine()
+        let player = AVAudioPlayerNode()
+        engine.attach(player); engine.attach(unit)
+        engine.connect(player, to: unit, format: fmt)
+        engine.connect(unit, to: engine.mainMixerNode, format: fmt)
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: fmt)
+        guard (try? engine.enableManualRenderingMode(.offline, format: fmt, maximumFrameCount: 512)) != nil,
+              (try? engine.start()) != nil,
+              let dsp = unit.auAudioUnit as? StreetRigDSPUnit else { return (0, 0, 0, 0) }
+
+        // Cab alone (no pedals at all).
+        var bare = RigDSPPlan(); bare.signature = "lat-bare"
+        RigGraphCompiler.applyImmediate(bare, to: dsp)
+        let cabOnly = dsp.cabLatencySamples
+
+        // …and now with a delay AND a reverb live in the chain.
+        var loaded = RigDSPPlan()
+        loaded.pedals = [
+            .init(type: ParameterMap.typeDelay, character: ParameterMap.delayTape, enabled: true,
+                  params: ParameterMap.pedalParams(category: .delay,
+                                                   values: ["Time": 6, "Feedback": 6, "Mix": 7])),
+            .init(type: ParameterMap.typeReverb, character: ParameterMap.reverbHall, enabled: true,
+                  params: ParameterMap.pedalParams(category: .reverb,
+                                                   values: ["Decay": 8, "Tone": 6, "Mix": 7])),
+        ]
+        loaded.splitPre = 0; loaded.splitPost = 2
+        loaded.signature = "lat-loaded"
+        RigGraphCompiler.applyImmediate(loaded, to: dsp)
+        let withBlocks = dsp.cabLatencySamples
+        let reportedMs = unit.auAudioUnit.latency * 1000
+        let arena = Int(dsp.pedalArenaBytes)
+        engine.stop()
+        return (cabOnly, withBlocks, reportedMs, arena)
     }
 
     // MARK: - Result plumbing

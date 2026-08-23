@@ -152,6 +152,11 @@ public final class RigAUParameterBridge {
 
         if let amp = resolveAmp(collection, rig) {
             let id = amp.id
+            // ONLY LINK KNOBS THE AMP ACTUALLY HAS. `pushContinuousToParameters`
+            // reads `values[param] ?? 0`, so a link to a knob this model does not
+            // expose would push knob-0 — e.g. Volume 0.2× on every amp that is not
+            // a Katana, silencing it. The per-item knob list is the authority.
+            let owns = Set(amp.parameters.map(\.name))
             list.append(ParamLink(itemId: id, param: "Gain",
                                   address: UInt64(SRParamAmpDrive.rawValue),
                                   toBus: { ParameterMap.ampDrive(gainKnob: $0) },
@@ -161,30 +166,52 @@ public final class RigAUParameterBridge {
                                   toBus: { ParameterMap.ampMaster(masterKnob: $0) },
                                   toKnob: { ParameterMap.invAmpMasterKnob($0) }))
             for (name, addr) in [("Bass", SRParamAmpBass), ("Mid", SRParamAmpMid),
-                                 ("Treble", SRParamAmpTreble), ("Presence", SRParamAmpPresence)] {
+                                 ("Treble", SRParamAmpTreble), ("Presence", SRParamAmpPresence)]
+            where owns.contains(name) {
                 list.append(ParamLink(itemId: id, param: name,
                                       address: UInt64(addr.rawValue),
                                       toBus: { ParameterMap.ampBandDB(name, knob: $0) },
                                       toKnob: { ParameterMap.invAmpBandKnob(name, dB: $0) }))
             }
+            if owns.contains("Volume") {
+                list.append(ParamLink(itemId: id, param: "Volume",
+                                      address: UInt64(SRParamAmpVolume.rawValue),
+                                      toBus: { ParameterMap.ampVolume(volumeKnob: $0) },
+                                      toKnob: { ParameterMap.invAmpVolumeKnob($0) }))
+            }
+            // Power gets a link even though it is a 3-position selector: the BUS
+            // value is continuous and rampable (that is what keeps the switch
+            // click-free), so a host can automate it, and the inverse is a
+            // nearest-neighbour lookup back to the detent. Character and
+            // Variation get NO link — they are structural, and structural state
+            // travels in the rig blob, not on the parameter bus.
+            if owns.contains("Power") {
+                list.append(ParamLink(itemId: id, param: "Power",
+                                      address: UInt64(SRParamAmpPower.rawValue),
+                                      toBus: { ParameterMap.ampPowerScale(powerIndex: $0) },
+                                      toKnob: { ParameterMap.invAmpPowerIndex($0) }))
+            }
         }
 
-        for (slot, pedal) in resolvePedals(collection, rig).prefix(Int(SRMaxPedals)).enumerated()
-        where pedal.category == .overdrive {
-            let id = pedal.id
+        // Pedal slots. `ParameterMap.pedalLinks(for:)` is the table — a family's
+        // automatable knobs, by DSP ROLE — so this loop never grows a per-family
+        // branch and the curves stay in the one file that owns them.
+        //
+        // The role is matched against the PEDAL'S OWN knob names, and a role
+        // nothing matches gets NO link. That guard is the same one the amp knobs
+        // needed (§3.5): `pushContinuousToParameters` reads `values[param] ?? 0`,
+        // so a link to a knob a model does not expose would push knob-zero every
+        // time any other knob moved — for a delay that means Time snapping to
+        // 40 ms whenever the player touched Feedback.
+        for (slot, pedal) in resolvePedals(collection, rig).prefix(Int(SRMaxPedals)).enumerated() {
             let base = UInt64(SRPedalParamBase) + UInt64(slot) * UInt64(SRPedalParamStride)
-            list.append(ParamLink(itemId: id, param: "Drive",
-                                  address: base + UInt64(SRPedalFieldDrive),
-                                  toBus: { ParameterMap.pedalDrive($0) },
-                                  toKnob: { ParameterMap.invPedalDriveKnob($0) }))
-            list.append(ParamLink(itemId: id, param: "Tone",
-                                  address: base + UInt64(SRPedalFieldTone),
-                                  toBus: { ParameterMap.pedalToneHz($0) },
-                                  toKnob: { ParameterMap.invPedalToneKnob($0) }))
-            list.append(ParamLink(itemId: id, param: "Level",
-                                  address: base + UInt64(SRPedalFieldLevel),
-                                  toBus: { ParameterMap.pedalLevel($0) },
-                                  toKnob: { ParameterMap.invPedalLevelKnob($0) }))
+            let owns = pedal.parameters.map(\.name)
+            for link in ParameterMap.pedalLinks(for: pedal.category) {
+                guard let knob = link.roles.first(where: { owns.contains($0) }) else { continue }
+                list.append(ParamLink(itemId: pedal.id, param: knob,
+                                      address: base + UInt64(SRPedalFieldDrive) + UInt64(link.field),
+                                      toBus: link.toBus, toKnob: link.toKnob))
+            }
         }
 
         links = list
