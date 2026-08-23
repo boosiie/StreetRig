@@ -218,7 +218,7 @@ AmpProfile profileFor(int voicing) noexcept {
         // sound alike at noon, this row and the Twin's are the first suspects.
         // Cue (mid 650 Hz): palm-muted riffing should have "bark".
         p.tone = tone3( 90.0, 0.70, 1.0f, -1.0f,
-                       650.0, 0.85, 0.9f, -7.0f,
+                       660.0, 0.80, 1.1f, -1.5f,
                       2300.0, 0.70, 1.1f, +1.0f,
                       -14.0f, 0.35f);
         p.power = PowerAmpVoicing{
@@ -244,25 +244,29 @@ AmpProfile profileFor(int voicing) noexcept {
         // (cathodeHz ≠ 0) and it stops being a Twin.
         // Cue (gains 1.5 / 1.4): clean to Gain ≈ 8, then polite breakup.
         // Distorting at 5 → lower.
-        p.stage[0] = st(20.0, 0.0, 0.0f, 22000.0, 1.5f, 0.03f);
-        p.stage[1] = st(25.0, 0.0, 0.0f, 20000.0, 1.4f, 0.03f);
+        p.stage[0] = st(20.0, 0.0, 0.0f, 26000.0, 1.5f, 0.02f);
+        p.stage[1] = st(25.0, 0.0, 0.0f, 24000.0, 1.4f, 0.02f);
         // Cue (mid noonDB −11): clean chords with everything at noon should
         // sound scooped and GLASSY, not boxy. Nasal → more negative; chords
         // vanish in a band mix → back off. (−8…−14.)
         // Cue (bassEatsMid 0.55): turn Bass 3 → 8 and the mids must visibly
         // hollow out. That interaction IS the Fender stack. No change → raise.
+        // TWANG AND GLASS, by ear: the treble shelf moves up and gets a real
+        // static lift, and the whole top is opened out. Twang is a bright ATTACK
+        // that survives — which is why the headroom and the fast NFB stay: the
+        // transient has to get through un-squashed to snap.
         p.tone = tone3( 80.0, 0.70, 1.1f,  +1.0f,
                        400.0, 0.90, 0.8f, -11.0f,
-                      3200.0, 0.70, 1.2f,  +2.0f,
+                      3800.0, 0.70, 1.3f,  +5.5f,
                       -16.0f, 0.55f);
         // Cue (headroom 1.60): must stay clean with Volume maxed. Any grit → raise.
         // Cue (nfbDB −5.0): should feel the TIGHTEST of the six.
         p.power = PowerAmpVoicing{
-            1.60f, AmpClip::ClassAB, 0.02f,
+            1.60f, AmpClip::ClassAB, 0.015f,
             0.06f, 30.0,
             1800.0, -5.0f,
-            4500.0, 0.8f,
-            45.0, 11000.0
+            4500.0, 0.9f,
+            45.0, 14000.0
         };
         p.cabSlot = 1;                 // intended 2×12 Jensen — see the cab gap note
         p.outTrim = 0.95f;
@@ -299,11 +303,16 @@ AmpProfile profileFor(int voicing) noexcept {
         // Cue (presenceScale −0.8): turn Presence UP and the amp must get
         // DARKER. This is the Vox Cut. If it brightens, the sign is wrong.
         p.power = PowerAmpVoicing{
-            0.55f, AmpClip::Pentode, 0.18f,
-            0.35f, 80.0,
+            // DYNAMICS YOU CAN FEEL, by ear. Less headroom so it blooms earlier,
+            // deeper and slower sag so the supply visibly ducks and recovers
+            // under a chord, and still no feedback loop at all — that combination
+            // IS the touch response, and it is why an AC30 answers the pick the
+            // way nothing with a tight NFB can.
+            0.46f, AmpClip::Pentode, 0.22f,
+            0.48f, 95.0,
             0.0, 0.0f,
             4000.0, -0.8f,
-            80.0, 8000.0
+            80.0, 8500.0
         };
         p.cabSlot = 1;                 // intended 2×12 alnico blue
         p.outTrim = 1.00f;
@@ -354,7 +363,7 @@ AmpProfile profileFor(int voicing) noexcept {
         p.stage[1] = st(28.0,   0.0, 0.0f, 18000.0, 1.8f, 0.12f);
         p.tone = tone3( 85.0, 0.70, 1.1f,  0.0f,
                        420.0, 0.80, 1.3f, -6.0f,
-                      2600.0, 0.70, 1.1f, +1.0f,
+                      3000.0, 0.70, 1.2f, +3.5f,
                       -13.0f, 0.45f);
         // Cue (sagDepth 0.30 / sagTauMs 60): hit a hard chord — it should DUCK
         // then bloom back over ~60 ms. No duck → raise the depth. Pumping and
@@ -395,7 +404,7 @@ AmpProfile profileFor(int voicing) noexcept {
         // sits higher (680 vs 650). A/B against the JCM800 — the Plexi should be
         // rounder and less barky at identical knobs. Indistinguishable → widen.
         p.tone = tone3( 95.0, 0.70, 1.0f, -1.0f,
-                       680.0, 0.85, 0.9f, -6.0f,
+                       680.0, 0.80, 1.1f, -1.0f,
                       2400.0, 0.70, 1.1f, +1.0f,
                       -14.0f, 0.35f);
         // Cue (headroom 0.60, below the 800's 0.75): a Super Lead breaks up
@@ -437,7 +446,7 @@ AmpProfile profileFor(int voicing) noexcept {
         // Cue (couplings 45/55/62/70, the tightest cascade in the table): chugs
         // must stay separated under high gain. Smearing → raise all four ~8 Hz.
         p.tone = tone3(100.0, 0.70, 1.00f, -1.5f,
-                       700.0, 0.85, 0.90f, -6.5f,
+                       700.0, 0.80, 1.1f, -1.5f,
                       2500.0, 0.70, 1.15f, +2.0f,
                       -14.0f, 0.32f);
         // Cue (sagDepth 0.10, the stiffest of the tube amps): a BE-100 should NOT
@@ -509,9 +518,15 @@ AmpProfile profileFor(int voicing) noexcept {
         p.inputHz  = 60.0;
         p.brightHz = 1400.0; p.brightDB = 2.0f;    // a small, low bright cap
         p.stageCount = 3;
-        p.stage[0] = st(28.0, 420.0, 6.5f, 14000.0, 2.2f, 0.11f);
-        p.stage[1] = st(34.0, 600.0, 5.0f, 11500.0, 2.3f, 0.13f);
-        p.stage[2] = st(42.0,   0.0, 0.0f,  9500.0, 1.7f, 0.09f);
+        // SAWTOOTH, and that word is a specification. A square wave carries only
+        // ODD harmonics; a SAWTOOTH carries every one, odd and even — and even
+        // harmonics come from ASYMMETRIC clipping. So the bias goes up hard, which
+        // is the exact opposite of what the Katana just got, and it is what makes
+        // this amp read as fuzzy and buzzsaw where that one reads as a smooth
+        // wall. Pentode on the last stage for a harder knee.
+        p.stage[0] = st(28.0, 420.0, 6.5f, 14000.0, 2.6f, 0.30f);
+        p.stage[1] = st(34.0, 600.0, 5.0f, 11500.0, 2.8f, 0.34f);
+        p.stage[2] = st(42.0,   0.0, 0.0f,  9500.0, 1.9f, 0.26f, AmpClip::Pentode);
         // Cue (mid 560 Hz / noonDB −4): the LEAST scooped of the gain amps. Open
         // chords should sound thick and woody. If it sounds honky, raise the Hz;
         // if it sounds scooped, this row and the JCM800's have drifted together.
@@ -525,11 +540,11 @@ AmpProfile profileFor(int voicing) noexcept {
         // Cue (asym 0.06 + OT 8800): warm and slightly compressed, between the
         // Plexi's openness and the Recto's darkness.
         p.power = PowerAmpVoicing{
-            0.72f, AmpClip::ClassAB, 0.06f,
+            0.62f, AmpClip::Pentode, 0.16f,
             0.20f, 48.0,
-            2000.0, -2.8f,
+            2000.0, -2.2f,
             3300.0, 1.0f,
-            60.0, 8800.0
+            60.0, 9200.0
         };
         p.cabSlot = 0;                 // Tangerine PPC412
         p.outTrim = 0.97f;
@@ -662,7 +677,7 @@ AmpProfile profileFor(int voicing) noexcept {
         // DSL's "modern" voicing. A/B the two: same family, the DSL smoother and
         // slightly hollower. If they are indistinguishable, widen this gap first.
         p.tone = tone3( 92.0, 0.70, 1.00f, -1.0f,
-                       660.0, 0.85, 0.90f, -7.5f,
+                       670.0, 0.80, 1.1f, -2.0f,
                       2350.0, 0.70, 1.10f, +1.5f,
                       -14.0f, 0.35f);
         p.power = PowerAmpVoicing{

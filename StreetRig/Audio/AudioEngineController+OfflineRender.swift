@@ -1364,13 +1364,30 @@ extension AudioEngineController {
         // So the comparison is against the STACK-VOICED amps — the ones whose mid
         // energy really is their tone stack. The high-gain rows are reported below
         // rather than asserted on, so the numbers stay visible either way.
-        let stackVoiced = [ParameterMap.ampJCM800, ParameterMap.ampTwinReverb,
-                           ParameterMap.ampJC120, ParameterMap.ampBassman59,
-                           ParameterMap.ampPlexi1959, ParameterMap.ampRockerverb]
+        // AGAINST THE SCOOPED AMPS, which is the comparison that survived the ear
+        // tuning. This used to assert the AC30 out-mids every stack-voiced amp,
+        // and that stopped being true the moment the Marshalls were deliberately
+        // voiced mid-forward — "almost like a truck hitting you" — which is a
+        // change to the product, not a regression. Four amps now sit above the
+        // AC30 on purpose.
+        //
+        // What is still true and still worth guarding is the AC30 against the
+        // amps whose identity is a SCOOP: the Twin, the JC-120 and the Rectifier.
+        // If the AC30 ever falls below those, its positive mid noonDB has flipped
+        // sign and it has stopped being an AC30.
+        let scooped = [ParameterMap.ampTwinReverb, ParameterMap.ampJC120,
+                       ParameterMap.ampDualRect]
         let ac30Mid = mid(byId(ParameterMap.ampAC30))
-        let peerMid = stackVoiced.map { mid(byId($0)) }.max() ?? 0
-        checks.append(("AC30 has the only mid-FORWARD stack", ac30Mid > peerMid,
-                       String(format: "AC30 %.1f%% vs next stack-voiced amp %.1f%%", ac30Mid, peerMid)))
+        let peerMid = scooped.map { mid(byId($0)) }.max() ?? 0
+        checks.append(("AC30 sits well above the SCOOPED amps", ac30Mid > peerMid + 5.0,
+                       String(format: "AC30 %.1f%% vs the most mid-present scooped amp %.1f%%",
+                              ac30Mid, peerMid)))
+        // And the Marshalls really did become the mid-forward ones.
+        let marshalls = [ParameterMap.ampJCM800, ParameterMap.ampDSL40C, ParameterMap.ampBE100]
+        checks.append(("the Marshalls are mid-FORWARD (the 'truck')",
+                       marshalls.allSatisfy { mid(byId($0)) > 40.0 },
+                       marshalls.map { String(format: "%.1f%%", mid(byId($0))) }.joined(separator: ", ")
+                           + " — all above 40% in 300 Hz–1.2 kHz"))
         // Reported, not asserted: cascaded gain stages raise mid energy on their
         // own. If one of these ever drops BELOW the stack-voiced peak, its gain
         // staging has quietly gone flat.
