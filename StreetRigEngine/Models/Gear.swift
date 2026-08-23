@@ -384,18 +384,19 @@ enum PedalSpec {
             // ROLAND JC-120 — two channels; channel 2 carries the distortion, the
             // reverb and the chorus/vibrato that the amp is named for.
             if n.contains("jc-120") || n.contains("jc120") || n.contains("jazz chorus") {
-                return [GearParameter("BRIGHT",   options: ["OFF", "ON"], defaultIndex: 0),
+                return [GearParameter("CHANNEL", options: ["CHANNEL 1", "CHANNEL 2"], defaultIndex: 0),
+                        GearParameter("BRIGHT",   options: ["OFF", "ON"], defaultIndex: 0),
                         GearParameter("BRIGHT 2", options: ["OFF", "ON"], defaultIndex: 0,
                                       shortName: "BRIGHT"),
                         GearParameter("EFFECT", options: ["VIBRATO", "OFF", "CHORUS"], defaultIndex: 1),
-                        GearParameter("Volume",   shortName: "VOLUME", rowLabel: "CHANNEL 1"),
-                        GearParameter("Treble 2", shortName: "TREBLE", rowLabel: "CHANNEL 1"),
-                        GearParameter("Mid 2",    shortName: "MIDDLE", rowLabel: "CHANNEL 1"),
-                        GearParameter("Bass 2",   shortName: "BASS",   rowLabel: "CHANNEL 1"),
-                        GearParameter("Gain",       shortName: "VOLUME",     rowLabel: "CHANNEL 2"),
-                        GearParameter("Treble",     shortName: "TREBLE",     rowLabel: "CHANNEL 2"),
-                        GearParameter("Mid",        shortName: "MIDDLE",     rowLabel: "CHANNEL 2"),
-                        GearParameter("Bass",       shortName: "BASS",       rowLabel: "CHANNEL 2"),
+                        GearParameter("Gain",     shortName: "VOLUME", rowLabel: "CHANNEL 1"),
+                        GearParameter("Treble",   shortName: "TREBLE", rowLabel: "CHANNEL 1"),
+                        GearParameter("Mid",      shortName: "MIDDLE", rowLabel: "CHANNEL 1"),
+                        GearParameter("Bass",     shortName: "BASS",   rowLabel: "CHANNEL 1"),
+                        GearParameter("Gain 2",     shortName: "VOLUME",     rowLabel: "CHANNEL 2"),
+                        GearParameter("Treble 2",   shortName: "TREBLE",     rowLabel: "CHANNEL 2"),
+                        GearParameter("Mid 2",      shortName: "MIDDLE",     rowLabel: "CHANNEL 2"),
+                        GearParameter("Bass 2",     shortName: "BASS",       rowLabel: "CHANNEL 2"),
                         GearParameter("DISTORTION", rowLabel: "CHANNEL 2"),
                         GearParameter("REVERB",     rowLabel: "CHANNEL 2"),
                         GearParameter("SPEED",      rowLabel: "CHANNEL 2"),
@@ -415,17 +416,18 @@ enum PedalSpec {
             // FENDER TWIN REVERB — two channels, and the reverb and vibrato live
             // on the Vibrato one only, which is why that row is longer.
             if n.contains("twin") {
-                return [GearParameter("BRIGHT",   options: ["OFF", "ON"], defaultIndex: 0),
+                return [GearParameter("CHANNEL", options: ["NORMAL", "VIBRATO"], defaultIndex: 0),
+                        GearParameter("BRIGHT",   options: ["OFF", "ON"], defaultIndex: 0),
                         GearParameter("BRIGHT 2", options: ["OFF", "ON"], defaultIndex: 0,
                                       shortName: "BRIGHT"),
-                        GearParameter("Volume",   shortName: "VOLUME", rowLabel: "NORMAL"),
-                        GearParameter("Treble 2", shortName: "TREBLE", rowLabel: "NORMAL"),
-                        GearParameter("Mid 2",    shortName: "MIDDLE", rowLabel: "NORMAL"),
-                        GearParameter("Bass 2",   shortName: "BASS",   rowLabel: "NORMAL"),
-                        GearParameter("Gain",     shortName: "VOLUME", rowLabel: "VIBRATO"),
-                        GearParameter("Treble",   shortName: "TREBLE", rowLabel: "VIBRATO"),
-                        GearParameter("Mid",      shortName: "MIDDLE", rowLabel: "VIBRATO"),
-                        GearParameter("Bass",     shortName: "BASS",   rowLabel: "VIBRATO"),
+                        GearParameter("Gain",     shortName: "VOLUME", rowLabel: "NORMAL"),
+                        GearParameter("Treble",   shortName: "TREBLE", rowLabel: "NORMAL"),
+                        GearParameter("Mid",      shortName: "MIDDLE", rowLabel: "NORMAL"),
+                        GearParameter("Bass",     shortName: "BASS",   rowLabel: "NORMAL"),
+                        GearParameter("Gain 2",   shortName: "VOLUME", rowLabel: "VIBRATO"),
+                        GearParameter("Treble 2", shortName: "TREBLE", rowLabel: "VIBRATO"),
+                        GearParameter("Mid 2",    shortName: "MIDDLE", rowLabel: "VIBRATO"),
+                        GearParameter("Bass 2",   shortName: "BASS",   rowLabel: "VIBRATO"),
                         GearParameter("REVERB",    rowLabel: "VIBRATO"),
                         GearParameter("SPEED",     rowLabel: "VIBRATO"),
                         GearParameter("INTENSITY", rowLabel: "VIBRATO")]
@@ -479,7 +481,8 @@ enum PedalSpec {
                         GearParameter($0.0 + suffix, shortName: $0.1, rowLabel: row)
                     }
                 }
-                return [GearParameter("MODE", options: ["CLEAN", "PUSHED"], defaultIndex: 0),
+                return [GearParameter("CHANNEL", options: ["CHANNEL 1", "CHANNEL 2"], defaultIndex: 0),
+                        GearParameter("MODE", options: ["CLEAN", "PUSHED"], defaultIndex: 0),
                         GearParameter("VOICE", options: ["VINTAGE", "MODERN"], defaultIndex: 1)]
                      + ch("",   "CHANNEL 1")
                      + ch(" 2", "CHANNEL 2")
@@ -521,7 +524,7 @@ enum PedalSpec {
                 return [GearParameter("CLEAN/CRUNCH", options: ["CLEAN", "CRUNCH"], defaultIndex: 1),
                         GearParameter("OD1/OD2",      options: ["OD1", "OD2"], defaultIndex: 0),
                         GearParameter("TONE SHIFT",   options: ["OFF", "ON"], defaultIndex: 0),
-                        GearParameter("CHANNEL",      options: ["CLASSIC", "ULTRA"], defaultIndex: 1),
+                        GearParameter("CHANNEL",      options: ["ULTRA", "CLASSIC"], defaultIndex: 0),
                         GearParameter("Volume 2", shortName: "GAIN",   rowLabel: "CLASSIC GAIN"),
                         GearParameter("Master 2", shortName: "VOLUME", rowLabel: "CLASSIC GAIN"),
                         GearParameter("Gain",     shortName: "GAIN",   rowLabel: "ULTRA GAIN"),
@@ -539,7 +542,7 @@ enum PedalSpec {
             // ORANGE ROCKERVERB — a channel switch, the shared reverb, then the
             // dirty channel and the clean one on their own rows.
             if n.contains("rockerverb") {
-                return [GearParameter("CHANNEL", options: ["CLEAN", "DIRTY"], defaultIndex: 1),
+                return [GearParameter("CHANNEL", options: ["DIRTY", "CLEAN"], defaultIndex: 0),
                         GearParameter("REVERB", shortName: "REVERB"),
                         GearParameter("Master",  shortName: "VOLUME", rowLabel: "DIRTY"),
                         GearParameter("Treble",  shortName: "TREBLE", rowLabel: "DIRTY"),

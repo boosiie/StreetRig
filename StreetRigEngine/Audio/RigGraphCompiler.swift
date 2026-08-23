@@ -184,7 +184,22 @@ public enum RigGraphCompiler {
         /// the ROLE, so each role lists the names that fill it and takes the first
         /// one the amp actually has. Adding an amp with its own vocabulary is a
         /// new alias here, not a new code path.
+        /// THE CHANNEL SWITCH IS REAL, not decoration. An amp with two channels
+        /// stores the second one's knobs under the same names suffixed " 2", so
+        /// selecting channel two simply makes the role lookup prefer those. Index
+        /// 0 is always the unsuffixed set, which is why each amp's switch lists
+        /// its channels in that order.
+        ///
+        /// This is what makes a two-row panel more than a picture: the row you
+        /// select is the row that reaches the engine. What it does NOT yet do is
+        /// give each channel its own voicing — both share the amp's profile, so
+        /// switching moves the knob values and not the circuit. Per-channel
+        /// profiles are the next step and a real one.
+        let onChannelTwo = (vals["CHANNEL"] ?? 0) >= 0.5
         let role: ([String]) -> Double = { names in
+            if onChannelTwo {
+                for n in names { if let x = vals[n + " 2"] { return x } }
+            }
             for n in names { if let x = vals[n] { return x } }
             return 5
         }
