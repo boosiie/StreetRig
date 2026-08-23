@@ -303,7 +303,10 @@ extension GearArtView {
     static func panelColor(for item: GearItem?) -> Color {
         let category = item?.category ?? .overdrive
         switch category {
-        case .amp, .comboAmp:   return RigTheme.panel
+        // An amp's faceplate is a MODEL fact — gold on the Marswells, silver on
+        // the Fandor — so it comes from `Faceplate`, and only an amp with no
+        // entry there falls back to the category's cream. See Faceplate.swift.
+        case .amp, .comboAmp:   return Faceplate.ampSpec(for: item)?.base ?? RigTheme.panel
         case .cabinet, .guitar: return RigTheme.cabinet
         case .wah:              return Color(white: 0.16)
         default:                return spec(name: (item?.name ?? "").lowercased(), category: category).tint
@@ -314,7 +317,10 @@ extension GearArtView {
     static func panelIsLight(for item: GearItem?) -> Bool {
         let category = item?.category ?? .overdrive
         switch category {
-        case .amp, .comboAmp:          return true
+        // …and so is its brightness, for the same reason: a black-panel amp needs
+        // LIGHT captions, and answering "amps are light" for the whole category
+        // printed black labels on black metal.
+        case .amp, .comboAmp:          return Faceplate.ampSpec(for: item)?.isLight ?? true
         case .cabinet, .guitar, .wah:  return false
         default:                       return spec(name: (item?.name ?? "").lowercased(), category: category).light
         }

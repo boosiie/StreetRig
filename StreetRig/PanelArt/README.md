@@ -11,6 +11,20 @@ marswell-jcm800-2203-panel.png     ← the JCM800's
 category-overdrive-panel.png       ← every overdrive with no plate of its own
 ```
 
+## Every amp has its own
+
+The eleven amp heads and combos each bake a **different** faceplate — gold brushed
+acrylic on the Marswells, silver on the Fandor Twin, cooler grey on the Rolund, copper on
+the Volt, gunmetal on the Mesa, matte black on the Freedman, the DSL40C and the Katana
+(told apart by their chassis trim: gold, white, amber), orange on the Tangerine, tweed on
+the Bassman. That baseline lives in
+[`Faceplate.swift`](../Views/Faceplate.swift), matched by substring on the model name.
+
+**One thing there is not in the PNG: whether the plate is light.** Knob captions are drawn
+dark on a light panel and light on a dark one, and that comes from `Faceplate.ampSpec`,
+not from the image. So if you repaint the Mesa's gunmetal plate cream, flip its `isLight`
+in `Faceplate.swift` too — otherwise you get white labels on a pale plate.
+
 ## What a plate is (and isn't)
 
 A plate is the surface **under** the knobs and nothing else. The knobs, their captions,
@@ -73,7 +87,8 @@ Sizes come from `KnobPanelLayout.height` — the same math that lays the knobs o
 
 ## Which components have plates
 
-Every catalog piece that HAS a knob panel — 55 of them — plus 12 category fallbacks.
+Every catalog piece that HAS a knob panel — 55 of them, all eleven amps distinct — plus 12
+category fallbacks.
 Cabinets, the guitar, the tuner and the loopers have no adjustable controls, so they have
 no panel and no plate; give one knobs in `PedalSpec.parameters` and it needs a plate too.
 

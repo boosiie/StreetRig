@@ -120,6 +120,14 @@ A plate is the surface **under** the knobs and nothing else: the knobs, their ca
 the panel's rounded corners and edge stroke stay live views on top, because the knobs turn.
 Paint colour, metal, tolex, branding, screws, wear — not knobs.
 
+**Each amp bakes its own faceplate**, not a shared cream one: gold on the Marswells, silver
+on the Fandor Twin, copper on the Volt, gunmetal on the Mesa, matte black on the Freedman,
+the DSL40C and the Katana (told apart by their trim), orange on the Tangerine, tweed on the
+Bassman. The table is [`Faceplate.swift`](StreetRig/Views/Faceplate.swift), matched by
+substring on the model name. It also decides whether the plate is **light** — knob captions
+go dark on a light panel and light on a dark one — so a repaint that flips a plate's
+brightness needs `isLight` flipped with it.
+
 - Drawn **fill-and-crop**, never stretched: author at the size the exporter bakes and it
   lands exactly, author at another aspect and the overflow is trimmed off the edges.
 - The piece's signature colour sits underneath, so a plate with transparency **tints**.
@@ -167,7 +175,8 @@ deliberately skips the art texturing so what you open in Blender is clean geomet
   amps/cabs/combos — ship bespoke icons today. Author more by dropping `<slug>.imageset`
   into `Assets.xcassets/`.
 - **Knob panels** — live for every component that HAS knobs: all 55 catalog pieces with
-  controls ship a baked plate, and 12 category plates cover anything added later. Cabinets,
+  controls ship a baked plate (each of the eleven amps its own), and 12 category plates
+  cover anything added later. Cabinets,
   the guitar, the tuner and the loopers have no adjustable controls, so no panel and no
   plate; give one knobs in `PedalSpec.parameters` and it needs a plate too.
 - **3D models** — the file seam is wired for the **amp + cab, guitar, stand, and every pedal**

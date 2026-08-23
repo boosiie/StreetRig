@@ -21,13 +21,6 @@ struct StreetRigApp: App {
         if ProcessInfo.processInfo.environment["STREETRIG_EXPORT"] == "1" {
             ModelExporter.exportAll()
         }
-        // The 2D sibling: bake every component's knob panel to an editable PNG in
-        // Documents/PanelArt (see PanelArtExporter). `=1` fills in what is
-        // missing and never touches a plate you have edited; `=force` replaces
-        // the lot with clean baselines.
-        if let mode = ProcessInfo.processInfo.environment["STREETRIG_EXPORT_PANELS"] {
-            _ = MainActor.assumeIsolated { PanelArtExporter.exportAll(force: mode == "force") }
-        }
         #endif
     }
 
@@ -37,6 +30,23 @@ struct StreetRigApp: App {
                 .environmentObject(store)
                 .environmentObject(dragController)
                 .environmentObject(slotLift)
+                // The 2D sibling of ModelExporter: bake every component's knob
+                // panel to an editable PNG in Documents/PanelArt (see
+                // PanelArtExporter). `=1` fills in what is missing and never
+                // touches a plate you have edited; `=force` replaces the lot with
+                // clean baselines.
+                //
+                // Here rather than in `init()` on purpose. A plate is rendered
+                // through `ImageRenderer`, and the metal finishes are `Canvas`
+                // drawings — that wants a live scene, not a half-built app.
+                .task { exportPanelsIfAsked() }
         }
+    }
+
+    private func exportPanelsIfAsked() {
+        #if DEBUG
+        guard let mode = ProcessInfo.processInfo.environment["STREETRIG_EXPORT_PANELS"] else { return }
+        PanelArtExporter.exportAll(force: mode == "force")
+        #endif
     }
 }

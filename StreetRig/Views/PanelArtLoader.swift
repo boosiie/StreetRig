@@ -89,12 +89,31 @@ struct ProceduralPlate: View {
     let item: GearItem?
 
     var body: some View {
+        let spec = Faceplate.spec(for: item)
         Rectangle()
-            .fill(GearArtView.panelColor(for: item))
+            .fill(spec.base)
+            // The worked surface — brushed gold, silver, matte black. Flat for
+            // everything that isn't an amp, which is every plate that looked
+            // exactly like this before the table existed.
+            .overlay(FaceplateFinishView(spec: spec, seed: FaceplateFinishView.seed(for: item)))
+            .overlay(alignment: .top) { chassisBand(spec) }
+            .overlay(alignment: .bottom) { chassisBand(spec) }
             .overlay(
                 LinearGradient(stops: PanelArt.gradientStops,
                                startPoint: .top, endPoint: .bottom)
             )
+    }
+
+    /// The chassis edge the plate is bolted behind. A thin band top and bottom —
+    /// the cheapest way to tell four black-panel amps apart at a glance.
+    @ViewBuilder
+    private func chassisBand(_ spec: Faceplate.Spec) -> some View {
+        if let trim = spec.trim {
+            Rectangle()
+                .fill(LinearGradient(colors: [trim, trim.opacity(0.55)],
+                                     startPoint: .top, endPoint: .bottom))
+                .frame(height: 5)
+        }
     }
 }
 
