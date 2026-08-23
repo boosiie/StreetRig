@@ -384,6 +384,17 @@ enum PedalSpec {
             if n.contains("jc-120") || n.contains("jc120") || n.contains("jazz chorus") {
                 return p(["Volume", "Treble", "Mid", "Bass"])
             }
+            // FENDER BASSMAN — a tweed 5F6-A: presence and the tone stack, then a
+            // volume for EACH input, bright and normal. No master, no gain knob;
+            // the input volume IS the gain.
+            if n.contains("bassman") {
+                return [GearParameter("Presence", shortName: "PRESENCE"),
+                        GearParameter("Mid",      shortName: "MIDDLE"),
+                        GearParameter("Bass",     shortName: "BASS"),
+                        GearParameter("Treble",   shortName: "TREBLE"),
+                        GearParameter("Gain",     shortName: "VOL BRIGHT"),
+                        GearParameter("Volume",   shortName: "VOL NORMAL")]
+            }
             if n.contains("twin") {
                 return p(["Gain", "Bass", "Mid", "Treble", "Master"])
             }

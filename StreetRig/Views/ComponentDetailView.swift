@@ -98,7 +98,11 @@ struct ComponentDetailView: View {
     /// — a 34 pt knob and its label — against the 132 pt a single row used to take.
     private var knobPanelHeight: CGFloat {
         let rows = max(1, dialRows.count)
-        return CGFloat(rows) * 56 + 14
+        // Every LABELLED row needs its caption's height too. Counting only the
+        // knob rows is what clipped "CHANNEL 1" off the top of the Mesa and the
+        // Orange: the panel was sized for the dials and the text had nowhere to go.
+        let labels = dialRows.filter { $0.label != nil }.count
+        return CGFloat(rows) * 56 + CGFloat(labels) * 17 + 14
     }
     private var switches: [GearParameter] { params.filter { $0.isDiscrete && $0.group == nil } }
 
@@ -145,7 +149,7 @@ struct ComponentDetailView: View {
                     // player actually drags — off the bottom; the cap plus the
                     // dock's own floor means both are always reachable.
                     knobPanel(id: id)
-                        .frame(height: min(knobPanelHeight, dense ? 126 : 150))
+                        .frame(height: min(knobPanelHeight, dense ? 132 : 178))
                     if !switches.isEmpty { switchPanel(id: id, compact: dense) }
                     sliderDock(id: id)
                         .frame(minHeight: 132, maxHeight: .infinity)
@@ -234,9 +238,14 @@ struct ComponentDetailView: View {
                     VStack(spacing: 4) {
                         ForEach(Array(dialRows.enumerated()), id: \.offset) { _, row in
                             if let label = row.label {
+                                // Centred across the panel and readable at arm's
+                                // length — it names the row of knobs under it, so
+                                // it has to carry as much as they do.
                                 Text(label)
-                                    .font(.system(size: 9, weight: .bold)).tracking(1.1)
-                                    .foregroundStyle(labelColor.opacity(0.75))
+                                    .font(.system(size: 12, weight: .bold)).tracking(1.6)
+                                    .foregroundStyle(labelColor.opacity(0.85))
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .padding(.top, 1)
                             }
                             knobRow(id: id, row.dials, knob: knob,
                                     light: light, labelColor: labelColor)
