@@ -440,13 +440,8 @@ void SRKernelProcess(SRKernelRef kernel,
     const float gateRelease = 1.0f - std::exp(-1.0f / (0.150f * srF));
     constexpr float invGateThreshold = 1.0f / DSPKernel::kGateThreshold;
 
-    // How dirty this fader position asks to be: 0 below the clean line, 1 at the
-    // top. Read from the output level itself, so there is no second control to
-    // find and no way for the two to disagree about how hard the stage is driven.
-    const float outDB = 20.0f * std::log10(std::fmax(outTarget, 1.0e-6f));
-    const float dirt = std::fmin(1.0f, std::fmax(0.0f,
-        (outDB - DSPKernel::kCleanUpToDB) /
-        (DSPKernel::kFullDirtDB - DSPKernel::kCleanUpToDB)));
+    // No fader-driven saturation any more: loudness is the limiter's job, dirt is
+    // the amp's. See kCeilingKnee in the internal header for why.
 
     // Amp/cab params (drive + makeup are de-zippered inside the processor).
     AmpCabParams p;
@@ -530,8 +525,12 @@ void SRKernelProcess(SRKernelRef kernel,
         //    scratch you can hear underneath the note. A limiter never touches the
         //    shape of the wave — it moves a gain, smoothly, so nothing is added
         //    that wasn't played. Loud costs dynamics here; it no longer costs tone.
-        constexpr float ceiling = DSPKernel::kOutputCeiling;
-        constexpr float invCeiling = 1.0f / ceiling;
+        // The limiter aims at the KNEE, not the ceiling. Hold peaks at the knee
+        // and the soft ceiling above is a straight wire for everything the limiter
+        // caught — the gap between the two is headroom kept in reserve for the
+        // transient that outruns a 2 ms envelope. Aiming at the ceiling instead
+        // would park the whole signal in the bend and undo the point of the knee.
+        constexpr float target = DSPKernel::kCeilingKnee;
         float env = k->limiterEnv[limCh];
         float lim = k->limiterGain[limCh];
         float g1 = outStart, cg = cgStart;
@@ -543,24 +542,18 @@ void SRKernelProcess(SRKernelRef kernel,
             // keeps it under the ceiling.
             const float a = std::fabs(x);
             env += (a > env ? attackCoef : releaseCoef) * (a - env);
-            const float want = (env > ceiling) ? (ceiling / env) : 1.0f;
+            const float want = (env > target) ? (target / env) : 1.0f;
             lim += ((want < lim) ? attackCoef : releaseCoef) * (want - lim);
 
-            // TWO WAYS TO FIT UNDER THE CEILING, mixed by where the fader sits.
-            // The limiter holds the level without touching the waveform; the
-            // saturator bends the waveform and gets more out of the same ceiling
-            // for it. Clean at the bottom of the travel, driven at the top, and
-            // the whole way between is a real position rather than a switch.
+            // ONE WAY TO FIT UNDER THE CEILING: hold the level, keep the wave.
+            // The limiter moves a gain and nothing else, so a clean patch is still
+            // the clean patch at the top of the fader — just louder.
             const float clean = x * lim;
-            const float drivenIn = x * invCeiling;
-            const float driven = ceiling * drivenIn / std::sqrt(1.0f + drivenIn * drivenIn);
-            const float mixed = clean + dirt * (driven - clean);
 
             // Whatever still overshoots — a transient that outran the envelope —
-            // is bent rather than snapped. At the clean end this is the only
-            // non-linearity in the path, and it sees a millisecond at a time.
-            const float y = mixed * invCeiling;
-            dst[i] = ceiling * y / std::sqrt(1.0f + y * y);
+            // is bent rather than snapped, and ONLY the overshoot: below the knee
+            // this returns its input unchanged. It sees a millisecond at a time.
+            dst[i] = DSPKernel::softCeil(clean);
         }
         k->limiterEnv[limCh] = env;
         k->limiterGain[limCh] = lim;

@@ -319,9 +319,23 @@ enum PedalSpec {
         case .amp, .comboAmp:
             // The Katana's real panel: the shared EQ, plus a Volume that drives
             // the power section (distinct from Master, which is the room level),
-            // plus three DISCRETE selectors. Character and Variation choose the
-            // voicing PROFILE — a structural change — while Power is continuous
-            // under the hood even though it looks like a switch.
+            // plus two DISCRETE selectors. Character and Variation choose the
+            // voicing PROFILE — a structural change.
+            //
+            // NO WATTAGE SELECTOR. The hardware has one (0.5 / 50 / 100 W) and it
+            // was modelled here, faithfully, as where the output stage begins to
+            // compress. But a power attenuator exists to solve a problem this app
+            // does not have: getting a valve amp to break up at a volume that will
+            // not deafen a room. There is no room and no valve — the level you
+            // hear is a slider — so the control asks the player to pick a wattage
+            // for an amp that has no watts, and the honest answer is that the tone
+            // they want is the Character and Gain, not a power rating.
+            //
+            // The power-amp VOICING stays: headroom, sag, feedback and output
+            // compression are per-profile and are most of what separates a Twin
+            // from a Plexi. What is gone is asking the player to dial the wattage.
+            // `SRParamAmpPower` also stays (addresses are append-only, and host
+            // sessions carry it) — it is simply pinned to full power now.
             if n.contains("katana") {
                 var p: [GearParameter] = [
                     GearParameter("Gain"), GearParameter("Bass"), GearParameter("Mid"),
@@ -329,8 +343,7 @@ enum PedalSpec {
                     GearParameter("Volume"), GearParameter("Master"),
                     GearParameter("Character", options: ["Acoustic", "Clean", "Crunch", "Lead", "Brown"],
                                   defaultIndex: 2),
-                    GearParameter("Variation", options: ["A", "B"], defaultIndex: 0),
-                    GearParameter("Power", options: ["0.5 W", "50 W", "100 W"], defaultIndex: 2)]
+                    GearParameter("Variation", options: ["A", "B"], defaultIndex: 0)]
                 // THE FX SECTION. Five blocks, each a named group: a type
                 // selector (index 0 = Off, and the only STRUCTURAL control here,
                 // because it decides whether the block occupies a chain slot at

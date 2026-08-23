@@ -184,7 +184,12 @@ public enum RigGraphCompiler {
         plan.ampTrebleDB    = ParameterMap.ampBandDB("Treble",   knob: v("Treble"))
         plan.ampPresenceDB  = ParameterMap.ampBandDB("Presence", knob: v("Presence"))
         plan.ampVolume      = ParameterMap.ampVolume(volumeKnob: v("Volume"))
-        plan.ampPower       = ParameterMap.ampPowerScale(powerIndex: idx("Power", 2))   // 2 = 100 W
+        // PINNED TO FULL POWER. The wattage selector is gone from the panel (see
+        // Gear.swift for why), and this is read from the profile rather than from
+        // the item's values ON PURPOSE: a rig saved while the selector existed
+        // still carries "Power": 0, and honouring it would leave that player stuck
+        // at half a watt with no control to undo it.
+        plan.ampPower       = ParameterMap.ampPowerScale(powerIndex: 2)   // 2 = 100 W
         plan.ampProfile     = ParameterMap.ampProfile(name: ampName, values: vals)
         plan.useNeural      = ParameterMap.ampUsesNeural(name: ampName)
 

@@ -1413,65 +1413,51 @@ extension AudioEngineController {
                               Self.bandEnergy(brownA.s, sr: sr, lo: 20, hi: 150),
                               Self.bandEnergy(brownB.s, sr: sr, lo: 20, hi: 150))))
 
-        // ---- 4. THE POWER CONTROL IS NOT A VOLUME KNOB. ----------------------
-        // The check most likely to catch a wrong implementation. Everything is
-        // held fixed except the power setting, the two renders are LEVEL-MATCHED,
-        // and what is compared is harmonic content and compression.
-        func katanaPowerPlan(_ index: Int) -> RigDSPPlan {
+        // ---- 4. LOUD DOES NOT MEAN DIRTY. -----------------------------------
+        // The wattage selector is gone (see Gear.swift), and these checks replace
+        // the ones that drove it. What matters now is the property those apps get
+        // right and this one used to get wrong: a CLEAN amp must still be clean
+        // with the fader buried, because loudness is the limiter's job and dirt is
+        // the amp's. The output stage used to blend saturation in above +12 dB,
+        // which made that impossible by construction.
+        func cleanAmpAt(_ level: Float) async -> [Float] {
             var v = Self.ampTestKnobs
-            v["Character"] = 2; v["Variation"] = 1; v["Volume"] = 8   // Crunch B, pushed
-            v["Power"] = Double(index)
-            return ampPlan("VOSS Katana 100", .comboAmp, values: v).plan
+            v["Gain"] = 2                                    // a clean setting
+            var plan = ampPlan("Rolund JC-120 Jazz Chorus", .comboAmp, values: v).plan
+            plan.cabBypass = true
+            return ((try? await renderRigPlan(plan, source: loudTone, fmt: fmt,
+                                              outputLevel: level)) ?? PassOutput()).samples
         }
-        func katanaAtPower(_ index: Int) async -> [Float] { await render(katanaPowerPlan(index)) }
-        let p100 = await katanaAtPower(2), p50 = await katanaAtPower(1), p05 = await katanaAtPower(0)
-        let residual = Self.levelMatchedDiff(p100, p05)
-        let hi100 = hi3(p100), hi05 = hi3(p05)
-
-        // COMPRESSION, measured the only way that is not confounded by the
-        // program material: a LOUD → QUIET burst, and how far apart the two halves
-        // still are on the way out. Crest factor is reported below but is a poor
-        // test here — sag deliberately lets transients punch through a ducking
-        // supply, which RAISES crest even as the stage compresses harder.
-        let burstN = Int(0.5 * sr)
-        let burst = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(burstN * 2))!
-        burst.frameLength = AVAudioFrameCount(burstN * 2)
-        if let cd = burst.floatChannelData {
-            for i in 0..<(burstN * 2) {
-                let amp: Double = i < burstN ? 0.5 : 0.02        // −6 dBFS → −34 dBFS
-                cd[0][i] = Float(amp * sin(2.0 * Double.pi * 220.0 * Double(i) / sr))
-            }
-        }
-        func burstRatio(_ index: Int) async -> Double {
-            // Through the SAME isolation as every other pass in this suite. This
-            // call reached renderRigPlan directly and so kept hitting the limiter
-            // at full output, which cost the 100 W reference 0.13 of its
-            // loud/quiet ratio and very nearly failed the check on the limiter's
-            // behaviour rather than the power amp's.
-            let out = ((try? await renderRigPlan(katanaPowerPlan(index), source: burst, fmt: fmt,
+        let quietClean = await cleanAmpAt(0.25)
+        let loudClean  = await cleanAmpAt(8.0)      // fader buried
+        // Harmonics above the 220 Hz fundamental: what the amp INVENTED. If the
+        // output stage is clean, cranking it adds none.
+        let quietHarm = Double(Self.brightness(quietClean, sr: sr, cutoff: 400) * 100)
+        let loudHarm  = Double(Self.brightness(loudClean,  sr: sr, cutoff: 400) * 100)
+        checks.append(("a CLEAN amp stays clean with the fader buried",
+                       abs(loudHarm - quietHarm) < 2.0,
+                       String(format: "harmonics >400 Hz: %.1f%% at 0.25 → %.1f%% at 8.0 (was: saturation blended in past +12 dB)",
+                              quietHarm, loudHarm)))
+        // …and it really did get louder while staying clean.
+        let quietRMS = Double(Self.rms(quietClean)), loudRMS = Double(Self.rms(loudClean))
+        checks.append(("…and it actually got LOUDER doing it", loudRMS > quietRMS * 1.5,
+                       String(format: "RMS %@ → %@", Self.dbfs(Float(quietRMS)), Self.dbfs(Float(loudRMS)))))
+        // A DIRTY amp must still be dirty — the fix must not have flattened the
+        // top end into a clean-only machine.
+        func brownHarm() async -> Double {
+            var v = Self.ampTestKnobs
+            v["Character"] = 4; v["Variation"] = 1; v["Gain"] = 9   // Brown B, cranked
+            var plan = ampPlan("VOSS Katana 100", .comboAmp, values: v).plan
+            plan.cabBypass = true
+            let out = ((try? await renderRigPlan(plan, source: loudTone, fmt: fmt,
                                                  outputLevel: Self.ampSuiteOutputLevel))
                         ?? PassOutput()).samples
-            let (loud, quiet) = Self.halves(out)
-            return quiet > 1e-9 ? Double(loud / quiet) : 0
+            return Double(Self.brightness(out, sr: sr, cutoff: 400) * 100)
         }
-        let ratio100 = await burstRatio(2), ratio50 = await burstRatio(1), ratio05 = await burstRatio(0)
+        let dirty = await brownHarm()
+        checks.append(("a DIRTY amp is still dirty", dirty > quietHarm + 5.0,
+                       String(format: "harmonics >400 Hz: Brown B cranked %.1f%% vs clean %.1f%%", dirty, quietHarm)))
 
-        lines.append("")
-        lines.append(String(format: "  power 100 W : RMS %@ dB  crest %.2f  hi>3k %.1f%%  loud/quiet %.2f",
-                            Self.dbfs(Self.rms(p100)), Self.crestFactor(p100), hi100, ratio100))
-        lines.append(String(format: "  power  50 W : RMS %@ dB  crest %.2f  hi>3k %.1f%%  loud/quiet %.2f",
-                            Self.dbfs(Self.rms(p50)), Self.crestFactor(p50), hi3(p50), ratio50))
-        lines.append(String(format: "  power 0.5 W : RMS %@ dB  crest %.2f  hi>3k %.1f%%  loud/quiet %.2f",
-                            Self.dbfs(Self.rms(p05)), Self.crestFactor(p05), hi05, ratio05))
-        checks.append(("power 0.5 W ≠ 100 W AT MATCHED LEVEL", residual > 0.10,
-                       String(format: "%.1f%% residual after level matching — not a gain change", residual * 100)))
-        checks.append(("0.5 W changes HARMONIC content", abs(hi05 - hi100) > 0.3,
-                       String(format: "hi>3k %.1f%% → %.1f%%", hi100, hi05)))
-        checks.append(("0.5 W COMPRESSES harder (loud→quiet burst)", ratio05 < ratio100 * 0.8,
-                       String(format: "loud/quiet %.2f → %.2f", ratio100, ratio05)))
-        checks.append(("50 W sits between the two", ratio50 <= ratio100 && ratio50 >= ratio05,
-                       String(format: "loud/quiet 100 W %.2f ≥ 50 W %.2f ≥ 0.5 W %.2f",
-                              ratio100, ratio50, ratio05)))
 
         // ---- 5. STRUCTURAL vs CONTINUOUS, read off the signature. ------------
         func sig(_ v: [String: Double]) -> String {
@@ -1789,7 +1775,14 @@ extension AudioEngineController {
     /// was placed in Documents by a previous build.
     func runLegacyNullReference(fmt: AVAudioFormat) async -> (text: String, pass: Bool) {
         let src = Self.generateTestSignal(format: fmt, seconds: 2.0)
-        let out = ((try? await renderRigPlan(legacyReferencePlan(), source: src, fmt: fmt)) ?? PassOutput()).samples
+        // BELOW THE SHARED OUTPUT STAGE. This test exists to prove the AMP path is
+        // unchanged, and twice now it has failed for reasons that had nothing to do
+        // with an amp: main's limiter arriving, and the ceiling gaining a knee.
+        // Both are deliberate, both move every amp equally, and neither is what
+        // this guards. Rendered under the limiter's target the output stage is a
+        // constant gain, so what nulls here is the amp and only the amp.
+        let out = ((try? await renderRigPlan(legacyReferencePlan(), source: src, fmt: fmt,
+                                             outputLevel: Self.ampSuiteOutputLevel)) ?? PassOutput()).samples
         let refURL = Self.documentsURL("StreetRig_legacy_reference.wav")
         try? Self.writeWav(out, to: refURL, format: fmt)
 

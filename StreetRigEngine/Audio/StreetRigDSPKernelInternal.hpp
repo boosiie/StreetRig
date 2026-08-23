@@ -12,6 +12,7 @@
 #define STREETRIG_DSP_KERNEL_INTERNAL_HPP
 
 #include <atomic>
+#include <cmath>
 #include "AmpCabProcessor.hpp"
 #include "Pedals/PedalChain.hpp"
 
@@ -69,14 +70,36 @@ struct DSPKernel {
     // playing passes untouched and only the overs are bent.
     static constexpr float kOutputCeiling = 0.891f;   // −1 dBFS
 
-    /// WHERE CLEAN ENDS AND DRIVE BEGINS, in dB of output level. Below this the
-    /// output stage is a limiter and nothing else — loud, and the wave is the one
-    /// that was played. Above it, saturation is blended in the rest of the way to
-    /// the fader's top, so the fader IS the trade: turn it up for the last of the
-    /// level and it gets dirtier on the way, exactly like opening up a master
-    /// volume into a power amp.
-    static constexpr float kCleanUpToDB = 12.0f;
-    static constexpr float kFullDirtDB  = 42.0f;   // the fader's own ceiling
+    /// THE FADER DOES NOT DIRTY THE TONE. It used to: past +12 dB saturation was
+    /// blended in the rest of the way to +42, on the reasoning that a master
+    /// volume opening into a power amp behaves that way. It does — but a real amp
+    /// with that much headroom stays clean, and this made every CLEAN patch break
+    /// up as soon as it was loud enough to play against. Amped and Tonebridge get
+    /// very loud and stay glassy at the top of their travel, and that is the bar.
+    ///
+    /// So loudness is the limiter's job alone, and dirt is the AMP's job alone —
+    /// gain, character, power-amp headroom, all of which are per-profile and
+    /// already voiced. Turn the fader up and you get the same tone, louder. Want
+    /// it rough, turn the amp up.
+    ///
+    /// KNEE, so that "clean" is really clean. The soft ceiling below used to be a
+    /// sigmoid applied from zero, which bends the waveform everywhere — at the
+    /// ceiling it costs ~3 dB and audibly rounds the peaks, so even the limiter's
+    /// "untouched" path was not untouched. Below this knee the stage is now a
+    /// literal straight wire, and only the overshoot a fast transient sneaks past
+    /// the envelope gets bent at all.
+    static constexpr float kCeilingKnee = 0.75f * kOutputCeiling;   // ≈ −3.5 dBFS
+
+    /// Transparent below the knee; smoothly asymptotic to the ceiling above it.
+    /// Continuous in value and slope at the knee, so there is no edge to hear.
+    static inline float softCeil(float x) noexcept {
+        const float a = std::fabs(x);
+        if (a <= kCeilingKnee) return x;
+        const float span = kOutputCeiling - kCeilingKnee;
+        const float over = (a - kCeilingKnee) / span;
+        const float bent = kCeilingKnee + span * (over / std::sqrt(1.0f + over * over));
+        return (x < 0.0f) ? -bent : bent;
+    }
 
     /// INPUT EXPANDER — the quiet answer to a noisy front end.
     ///
