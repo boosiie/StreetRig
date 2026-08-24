@@ -134,8 +134,18 @@ struct ComponentDetailView: View {
                     // landscape sheet used to push the sliders — the controls the
                     // player actually drags — off the bottom; the cap plus the
                     // dock's own floor means both are always reachable.
+                    // A HAND-DRAWN PLATE SETS THE PANEL'S SHAPE, not the other way
+                    // round. The panel's width is the DEVICE's — 772 pt here, more
+                    // on an iPad — so a plate authored to one machine's proportions
+                    // is scaled up and shaved at the ends on every other. Letting
+                    // the panel take the plate's aspect (never past the cap) means
+                    // artwork lands edge to edge, uncropped, at any width, and the
+                    // knobs stay on their painted wells. Every other panel keeps
+                    // the fixed row height exactly as before.
                     knobPanel(id: id)
-                        .frame(height: KnobPanelLayout.height(params))
+                        .modifier(PlateShapedHeight(aspect: plateAspect,
+                                                    fixed: KnobPanelLayout.height(params),
+                                                    cap: KnobPanelLayout.cap(params)))
                     if !switches.isEmpty {
                         switchPanel(id: id, compact: dense)
                     }
@@ -255,6 +265,13 @@ struct ComponentDetailView: View {
               dials.allSatisfy({ layout.anchor(for: $0) != nil })
         else { return nil }
         return (layout, art.size)
+    }
+
+    /// The proportions of a plate that places its own knobs, or `nil` for every
+    /// panel that is sized by its rows.
+    private var plateAspect: CGFloat? {
+        guard let placement, placement.plate.height > 0 else { return nil }
+        return placement.plate.width / placement.plate.height
     }
 
     /// Knobs pinned to the marks the artwork was drawn with.
@@ -838,6 +855,36 @@ struct ComponentDetailView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Height for a panel whose plate is a real faceplate: the width it is given,
+/// divided by the artwork's aspect, and never past the cap. Falls back to the
+/// row-derived height when there is no such plate — which is every panel that
+/// does not ship a knob layout.
+private struct PlateShapedHeight: ViewModifier {
+    let aspect: CGFloat?
+    let fixed: CGFloat
+    let cap: CGFloat
+
+    /// Measured rather than inferred: `aspectRatio(_:contentMode:)` resolves
+    /// against a proposal, and inside a VStack the height proposal is the one
+    /// thing that isn't settled yet. The width is, so read it and do the division.
+    @State private var width: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .frame(height: height)
+            // `onGeometryChange`, not the older measure-through-a-preference
+            // recipe: that one's callback is `@Sendable` now and the state write
+            // never reached the view graph — the panel kept its fixed height and
+            // the plate kept being cropped, silently.
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+    }
+
+    private var height: CGFloat {
+        guard let aspect, aspect > 0, width > 0 else { return fixed }
+        return min(cap, width / aspect)
     }
 }
 

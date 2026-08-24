@@ -134,7 +134,11 @@ brightness needs `isLight` flipped with it.
   knob's centre and diameter as fractions of the plate, and the panel pins the knobs to
   the wells you painted instead of spacing them evenly — that is how the JCM800's six sit
   inside their printed scales. See the [PanelArt README](StreetRig/PanelArt/README.md).
-  A piece with a sidecar is never re-baked by the exporter, `=force` included.
+  A piece with a sidecar is never re-baked by the exporter, `=force` included — and its
+  artwork is **never cropped**: the panel divides its own width by the plate's aspect and
+  uses that as its height, so any aspect from about 4:1 to 14:1 lands edge to edge on any
+  device. Panel width is the device's (≈695 pt on a phone), which is why no fixed pixel
+  size could fit everywhere.
 - The piece's signature colour sits underneath, so a plate with transparency **tints**.
 - Sizes come from `KnobPanelLayout.height` — the same math that lays the knobs out — at
   800 pt wide, 3×. In practice **2400 × 216** for a one-row panel and **2400 × 534** for a

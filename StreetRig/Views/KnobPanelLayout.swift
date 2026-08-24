@@ -102,10 +102,15 @@ enum KnobPanelLayout {
         return CGFloat(count) * 56 + CGFloat(labels) * 13 + CGFloat(spacing) + 12
     }
 
-    /// What the panel actually GETS: what it wants, capped so it can never crowd
+    /// The most height a panel may take, whatever it wants — it can never crowd
     /// out the slider dock. A tall panel on a ~400 pt landscape sheet used to push
     /// the sliders — the controls the player actually drags — off the bottom.
+    static func cap(_ params: [GearParameter]) -> CGFloat {
+        isDense(params) ? 132 : 178
+    }
+
+    /// What the panel actually GETS: what it wants, capped.
     static func height(_ params: [GearParameter]) -> CGFloat {
-        min(naturalHeight(params), isDense(params) ? 132 : 178)
+        min(naturalHeight(params), cap(params))
     }
 }

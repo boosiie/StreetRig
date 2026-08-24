@@ -32,9 +32,10 @@ the channel dividers and the panel's rounded corners and edge stroke are live vi
 on top — they have to be, because the knobs turn. So paint a faceplate: colour, brushed
 metal, tolex, screened branding, screws, wear. Don't paint knobs.
 
-- It is drawn **fill-and-crop**, never stretched. Author at the size the exporter bakes
-  and it lands exactly; author at some other aspect and the overflow is trimmed off the
-  edges rather than the artwork being squashed.
+- It is drawn **fill-and-crop**, never stretched. For a plate WITHOUT a knob layout,
+  author at the size the exporter bakes and it lands exactly; another aspect gets trimmed
+  at the edges rather than squashed. A plate WITH a layout is never cropped at all — the
+  panel takes its aspect (see above).
 - The piece's signature colour still sits **underneath**, so a plate with transparency
   tints rather than replaces.
 - Knob captions are drawn in black on a light panel and white on a dark one, decided by
@@ -67,6 +68,11 @@ place the knobs itself, or the app spaces them evenly across the panel and they 
   has no lettering.
 - Anchors go through **exactly the transform the image does**, so a knob stays glued to
   its painted well at any panel size — it scales and moves with the art.
+- **The panel takes the plate's shape**, so your artwork is never cropped. Panel width is
+  the *device's* (about 695 pt on a phone, more on an iPad), so no fixed pixel size could
+  ever have fitted everywhere: the panel divides its width by your image's aspect and uses
+  that as its height. Author at any aspect from about **4:1 to 14:1** — 2400 × 216 sits
+  right in the middle of that and is what the exporter bakes.
 - The layout is used only when it accounts for **every** dial the piece has. Add a knob to
   an amp and forget its anchor and the panel falls back to the automatic rows, rather than
   leaving a control undrawn and unreachable.
