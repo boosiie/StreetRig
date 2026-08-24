@@ -29,6 +29,22 @@ struct ComponentDetailView: View {
     /// used, the notification is the whole point.
     @ObservedObject private var plateRevision = PanelArtRevision.shared
 
+    /// The switch the player just flicked, named over the panel for a moment.
+    /// A toggle on a faceplate carries no caption at arm's length, so touching
+    /// one has to say what it is and which way it now points.
+    @State private var flicked: FlickedSwitch?
+
+    struct FlickedSwitch: Equatable {
+        let param: String
+        let title: String
+        let detail: String
+        let inert: Bool
+        /// Where to hang the bubble, in the panel's own space.
+        let at: CGPoint
+        /// Bumped on every flick so a re-tap restarts the dismissal.
+        let serial: Int
+    }
+
     /// Which page the lower pane is showing. Only amps with an FX section have
     /// more than one; everything else never sees the picker.
     private enum Pane: String, CaseIterable { case levels = "LEVELS", fx = "FX", channels = "CHANNELS" }
@@ -99,7 +115,13 @@ struct ComponentDetailView: View {
         return label != live
     }
 
-    private var switches: [GearParameter] { params.filter { $0.isDiscrete && $0.group == nil } }
+    /// The strip under the panel: every selector the PLATE does not place. A
+    /// switch drawn live on the faceplate is flicked there instead, so listing it
+    /// twice would be two controls for one thing.
+    private var switches: [GearParameter] {
+        let placed = placement?.layout.placedSwitches.map(\.param) ?? []
+        return params.filter { $0.isDiscrete && $0.group == nil && !placed.contains($0.name) }
+    }
 
     /// The grouped controls, in declaration order, one entry per group.
     private var fxGroups: [(name: String, controls: [GearParameter])] { KnobPanelLayout.groups(params) }
@@ -328,7 +350,60 @@ struct ComponentDetailView: View {
                               y: origin.y + a.y * drawn.height)
                 }
             }
+
+            // The switches the plate draws, made live in place — see PanelToggle.
+            ForEach(layout.placedSwitches, id: \.param) { placed in
+                if let param = params.first(where: { $0.name == placed.param }),
+                   let options = param.options {
+                    let at = CGPoint(x: origin.x + placed.x * drawn.width,
+                                     y: origin.y + placed.y * drawn.height)
+                    if let lamp = placed.lamp {
+                        PanelLamp(color: Color(panelHex: lamp.color),
+                                  diameter: lamp.d * drawn.height,
+                                  lit: lamp.on.contains(liveIndex(id: id, param: param)))
+                            .position(x: origin.x + lamp.x * drawn.width,
+                                      y: origin.y + lamp.y * drawn.height)
+                    }
+                    PanelToggle(value: store.binding(itemId: id, param: param.name),
+                                options: options,
+                                diameter: placed.d * drawn.height,
+                                inert: param.isDisabled,
+                                onFlick: { landed in
+                                    flicked = FlickedSwitch(
+                                        param: param.name,
+                                        title: param.displayName,
+                                        detail: options.indices.contains(landed) ? options[landed] : "",
+                                        inert: param.isDisabled,
+                                        at: at,
+                                        serial: (flicked?.serial ?? 0) + 1)
+                                })
+                        .frame(width: min(max(placed.d * drawn.height, 44), ceiling),
+                               height: min(max(placed.d * drawn.height, 44), ceiling))
+                        .position(at)
+                }
+            }
+
+            // …and what the flicked switch is called. Above it where there is
+            // room, below it where there is not, so the bubble never leaves the
+            // panel it belongs to.
+            if let flicked {
+                let above = flicked.at.y > size.height * 0.5
+                PanelTooltip(title: flicked.title, detail: flicked.detail, inert: flicked.inert)
+                    .position(x: min(max(flicked.at.x, 70), size.width - 70),
+                              y: above ? max(14, flicked.at.y - 26) : min(size.height - 14, flicked.at.y + 26))
+                    .id(flicked.serial)
+                    .task(id: flicked.serial) {
+                        try? await Task.sleep(for: .seconds(2.5))
+                        withAnimation(.easeOut(duration: 0.2)) { self.flicked = nil }
+                    }
+            }
         }
+        .animation(.easeOut(duration: 0.15), value: flicked?.serial)
+    }
+
+    /// Which position a selector is currently on.
+    private func liveIndex(id: UUID, param: GearParameter) -> Int {
+        Int((store.item(id)?.values[param.name] ?? param.defaultValue).rounded())
     }
 
     // MARK: - Knobs laid out in rows (every plate that doesn't place its own)

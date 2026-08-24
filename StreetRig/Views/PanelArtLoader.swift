@@ -106,7 +106,35 @@ struct PanelKnobLayout: Decodable {
         let d: CGFloat
     }
 
+    /// A switch the plate wants LIVE — flicked in place instead of pressed on a
+    /// row of buttons under the panel. Same coordinate rule as a knob; `d` is the
+    /// size of the toggle's body.
+    struct Switch: Decodable {
+        /// The control's `GearParameter.name`, e.g. "CHANNEL".
+        let param: String
+        let x: CGFloat
+        let y: CGFloat
+        let d: CGFloat
+        /// The indicator that answers the switch, if the artwork has one.
+        let lamp: Lamp?
+    }
+
+    /// A painted lamp that lights while its switch sits on one of `on`.
+    struct Lamp: Decodable {
+        let x: CGFloat
+        let y: CGFloat
+        let d: CGFloat
+        /// Option indices that light it. `[1]` = lit on the second position.
+        let on: [Int]
+        /// "#rrggbb". Defaults to the app's amber.
+        let color: String?
+    }
+
     let knobs: [Anchor]
+    /// Switches the plate places. Any the plate does NOT name stay in the strip
+    /// under the panel, so a partly-marked plate loses no control.
+    private let switches: [Switch]?
+    var placedSwitches: [Switch] { switches ?? [] }
 
     /// Draw the app's own knob captions over the plate. Defaults to NO: a plate
     /// that places its knobs has the names printed on it already, and drawing
@@ -116,6 +144,10 @@ struct PanelKnobLayout: Decodable {
 
     func anchor(for param: GearParameter) -> Anchor? {
         knobs.first { $0.param == param.name }
+    }
+
+    func placement(for param: GearParameter) -> Switch? {
+        placedSwitches.first { $0.param == param.name }
     }
 
     /// The closest two knobs on the plate, in plate-height units — the ceiling on

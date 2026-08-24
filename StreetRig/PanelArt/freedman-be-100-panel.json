@@ -1,60 +1,98 @@
 {
-  "_comment": "Knob anchors for the BE-100 faceplate: PRESENCE BASS MIDDLE TREBLE MASTER GAIN for the BE/HBE channel, then the clean channel's VOLUME TREBLE BASS. x and y are fractions of the plate's own width and height, d is the knob diameter as a fraction of its height.",
+  "_comment": "Anchors measured from this artwork's placement marks. x and y are fractions of the plate's own width and height; d is a fraction of its height. Knobs match controls by GearParameter.name.",
   "captions": false,
   "knobs": [
     {
       "param": "Presence",
       "x": 0.2725,
       "y": 0.53935,
-      "d": 0.29887
+      "d": 0.30093
     },
     {
       "param": "Bass",
       "x": 0.34725,
       "y": 0.53935,
-      "d": 0.29887
+      "d": 0.2963
     },
     {
       "param": "Mid",
       "x": 0.42225,
       "y": 0.53935,
-      "d": 0.29887
+      "d": 0.2963
     },
     {
       "param": "Treble",
       "x": 0.497,
       "y": 0.53935,
-      "d": 0.29887
+      "d": 0.30093
     },
     {
       "param": "Master",
       "x": 0.572,
       "y": 0.53935,
-      "d": 0.29887
+      "d": 0.30093
     },
     {
       "param": "Gain",
       "x": 0.64675,
       "y": 0.53935,
-      "d": 0.29887
+      "d": 0.2963
     },
     {
       "param": "Clean Volume",
       "x": 0.72175,
       "y": 0.53935,
-      "d": 0.29887
+      "d": 0.2963
     },
     {
       "param": "Clean Treble",
       "x": 0.7965,
       "y": 0.53935,
-      "d": 0.29887
+      "d": 0.30093
     },
     {
       "param": "Clean Bass",
       "x": 0.8715,
       "y": 0.53935,
-      "d": 0.29887
+      "d": 0.30093
+    }
+  ],
+  "switches": [
+    {
+      "param": "FAT",
+      "x": 0.31025,
+      "y": 0.87037,
+      "d": 0.13426
+    },
+    {
+      "param": "C45",
+      "x": 0.38525,
+      "y": 0.87731,
+      "d": 0.13426
+    },
+    {
+      "param": "SAT",
+      "x": 0.45975,
+      "y": 0.87037,
+      "d": 0.13426
+    },
+    {
+      "param": "VOICE",
+      "x": 0.68625,
+      "y": 0.86806,
+      "d": 0.13426
+    },
+    {
+      "param": "BRIGHT",
+      "x": 0.76075,
+      "y": 0.875,
+      "d": 0.13426
+    },
+    {
+      "param": "CHANNEL",
+      "x": 0.83525,
+      "y": 0.87037,
+      "d": 0.13426
     }
   ]
 }

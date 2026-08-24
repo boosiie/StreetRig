@@ -1,5 +1,5 @@
 {
-  "_comment": "Knob anchors for this faceplate (PRESENCE BASS MIDDLE TREBLE / VOLUME I / VOLUME II). x and y are fractions of the plate's own width and height, d is the knob diameter as a fraction of its height. Measured from the placement marks.",
+  "_comment": "Anchors measured from this artwork's placement marks. x and y are fractions of the plate's own width and height; d is a fraction of its height. Knobs match controls by GearParameter.name.",
   "captions": false,
   "knobs": [
     {

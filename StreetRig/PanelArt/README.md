@@ -85,6 +85,43 @@ Three plates ship one today — `marswell-jcm800-2203-panel.json` (six knobs),
 artwork's placement marks. A piece with a sidecar is also **never re-baked** by the exporter, even
 with `=force` — hand art is not something a baseline should bury.
 
+## Live switches: `switches` in the same sidecar
+
+A painted toggle can be the real control. Add it beside the knobs and the strip of
+segmented buttons under the panel drops it — you flick the switch on the amp instead:
+
+```json
+{
+  "knobs": [ ... ],
+  "switches": [
+    { "param": "FAT", "x": 0.31025, "y": 0.87037, "d": 0.13426 },
+    { "param": "CHANNEL", "x": 0.83525, "y": 0.87037, "d": 0.13426,
+      "lamp": { "x": 0.80, "y": 0.30, "d": 0.10, "on": [1, 2], "color": "#e0661e" } }
+  ]
+}
+```
+
+- **`x` / `y` / `d`** work exactly as they do for a knob; `d` is the toggle body, so
+  measure the painted switch and the live one lands on top of it.
+- Tapping advances one position and the bat **swings** there; a three-way cycles and
+  wraps. The touch target grows to 44 pt even though the toggle is tiny.
+- Touching a switch **names it** — a bubble with the control and the position it just
+  landed on, because a toggle on a faceplate has no caption at arm's length.
+- **`lamp`** is optional: a jewel that lights while the switch sits on one of the `on`
+  positions. `color` is `#rrggbb`, defaulting to the app's amber.
+- A switch the sidecar does NOT name stays in the strip below, so a partly-marked plate
+  never loses a control.
+- A switch with no engine behind it is drawn **shaded** and says so in its bubble — but
+  it still flicks. A faceplate whose switches are frozen reads as broken.
+
+## What a control is actually called: `controls.txt`
+
+Anchors match by `GearParameter.name`, which is not always what the panel prints — the
+JCM800's PRE-AMP VOLUME is `Gain`, MIDDLE is `Mid`. Guess wrong and the layout is
+silently ignored. So the exporter writes `controls.txt` beside the plates: every piece
+with knobs, its dials in order, its switches and their options, and which of them have
+no engine behind them.
+
 ## Naming
 
 `<slug>-panel.png`, where `<slug>` is the same slug the icons and `.usdz` models use —

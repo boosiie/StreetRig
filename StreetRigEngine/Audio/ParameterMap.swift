@@ -493,7 +493,7 @@ public enum ParameterMap {
     /// today; the mechanism is general, so a second modelling amp is a table
     /// entry, not new machinery.
     public static func ampHasFXSection(name: String) -> Bool {
-        name.lowercased().contains("katana")
+        name.lowercased().contains("katana") || name.lowercased().contains("ketana")
     }
 
     /// Resolve an amp's FX panel into chain slots. Blocks whose type is `Off`
@@ -600,7 +600,7 @@ public enum ParameterMap {
     /// keeps sounding exactly as it did.
     public static func ampProfile(name: String, values: [String: Double]) -> Int {
         let n = name.lowercased()
-        if n.contains("katana") {
+        if n.contains("katana") || n.contains("ketana") {
             let character = Int((values["Character"] ?? 2).rounded())
             let variation = Int((values["Variation"] ?? 0).rounded())
             return ampKatanaBase
@@ -612,15 +612,15 @@ public enum ParameterMap {
         // a future "Marswell DSL … Plexi-voiced" style name cannot fall through to
         // the Plexi row. Specific model, then family — the same rule as the pedals.
         if n.contains("dsl")                            { return ampDSL40C }
-        if n.contains("plexi") || n.contains("super lead") { return ampPlexi1959 }
+        if n.contains("plexi") || n.contains("plaxi") || n.contains("super lead") { return ampPlexi1959 }
         if n.contains("be-100") || n.contains("be100")  { return ampBE100 }
-        if n.contains("rectifier") || n.contains("recto") { return ampDualRect }
-        if n.contains("rockerverb")                     { return ampRockerverb }
+        if n.contains("rectifier") || n.contains("ractifier") || n.contains("recto") { return ampDualRect }
+        if n.contains("rockerver")                     { return ampRockerverb }
         if n.contains("twin")                           { return ampTwinReverb }
         if n.contains("ac30")                           { return ampAC30 }
         if n.contains("jc-120") || n.contains("jc120")
             || n.contains("jazz chorus")                { return ampJC120 }
-        if n.contains("bassman")                        { return ampBassman59 }
+        if n.contains("bassman") || n.contains("bassdude")                        { return ampBassman59 }
         return ampLegacy
     }
 

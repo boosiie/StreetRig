@@ -418,7 +418,7 @@ enum PedalSpec {
             // FENDER BASSMAN — a tweed 5F6-A: presence and the tone stack, then a
             // volume for EACH input, bright and normal. No master, no gain knob;
             // the input volume IS the gain.
-            if n.contains("bassman") {
+            if n.contains("bassman") || n.contains("bassdude") {
                 // Four jacks like the Plexi — two BRIGHT, two NORMAL — and a
                 // volume for each pair, jumpered together the same way.
                 return [GearParameter("PATCH", options: ["BRIGHT", "NORMAL", "JUMPERED"],
@@ -477,7 +477,7 @@ enum PedalSpec {
             // sensitivity each) and two LOUDNESS controls; the patch lead from one
             // channel's spare jack into the other is how both preamps end up
             // feeding the same signal, which is the sound people are after.
-            if n.contains("plexi") || n.contains("super lead") {
+            if n.contains("plexi") || n.contains("plaxi") || n.contains("super lead") {
                 return [GearParameter("PATCH", options: ["HIGH TREBLE", "NORMAL", "JUMPERED"],
                                       defaultIndex: 2),
                         GearParameter("Presence", shortName: "PRESENCE"),
@@ -499,7 +499,7 @@ enum PedalSpec {
             // with the channel named between them, and the two mode switches to
             // the left. CHANNEL 2's set is stored under suffixed keys because a
             // values dictionary cannot hold two knobs called BASS.
-            if n.contains("rectifier") || n.contains("recto") {
+            if n.contains("rectifier") || n.contains("ractifier") || n.contains("recto") {
                 func ch(_ suffix: String, _ row: String) -> [GearParameter] {
                     [("Master", "MASTER"), ("Presence", "PRESENCE"), ("Bass", "BASS"),
                      ("Mid", "MID"), ("Treble", "TREBLE"), ("Gain", "GAIN")].map {
@@ -537,8 +537,15 @@ enum PedalSpec {
             // SYSTEM VOL and THUMP go with the second channel: neither is on the
             // front panel this is drawn from.
             if n.contains("be-100") || n.contains("be100") {
+                /// A VOICING SWITCH, drawn shaded. FAT, C45, SAT, VOICE and BRIGHT are
+                /// real switches on a real amp and none of them reaches the DSP —
+                /// this engine takes the amp's voicing from its profile, which comes
+                /// from the NAME. Shaded says so. They still flick: the shade is
+                /// "this is not in the signal path", not "do not touch", and a
+                /// faceplate whose switches are frozen reads as broken.
                 func sw(_ label: String, _ opts: [String], _ key: String? = nil) -> GearParameter {
-                    GearParameter(key ?? label, options: opts, defaultIndex: 0, shortName: label)
+                    GearParameter(key ?? label, options: opts, defaultIndex: 0,
+                                  shortName: label, isDisabled: true)
                 }
                 /// A knob and the channels it serves — index 0 is CLEAN, 1 BE, 2 HBE.
                 func k(_ key: String, _ label: String, on channels: [Int],
@@ -605,7 +612,7 @@ enum PedalSpec {
                         GearParameter("RESONANCE", isDisabled: true),
                         GearParameter("Master",   shortName: "MASTER")]
             }
-            if n.contains("rockerverb") {
+            if n.contains("rockerver") {
                 return [GearParameter("CHANNEL", options: ["DIRTY", "CLEAN"], defaultIndex: 0),
                         GearParameter("REVERB", shortName: "REVERB"),
                         GearParameter("Master",  shortName: "VOLUME", rowLabel: "DIRTY"),
@@ -618,7 +625,7 @@ enum PedalSpec {
                         GearParameter("Bass 2",   shortName: "BASS",   rowLabel: "CLEAN"),
                         GearParameter("Volume 2", shortName: "VOLUME", rowLabel: "CLEAN")]
             }
-            if n.contains("katana") {
+            if n.contains("katana") || n.contains("ketana") {
                 var p: [GearParameter] = [
                     // NO PRESENCE. Reported from the hardware; the panel is
                     // Gain / Volume / Bass / Middle / Treble / Master plus the

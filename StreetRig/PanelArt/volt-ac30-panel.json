@@ -1,0 +1,66 @@
+{
+  "_comment": "Anchors measured from this artwork's placement marks. x and y are fractions of the plate's own width and height; d is a fraction of its height. Knobs match controls by GearParameter.name.",
+  "captions": false,
+  "knobs": [
+    {
+      "param": "Gain 2",
+      "x": 0.19025,
+      "y": 0.52083,
+      "d": 0.34259
+    },
+    {
+      "param": "Gain",
+      "x": 0.24525,
+      "y": 0.52083,
+      "d": 0.34259
+    },
+    {
+      "param": "Treble",
+      "x": 0.29725,
+      "y": 0.52083,
+      "d": 0.34259
+    },
+    {
+      "param": "Bass",
+      "x": 0.34925,
+      "y": 0.52083,
+      "d": 0.34259
+    },
+    {
+      "param": "REVERB TONE",
+      "x": 0.40575,
+      "y": 0.5162,
+      "d": 0.34259
+    },
+    {
+      "param": "REVERB LEVEL",
+      "x": 0.45775,
+      "y": 0.5162,
+      "d": 0.34259
+    },
+    {
+      "param": "TREMOLO SPEED",
+      "x": 0.51425,
+      "y": 0.52083,
+      "d": 0.34259
+    },
+    {
+      "param": "TREMOLO DEPTH",
+      "x": 0.56625,
+      "y": 0.52083,
+      "d": 0.34259
+    },
+    {
+      "param": "Cut",
+      "x": 0.62425,
+      "y": 0.52083,
+      "d": 0.34259
+    },
+    {
+      "param": "Master",
+      "x": 0.67625,
+      "y": 0.52083,
+      "d": 0.34259
+    }
+  ]
+}

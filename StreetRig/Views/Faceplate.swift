@@ -69,7 +69,7 @@ enum Faceplate {
             return Spec(base: Color(red: 0.76, green: 0.60, blue: 0.24), finish: .plexi,
                         isLight: true, trim: Color(red: 0.20, green: 0.15, blue: 0.07))
         }
-        if n.contains("plexi") || n.contains("super lead") {
+        if n.contains("plexi") || n.contains("plaxi") || n.contains("super lead") {
             // Brighter and brassier than the JCM800's — the plexi panels were.
             return Spec(base: Color(red: 0.83, green: 0.69, blue: 0.33), finish: .plexi,
                         isLight: true, trim: Color(red: 0.24, green: 0.18, blue: 0.08))
@@ -90,18 +90,18 @@ enum Faceplate {
             return Spec(base: Color(red: 0.88, green: 0.76, blue: 0.51), finish: .brushed,
                         isLight: true, trim: Color(red: 0.30, green: 0.22, blue: 0.11))
         }
-        if n.contains("rectifier") || n.contains("mesa") {
+        if n.contains("rectifier") || n.contains("ractifier") || n.contains("mesa") {
             // Metal, not paint — the Rectifier's plate is a visibly brushed one.
             return Spec(base: Color(red: 0.24, green: 0.25, blue: 0.27), finish: .brushed,
                         isLight: false, trim: Color(red: 0.55, green: 0.11, blue: 0.11))
         }
-        if n.contains("katana") {
+        if n.contains("katana") || n.contains("ketana") {
             return Spec(base: Color(red: 0.13, green: 0.13, blue: 0.15), finish: .painted,
                         isLight: false, trim: RigTheme.amber)
         }
 
         // --- The orange one --------------------------------------------------
-        if n.contains("rockerverb") || n.contains("tangerine") {
+        if n.contains("rockerver") || n.contains("tangerine") {
             return Spec(base: Color(red: 0.85, green: 0.42, blue: 0.10), finish: .painted,
                         isLight: true, trim: Color(red: 0.16, green: 0.09, blue: 0.03))
         }
@@ -118,14 +118,15 @@ enum Faceplate {
                         isLight: true, trim: Color(red: 0.14, green: 0.32, blue: 0.58))
         }
         if n.contains("ac30") || n.contains("volt") {
-            // Copper-bronze anodised — redder than any of the golds.
-            return Spec(base: Color(red: 0.66, green: 0.44, blue: 0.24), finish: .brushed,
-                        isLight: true, trim: Color(red: 0.18, green: 0.11, blue: 0.05))
+            // Sampled from its own faceplate art: a pink-magenta panel, which is
+            // not a colour anyone guesses. rgb(197, 81, 128).
+            return Spec(base: Color(red: 0.77, green: 0.32, blue: 0.50), finish: .brushed,
+                        isLight: true, trim: Color(red: 0.24, green: 0.08, blue: 0.14))
         }
-        if n.contains("bassman") {
-            // Tweed era: warm chrome over cloth.
-            return Spec(base: Color(red: 0.80, green: 0.70, blue: 0.51), finish: .tweed,
-                        isLight: true, trim: Color(red: 0.29, green: 0.20, blue: 0.10))
+        if n.contains("bassman") || n.contains("bassdude") {
+            // Brushed grey chassis, from the artwork: rgb(150, 148, 150).
+            return Spec(base: Color(red: 0.59, green: 0.58, blue: 0.59), finish: .brushed,
+                        isLight: true, trim: Color(red: 0.22, green: 0.21, blue: 0.21))
         }
 
         return nil          // an amp nobody has voiced — keep the cream plate
