@@ -41,6 +41,42 @@ metal, tolex, screened branding, screws, wear. Don't paint knobs.
   `GearArtView.panelIsLight(for:)` — a plate that inverts a piece's brightness will fight
   its labels.
 
+## Placing the knobs: `<slug>-panel.json`
+
+A plate that is a real faceplate — printed scales, a well drawn for each knob — has to
+place the knobs itself, or the app spaces them evenly across the panel and they land
+*beside* their markings instead of in them. Drop a sidecar next to the art:
+
+```json
+{
+  "captions": false,
+  "knobs": [
+    { "param": "Presence", "x": 0.38088, "y": 0.47608, "d": 0.31944 },
+    { "param": "Bass",     "x": 0.44946, "y": 0.47608, "d": 0.31944 }
+  ]
+}
+```
+
+- **`param`** is the control's internal name (`GearParameter.name`) — `"Mid"`, not the
+  printed `"MIDDLE"`. Find them in `PedalSpec.parameters` in `Gear.swift`.
+- **`x`** is a fraction of the plate's own width; **`y`** and **`d`** (the knob diameter)
+  are fractions of its height. Authoring at 2400 × 216? A knob centred at (915, 103) and
+  69 px across is `x: 915/2400`, `y: 103/216`, `d: 69/216`.
+- **`captions`** defaults to `false`: a plate that places its knobs has the names printed
+  on it, and drawing the app's labels again lands text on text. Set `true` if your plate
+  has no lettering.
+- Anchors go through **exactly the transform the image does**, so a knob stays glued to
+  its painted well at any panel size — it scales and moves with the art.
+- The layout is used only when it accounts for **every** dial the piece has. Add a knob to
+  an amp and forget its anchor and the panel falls back to the automatic rows, rather than
+  leaving a control undrawn and unreachable.
+- The knob is *drawn* at `d`, but its **touch target** grows to 44 pt where the spacing
+  allows, so a small faceplate knob is still draggable.
+
+`marswell-jcm800-2203-panel.json` is the worked example: six knobs measured off the
+JCM800 artwork. A piece with a sidecar is also **never re-baked** by the exporter, even
+with `=force` — hand art is not something a baseline should bury.
+
 ## Naming
 
 `<slug>-panel.png`, where `<slug>` is the same slug the icons and `.usdz` models use —

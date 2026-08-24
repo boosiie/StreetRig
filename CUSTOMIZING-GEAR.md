@@ -14,7 +14,7 @@ StreetRig/
   Environments/                  ← the STAGE the gear stands on (scenery, not gear)
     README.md                      stage-environment.usdz — see StageEnvironment.swift
   PanelArt/                    ← knob panels: <slug>-panel.png — every piece with knobs ships one
-    README.md
+    README.md                      <slug>-panel.json — optional: where that plate wants its knobs
   Assets.xcassets/
     <slug>.imageset/             ← 2D icons (flat); the 47 catalog pedals already ship theirs
   Views/
@@ -130,6 +130,11 @@ brightness needs `isLight` flipped with it.
 
 - Drawn **fill-and-crop**, never stretched: author at the size the exporter bakes and it
   lands exactly, author at another aspect and the overflow is trimmed off the edges.
+- **A plate can place its own knobs.** Drop a `<slug>-panel.json` beside it naming each
+  knob's centre and diameter as fractions of the plate, and the panel pins the knobs to
+  the wells you painted instead of spacing them evenly — that is how the JCM800's six sit
+  inside their printed scales. See the [PanelArt README](StreetRig/PanelArt/README.md).
+  A piece with a sidecar is never re-baked by the exporter, `=force` included.
 - The piece's signature colour sits underneath, so a plate with transparency **tints**.
 - Sizes come from `KnobPanelLayout.height` — the same math that lays the knobs out — at
   800 pt wide, 3×. In practice **2400 × 216** for a one-row panel and **2400 × 534** for a

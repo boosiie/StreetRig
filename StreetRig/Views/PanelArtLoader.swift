@@ -77,6 +77,60 @@ enum PanelArt {
     static let extensions = ["png", "jpg", "jpeg"]
 }
 
+// MARK: - Where a plate wants its knobs
+
+/// A plate detailed enough to be a real faceplate — printed scales, printed
+/// labels, a well for every knob — has to place the knobs itself. Spacing them
+/// evenly across the panel puts them next to their markings rather than in them.
+///
+/// So a plate may ship a sidecar, `<slug>-panel.json`, naming the centre and
+/// diameter of every knob. Coordinates are fractions of THE PLATE'S OWN pixels —
+/// x of its width, y and d of its height — so the file survives the artwork being
+/// re-exported at another resolution, and the app puts each knob through exactly
+/// the transform it puts the image through.
+///
+/// Knobs are matched to controls BY NAME (`GearParameter.name`, not its printed
+/// short name), and the layout is used only when the anchors cover every dial the
+/// piece has. A plate that disagrees with the amp behind it falls back to the
+/// automatic rows rather than dropping a control nobody can then reach.
+struct PanelKnobLayout: Decodable {
+
+    struct Anchor: Decodable {
+        /// The control's `GearParameter.name` — "Mid", not "MIDDLE".
+        let param: String
+        /// Centre, as a fraction of the plate's width…
+        let x: CGFloat
+        /// …and of its height.
+        let y: CGFloat
+        /// Diameter, as a fraction of the plate's height.
+        let d: CGFloat
+    }
+
+    let knobs: [Anchor]
+
+    /// Draw the app's own knob captions over the plate. Defaults to NO: a plate
+    /// that places its knobs has the names printed on it already, and drawing
+    /// them again lands app text on top of painted text.
+    private let captions: Bool?
+    var drawsCaptions: Bool { captions ?? false }
+
+    func anchor(for param: GearParameter) -> Anchor? {
+        knobs.first { $0.param == param.name }
+    }
+
+    /// The closest two knobs on the plate, in plate-height units — the ceiling on
+    /// how far a touch target can be grown without stealing the neighbour's.
+    var tightestSpacing: CGFloat {
+        var closest = CGFloat.greatestFiniteMagnitude
+        for (i, a) in knobs.enumerated() {
+            for b in knobs.dropFirst(i + 1) {
+                closest = min(closest, hypot(a.x - b.x, a.y - b.y))
+            }
+        }
+        return closest == .greatestFiniteMagnitude ? 1 : closest
+    }
+}
+
 // MARK: - The plate the app draws when no PNG exists
 
 /// The ORIGINAL knob panel surface: the piece's signature colour under the
@@ -164,11 +218,30 @@ enum PanelArtLoader {
         uiImage(for: item).map { Image(uiImage: $0) }
     }
 
+    /// The knob placement a piece's plate asks for, or `nil` for the automatic
+    /// rows. Resolved from `<slug>-panel.json` by the same three-step chain the
+    /// image uses, so a layout can be edited on the device beside the art it
+    /// belongs to.
+    static func knobLayout(for item: GearItem?) -> PanelKnobLayout? {
+        guard let item else { return nil }
+        let name = PanelArt.plateName(for: item)
+        guard !name.isEmpty else { return nil }
+
+        _ = foregroundWatch
+
+        let key = "layout|\(name)|\(item.category.rawValue)"
+        if let cached = layouts[key] { return cached }
+        let found = resolveLayout(name: name, category: PanelArt.categoryPlateName(for: item))
+        layouts[key] = found
+        return found
+    }
+
     /// Forget every resolved plate, so the next panel re-reads from disk, and tell
     /// any panel on screen to redraw. Called on foreground — you edited a plate in
     /// the Files app and came back.
     static func invalidate() {
         cache.removeAll()
+        layouts.removeAll()
         PanelArtRevision.shared.bump()
     }
 
@@ -189,6 +262,30 @@ enum PanelArtLoader {
         }
         return nil
     }
+
+    /// Documents override → bundled sidecar → bundled category sidecar → nil.
+    private static func resolveLayout(name: String, category: String) -> PanelKnobLayout? {
+        func decode(_ url: URL) -> PanelKnobLayout? {
+            guard let data = try? Data(contentsOf: url) else { return nil }
+            do {
+                return try JSONDecoder().decode(PanelKnobLayout.self, from: data)
+            } catch {
+                // Loud, because the symptom otherwise is knobs quietly reverting
+                // to rows and nothing saying why.
+                print("panel layout \(url.lastPathComponent) is unreadable: \(error)")
+                return nil
+            }
+        }
+        let override = overrideDirectory.appendingPathComponent("\(name).json")
+        if FileManager.default.fileExists(atPath: override.path), let l = decode(override) { return l }
+        for stem in [name, category] {
+            if let url = Bundle.main.url(forResource: stem, withExtension: "json"),
+               let l = decode(url) { return l }
+        }
+        return nil
+    }
+
+    private static var layouts: [String: PanelKnobLayout?] = [:]
 
     /// A plate is loaded from a FILE, so unlike `UIImage(named:)` nothing caches
     /// it for us — and the panel's body is re-evaluated on every frame of a knob

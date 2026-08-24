@@ -222,6 +222,103 @@ struct ComponentDetailView: View {
             )
             .overlay(
                 GeometryReader { geo in
+                    // A PLATE MAY PLACE ITS OWN KNOBS. When the artwork is a real
+                    // faceplate — printed scales, a well drawn for every knob —
+                    // spreading knobs evenly across the panel puts them BESIDE
+                    // their markings instead of in them, so the plate ships the
+                    // centres and the panel obeys them (see PanelKnobLayout).
+                    if let placement {
+                        anchoredKnobs(id: id, placement: placement, in: geo.size,
+                                      light: light, labelColor: labelColor)
+                    } else {
+                        automaticRows(id: id, in: geo, light: light, labelColor: labelColor)
+                    }
+                }
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .strokeBorder(.white.opacity(0.10), lineWidth: 1)
+            )
+    }
+
+    // MARK: - Knobs placed by the plate
+
+    /// The plate's own placement, when there is one AND it accounts for every dial
+    /// the piece has. A layout that has drifted from the amp behind it — a knob
+    /// added, a control renamed — falls back to the rows rather than leaving a
+    /// control undrawn and unreachable.
+    private var placement: (layout: PanelKnobLayout, plate: CGSize)? {
+        guard let layout = PanelArtLoader.knobLayout(for: item),
+              let art = PanelArtLoader.uiImage(for: item),
+              art.size.width > 0, art.size.height > 0,
+              dials.count == layout.knobs.count,
+              dials.allSatisfy({ layout.anchor(for: $0) != nil })
+        else { return nil }
+        return (layout, art.size)
+    }
+
+    /// Knobs pinned to the marks the artwork was drawn with.
+    ///
+    /// The plate is drawn fill-and-crop, so the anchors go through EXACTLY that
+    /// transform — scale to cover, then centre. A knob is glued to its painted
+    /// well whatever shape the panel ends up: on a wider screen the art scales up
+    /// and the knobs scale and move with it.
+    private func anchoredKnobs(id: UUID, placement: (layout: PanelKnobLayout, plate: CGSize),
+                               in size: CGSize, light: Bool, labelColor: Color) -> some View {
+        let (layout, plate) = placement
+        let scale = max(size.width / plate.width, size.height / plate.height)
+        let drawn = CGSize(width: plate.width * scale, height: plate.height * scale)
+        let origin = CGPoint(x: (size.width - drawn.width) / 2, y: (size.height - drawn.height) / 2)
+        // A faceplate knob is drawn at the size the artwork says, which can be
+        // smaller than a finger. The TOUCH area is grown to 44 pt where there is
+        // room — never past the gap to the nearest neighbour, or two knobs would
+        // fight over the same drag.
+        let ceiling = layout.tightestSpacing * drawn.height * 0.92
+
+        return ZStack(alignment: .topLeading) {
+            ForEach(dials) { param in
+                if let a = layout.anchor(for: param) {
+                    let diameter = a.d * drawn.height
+                    let hit = min(max(diameter, 44), max(diameter, ceiling))
+                    VStack(spacing: 2) {
+                        InteractiveKnob(
+                            value: store.binding(itemId: id, param: param.name),
+                            range: param.min...param.max,
+                            onLight: light,
+                            drawnDiameter: diameter
+                        )
+                        .frame(width: hit, height: hit)
+                        .overlay {
+                            if param.isDisabled || paramIsInactive(param) {
+                                Circle()
+                                    .fill(.black.opacity(param.isDisabled ? 0.5 : 0.34))
+                                    .frame(width: diameter, height: diameter)
+                                    .blendMode(.multiply)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                        if layout.drawsCaptions {
+                            Text(param.displayName)
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(labelColor)
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
+                    }
+                    .opacity(param.isDisabled ? 0.45 : (paramIsInactive(param) ? 0.62 : 1))
+                    .allowsHitTesting(!param.isDisabled)
+                    .position(x: origin.x + a.x * drawn.width,
+                              y: origin.y + a.y * drawn.height)
+                }
+            }
+        }
+    }
+
+    // MARK: - Knobs laid out in rows (every plate that doesn't place its own)
+
+    private func automaticRows(id: UUID, in geo: GeometryProxy,
+                               light: Bool, labelColor: Color) -> some View {
+        Group {
                     // THE FLOOR IS GONE. A 48 pt minimum meant nineteen knobs ran
                     // off the side of the panel rather than getting smaller; 26 pt
                     // is still a legible dial and the row always fits now. Rows are
@@ -273,12 +370,7 @@ struct ComponentDetailView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 5)
                     .frame(width: geo.size.width, height: geo.size.height)
-                }
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .strokeBorder(.white.opacity(0.10), lineWidth: 1)
-            )
+        }
     }
 
     /// The panel's surface: the piece's own faceplate PNG if one exists, else the
@@ -754,12 +846,17 @@ struct InteractiveKnob: View {
     @Binding var value: Double
     var range: ClosedRange<Double>
     var onLight: Bool = false
+    /// Draw at this size instead of filling the frame, so the frame can be the
+    /// TOUCH target. A faceplate places its knobs at the size the artwork says,
+    /// which is often smaller than a fingertip; separating the two lets a 23 pt
+    /// knob take a 44 pt drag without growing on screen.
+    var drawnDiameter: CGFloat? = nil
 
     @State private var startValue: Double?
 
     var body: some View {
         GeometryReader { geo in
-            let s = min(geo.size.width, geo.size.height)
+            let s = drawnDiameter ?? min(geo.size.width, geo.size.height)
             let span = range.upperBound - range.lowerBound
             let frac = span > 0 ? (value - range.lowerBound) / span : 0
             let angle = Angle(degrees: -135 + frac * 270)

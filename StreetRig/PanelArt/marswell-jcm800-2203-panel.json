@@ -1,0 +1,42 @@
+{
+  "_comment": "Knob anchors for the JCM800 faceplate. x and y are fractions of this plate's own width and height, d is the knob diameter as a fraction of its height. Measured from the placement marks drawn on the artwork.",
+  "captions": false,
+  "knobs": [
+    {
+      "param": "Presence",
+      "x": 0.38088,
+      "y": 0.47608,
+      "d": 0.31944
+    },
+    {
+      "param": "Bass",
+      "x": 0.44946,
+      "y": 0.47608,
+      "d": 0.31944
+    },
+    {
+      "param": "Mid",
+      "x": 0.51804,
+      "y": 0.47608,
+      "d": 0.31944
+    },
+    {
+      "param": "Treble",
+      "x": 0.58662,
+      "y": 0.47608,
+      "d": 0.31944
+    },
+    {
+      "param": "Master",
+      "x": 0.65519,
+      "y": 0.47608,
+      "d": 0.31944
+    },
+    {
+      "param": "Gain",
+      "x": 0.72377,
+      "y": 0.47608,
+      "d": 0.31944
+    }
+  ]
+}
