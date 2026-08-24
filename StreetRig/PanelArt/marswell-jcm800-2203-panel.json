@@ -1,42 +1,42 @@
 {
-  "_comment": "Knob anchors for the JCM800 faceplate. x and y are fractions of this plate's own width and height, d is the knob diameter as a fraction of its height. Measured from the placement marks drawn on the artwork.",
+  "_comment": "Knob anchors for this faceplate (PRESENCE BASS MIDDLE TREBLE / MASTER VOLUME / PRE-AMP VOLUME). x and y are fractions of the plate's own width and height, d is the knob diameter as a fraction of its height. Measured from the placement marks.",
   "captions": false,
   "knobs": [
     {
       "param": "Presence",
-      "x": 0.38088,
-      "y": 0.47608,
-      "d": 0.31944
+      "x": 0.41275,
+      "y": 0.47377,
+      "d": 0.28858
     },
     {
       "param": "Bass",
-      "x": 0.44946,
-      "y": 0.47608,
-      "d": 0.31944
+      "x": 0.48725,
+      "y": 0.47377,
+      "d": 0.28858
     },
     {
       "param": "Mid",
-      "x": 0.51804,
-      "y": 0.47608,
-      "d": 0.31944
+      "x": 0.562,
+      "y": 0.47377,
+      "d": 0.28858
     },
     {
       "param": "Treble",
-      "x": 0.58662,
-      "y": 0.47608,
-      "d": 0.31944
+      "x": 0.63725,
+      "y": 0.47377,
+      "d": 0.28858
     },
     {
       "param": "Master",
-      "x": 0.65519,
-      "y": 0.47608,
-      "d": 0.31944
+      "x": 0.712,
+      "y": 0.47377,
+      "d": 0.28858
     },
     {
       "param": "Gain",
-      "x": 0.72377,
-      "y": 0.47608,
-      "d": 0.31944
+      "x": 0.78675,
+      "y": 0.47377,
+      "d": 0.28858
     }
   ]
 }
