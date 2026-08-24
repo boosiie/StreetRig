@@ -1,0 +1,60 @@
+{
+  "_comment": "Knob anchors for the BE-100 faceplate: PRESENCE BASS MIDDLE TREBLE MASTER GAIN for the BE/HBE channel, then the clean channel's VOLUME TREBLE BASS. x and y are fractions of the plate's own width and height, d is the knob diameter as a fraction of its height.",
+  "captions": false,
+  "knobs": [
+    {
+      "param": "Presence",
+      "x": 0.2725,
+      "y": 0.53935,
+      "d": 0.29887
+    },
+    {
+      "param": "Bass",
+      "x": 0.34725,
+      "y": 0.53935,
+      "d": 0.29887
+    },
+    {
+      "param": "Mid",
+      "x": 0.42225,
+      "y": 0.53935,
+      "d": 0.29887
+    },
+    {
+      "param": "Treble",
+      "x": 0.497,
+      "y": 0.53935,
+      "d": 0.29887
+    },
+    {
+      "param": "Master",
+      "x": 0.572,
+      "y": 0.53935,
+      "d": 0.29887
+    },
+    {
+      "param": "Gain",
+      "x": 0.64675,
+      "y": 0.53935,
+      "d": 0.29887
+    },
+    {
+      "param": "Clean Volume",
+      "x": 0.72175,
+      "y": 0.53935,
+      "d": 0.29887
+    },
+    {
+      "param": "Clean Treble",
+      "x": 0.7965,
+      "y": 0.53935,
+      "d": 0.29887
+    },
+    {
+      "param": "Clean Bass",
+      "x": 0.8715,
+      "y": 0.53935,
+      "d": 0.29887
+    }
+  ]
+}

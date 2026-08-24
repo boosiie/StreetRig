@@ -437,7 +437,17 @@ public final class RigStore: ObservableObject {
     /// Two-way binding to one knob of one owned item (used by the zoom sliders).
     public func binding(itemId: UUID, param: String) -> Binding<Double> {
         Binding(
-            get: { [weak self] in self?.item(itemId)?.values[param] ?? 0 },
+            get: { [weak self] in
+                guard let item = self?.item(itemId) else { return 0 }
+                if let stored = item.values[param] { return stored }
+                // NO ENTRY MEANS THE CONTROL IS NEWER THAN THE SAVE, not that it
+                // is at zero. A rig saved before an amp gained a knob has no key
+                // for it, and answering 0 put that knob at its minimum while every
+                // other reader — the panel's own dimming, the chain compiler —
+                // used the parameter's default. The BE-100 gaining a clean channel
+                // is exactly this case.
+                return item.parameters.first { $0.name == param }?.defaultValue ?? 0
+            },
             set: { [weak self] newValue in
                 guard let self, let idx = self.collection.firstIndex(where: { $0.id == itemId }) else { return }
                 self.collection[idx].values[param] = newValue

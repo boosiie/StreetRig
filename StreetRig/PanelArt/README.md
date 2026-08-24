@@ -79,8 +79,10 @@ place the knobs itself, or the app spaces them evenly across the panel and they 
 - The knob is *drawn* at `d`, but its **touch target** grows to 44 pt where the spacing
   allows, so a small faceplate knob is still draggable.
 
-`marswell-jcm800-2203-panel.json` is the worked example: six knobs measured off the
-JCM800 artwork. A piece with a sidecar is also **never re-baked** by the exporter, even
+Three plates ship one today — `marswell-jcm800-2203-panel.json` (six knobs),
+`marswell-plexi-super-lead-1959-panel.json` (six), and `freedman-be-100-panel.json`
+(nine: six for the gain channel, three for the clean one). Each was measured off its
+artwork's placement marks. A piece with a sidecar is also **never re-baked** by the exporter, even
 with `=force` — hand art is not something a baseline should bury.
 
 ## Naming

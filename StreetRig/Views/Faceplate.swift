@@ -83,8 +83,12 @@ enum Faceplate {
 
         // --- Black-panel boutique / high gain -------------------------------
         if n.contains("be-100") || n.contains("freedman") {
-            return Spec(base: Color(red: 0.09, green: 0.09, blue: 0.10), finish: .painted,
-                        isLight: false, trim: Color(white: 0.72))
+            // Cream, not black: the BE-100's own faceplate art is a tan panel, and
+            // this table decides the CAPTION COLOUR as well as the plate colour —
+            // left dark, the knob pointers and labels were drawn light on light.
+            // Sampled from the artwork itself: rgb(224, 193, 131).
+            return Spec(base: Color(red: 0.88, green: 0.76, blue: 0.51), finish: .brushed,
+                        isLight: true, trim: Color(red: 0.30, green: 0.22, blue: 0.11))
         }
         if n.contains("rectifier") || n.contains("mesa") {
             // Metal, not paint — the Rectifier's plate is a visibly brushed one.

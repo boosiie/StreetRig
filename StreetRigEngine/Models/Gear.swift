@@ -471,17 +471,6 @@ enum PedalSpec {
                         GearParameter("Cut",    shortName: "TONE CUT"),
                         GearParameter("Master", shortName: "MASTER VOLUME")]
             }
-            // THE FRIEDMAN, LEFT TO RIGHT, exactly as it reads on the chassis.
-            // Duplicated names (two channels' worth of TREBLE / MIDDLE / BASS) need
-            // unique keys because a value dictionary is keyed by name, so the
-            // second set is suffixed internally and `shortName` puts the real word
-            // back on the panel.
-            //
-            // WHAT IS LIVE: GAIN, BASS, MIDDLE, TREBLE, VOLUME, PRESENCE and
-            // MASTER 1 drive the existing engine. The channel-2 set, the four
-            // switches and SYSTEM VOL are drawn because they are on the amp, and
-            // they will do nothing until the profile grows a second channel.
-            // THUMP is drawn DISABLED, as asked.
             // MARSHALL JCM800 / PLEXI — a master-volume head reads right to left
             // on the chassis, and these are the six it actually has.
             // PLEXI — no master volume. Four jacks (two channels, high and low
@@ -523,40 +512,60 @@ enum PedalSpec {
                      + ch("",   "CHANNEL 1")
                      + ch(" 2", "CHANNEL 2")
             }
+            // THE FRIEDMAN BE-100, LEFT TO RIGHT, exactly as its front panel reads.
+            //
+            // NINE KNOBS, NOT FIFTEEN. This used to model BE and HBE as two full
+            // six-knob channels, which the amp does not have: BE and HBE SHARE one
+            // set of controls and the channel switch simply voices them hotter.
+            // What the amp does have, and this did not, is a CLEAN channel with its
+            // own Volume, Treble and Bass. So the panel is the real thing now —
+            // six for the gain channel, three for the clean one — which is also
+            // what the faceplate artwork is drawn to (see PanelArt).
+            //
+            // The rest of the front panel is switches: FAT, C45 and SAT voice the
+            // gain channel, VOICE and BRIGHT the clean one, and CLN-BE-HBE picks
+            // between them. `activeWhen` dims whichever set is not selected, which
+            // is the switch's whole visible job — none of these reach the DSP,
+            // which resolves this amp's profile from its NAME alone.
+            //
+            // WHAT IS LIVE: GAIN, BASS, MIDDLE, TREBLE, MASTER and PRESENCE drive
+            // the engine, exactly as before and under the same keys. The clean
+            // channel's three are drawn DISABLED — the engine has one amp profile
+            // and no clean voicing to point them at, and a knob that stores a value
+            // nothing reads is worse than one that says it cannot help yet.
+            //
+            // SYSTEM VOL and THUMP go with the second channel: neither is on the
+            // front panel this is drawn from.
             if n.contains("be-100") || n.contains("be100") {
-                func k(_ label: String, _ key: String? = nil, disabled: Bool = false) -> GearParameter {
-                    GearParameter(key ?? label, shortName: label, isDisabled: disabled)
-                }
                 func sw(_ label: String, _ opts: [String], _ key: String? = nil) -> GearParameter {
                     GearParameter(key ?? label, options: opts, defaultIndex: 0, shortName: label)
                 }
-                // The two knob sets ARE the two channels: the first is HBE, the
-                // second BE, which is what the CHANNEL switch picks between. Naming
-                // the rows after the switch's options is what lets the panel dim
-                // the one you are not hearing.
-                func kr(_ label: String, _ key: String, _ row: String) -> GearParameter {
-                    GearParameter(key, shortName: label, rowLabel: row)
+                /// A knob and the channels it serves — index 0 is CLEAN, 1 BE, 2 HBE.
+                func k(_ key: String, _ label: String, on channels: [Int],
+                       disabled: Bool = false) -> GearParameter {
+                    GearParameter(key, shortName: label, isDisabled: disabled,
+                                  activeWhen: "CHANNEL", activeValues: channels)
                 }
+                let gain = [1, 2], clean = [0]
                 return [
-                    sw("CHANNEL", ["BE", "HBE"]),
+                    // Defaults to BE — the channel this amp was always on before
+                    // the clean one existed here, so no saved rig changes its sound.
+                    GearParameter("CHANNEL", options: ["CLEAN", "BE", "HBE"],
+                                  defaultIndex: 1, shortName: "CLN-BE-HBE"),
+                    sw("FAT", ["OFF", "ON"]),
+                    sw("C45", ["OFF", "ON"]),
+                    sw("SAT", ["OFF", "ON"]),
                     sw("VOICE", ["1", "2"]),
-                    sw("STRUCTURE", ["TIGHT", "LOOSE"]),
                     sw("BRIGHT", ["OFF", "ON"]),
-                    k("SYSTEM VOL"),
-                    k("THUMP", disabled: true),
-                    k("PRESENCE"),
-                    kr("GAIN",   "Gain",     "BE"),
-                    kr("VOLUME", "Volume",   "BE"),
-                    kr("TREBLE", "Treble",   "BE"),
-                    kr("MIDDLE", "Mid",      "BE"),
-                    kr("BASS",   "Bass",     "BE"),
-                    kr("MASTER", "Master",   "BE"),
-                    kr("GAIN",   "Gain 2",   "HBE"),
-                    kr("VOLUME", "Volume 2", "HBE"),
-                    kr("TREBLE", "Treble 2", "HBE"),
-                    kr("MIDDLE", "Mid 2",    "HBE"),
-                    kr("BASS",   "Bass 2",   "HBE"),
-                    kr("MASTER", "Master 2", "HBE"),
+                    k("Presence", "PRESENCE", on: gain),
+                    k("Bass",     "BASS",     on: gain),
+                    k("Mid",      "MIDDLE",   on: gain),
+                    k("Treble",   "TREBLE",   on: gain),
+                    k("Master",   "MASTER",   on: gain),
+                    k("Gain",     "GAIN",     on: gain),
+                    k("Clean Volume", "CLEAN VOLUME", on: clean, disabled: true),
+                    k("Clean Treble", "TREBLE",       on: clean, disabled: true),
+                    k("Clean Bass",   "BASS",         on: clean, disabled: true),
                 ]
             }
             // MARSHALL DSL — two gain channels, a shared tone stack, and its own
