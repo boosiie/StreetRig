@@ -115,6 +115,12 @@ struct PanelKnobLayout: Decodable {
         let x: CGFloat
         let y: CGFloat
         let d: CGFloat
+        /// "toggle" (a flick switch, the default) or "rotary" — a selector the
+        /// chassis turns rather than flicks, drawn as a knob with detents.
+        private let style: String?
+        var isRotary: Bool { (style ?? "toggle") == "rotary" }
+        /// Degrees between detents on a rotary. Matches the painted markings.
+        let step: Double?
         /// The indicator that answers the switch, if the artwork has one.
         let lamp: Lamp?
     }

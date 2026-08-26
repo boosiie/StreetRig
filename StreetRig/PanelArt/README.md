@@ -107,6 +107,10 @@ segmented buttons under the panel drops it — you flick the switch on the amp i
   wraps. The touch target grows to 44 pt even though the toggle is tiny.
 - Touching a switch **names it** — a bubble with the control and the position it just
   landed on, because a toggle on a faceplate has no caption at arm's length.
+- **`"style": "rotary"`** draws a selector the chassis TURNS rather than flicks — the
+  Jazzy Chorus picks VIB / OFF / CHOR with a knob, and a bat toggle in a painted knob
+  well reads as the wrong part. Add `"step"` for the degrees between detents (45 default),
+  to match the markings painted around it.
 - **`lamp`** is optional: a jewel that lights while the switch sits on one of the `on`
   positions. `color` is `#rrggbb`, defaulting to the app's amber.
 - A switch the sidecar does NOT name stays in the strip below, so a partly-marked plate

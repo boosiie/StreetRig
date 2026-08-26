@@ -126,6 +126,62 @@ struct PanelToggle: View {
     }
 }
 
+// MARK: - The selector that is a knob, not a toggle
+
+/// Some selectors are ROTARY on the real chassis — the Jazzy Chorus picks
+/// VIB / OFF / CHOR with a knob, not a flick switch, and the artwork draws one.
+/// A bat toggle sitting in a painted knob well would read as the wrong part.
+///
+/// So this is the same face `InteractiveKnob` draws, with a pointer that SNAPS
+/// between detents instead of sweeping: tapping advances one position and the
+/// pointer springs to it. Discrete underneath — the stored value is the option
+/// index, exactly as the segmented strip would have written it.
+struct PanelSelector: View {
+    @Binding var value: Double
+    let options: [String]
+    let diameter: CGFloat
+    let onLight: Bool
+    let inert: Bool
+    /// Degrees between neighbouring positions. The detents are painted on the
+    /// plate, so this matches the artwork rather than filling a full sweep.
+    var stepDegrees: Double = 45
+    var onFlick: (Int) -> Void = { _ in }
+
+    private var index: Int {
+        min(max(Int(value.rounded()), 0), max(0, options.count - 1))
+    }
+
+    private var angle: Angle {
+        guard options.count > 1 else { return .degrees(0) }
+        let span = stepDegrees * Double(options.count - 1)
+        return .degrees(-span / 2 + Double(index) * stepDegrees)
+    }
+
+    var body: some View {
+        ZStack {
+            Circle().fill(onLight ? RigTheme.cabinet : Color(white: 0.85))
+            Circle().strokeBorder(onLight ? RigTheme.trim : .black.opacity(0.4),
+                                  lineWidth: max(1, diameter * 0.06))
+            Capsule()
+                .fill(RigTheme.amber)
+                .frame(width: max(1.5, diameter * 0.09), height: diameter * 0.4)
+                .offset(y: -diameter * 0.2)
+                .rotationEffect(angle)
+        }
+        .frame(width: diameter, height: diameter)
+        .overlay { if !inert { LiveRing(diameter: diameter) } }
+        .animation(.spring(response: 0.24, dampingFraction: 0.6), value: index)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Circle())
+        .onTapGesture {
+            guard options.count > 1 else { return }
+            let next = (index + 1) % options.count
+            value = Double(next)
+            onFlick(next)
+        }
+    }
+}
+
 // MARK: - The lamp beside it
 
 struct PanelLamp: View {

@@ -391,22 +391,31 @@ struct ComponentDetailView: View {
                             .position(x: origin.x + lamp.x * drawn.width,
                                       y: origin.y + lamp.y * drawn.height)
                     }
-                    PanelToggle(value: store.binding(itemId: id, param: param.name),
-                                options: options,
-                                diameter: placed.d * drawn.height,
-                                inert: param.isDisabled,
-                                onFlick: { landed in
-                                    flicked = FlickedSwitch(
-                                        param: param.name,
-                                        title: param.displayName,
-                                        detail: options.indices.contains(landed) ? options[landed] : "",
-                                        inert: param.isDisabled,
-                                        at: at,
-                                        serial: (flicked?.serial ?? 0) + 1)
-                                })
-                        .frame(width: min(max(placed.d * drawn.height, 44), ceiling),
-                               height: min(max(placed.d * drawn.height, 44), ceiling))
-                        .position(at)
+                    let named: (Int) -> Void = { landed in
+                        flicked = FlickedSwitch(
+                            param: param.name,
+                            title: param.displayName,
+                            detail: options.indices.contains(landed) ? options[landed] : "",
+                            inert: param.isDisabled,
+                            at: at,
+                            serial: (flicked?.serial ?? 0) + 1)
+                    }
+                    let body = placed.d * drawn.height
+                    Group {
+                        if placed.isRotary {
+                            PanelSelector(value: store.binding(itemId: id, param: param.name),
+                                          options: options, diameter: body, onLight: light,
+                                          inert: param.isDisabled,
+                                          stepDegrees: placed.step ?? 45, onFlick: named)
+                        } else {
+                            PanelToggle(value: store.binding(itemId: id, param: param.name),
+                                        options: options, diameter: body,
+                                        inert: param.isDisabled, onFlick: named)
+                        }
+                    }
+                    .frame(width: min(max(body, 44), ceiling),
+                           height: min(max(body, 44), ceiling))
+                    .position(at)
                 }
             }
 

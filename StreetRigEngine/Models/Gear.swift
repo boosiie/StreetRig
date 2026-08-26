@@ -432,23 +432,27 @@ enum PedalSpec {
             }
             // FENDER TWIN REVERB — two channels, and the reverb and vibrato live
             // on the Vibrato one only, which is why that row is longer.
+            // THE PANEL IS THE DELUXE its faceplate is drawn as, not the Twin the
+            // name suggests: NORMAL is Volume / Treble / Bass, VIBRATO adds
+            // Reverb, Speed and Intensity, and there is no MIDDLE on either
+            // channel and no master volume. Nine knobs, which is what the artwork
+            // draws and what the amp has. The two BRIGHT switches go with them —
+            // the faceplate has four jacks and no toggles.
+            //
+            // Dropping MIDDLE and MASTER is audible: the mid band sits flat and
+            // the master at unity, which is exactly what an amp without those
+            // controls does.
             if n.contains("twin") {
                 return [GearParameter("CHANNEL", options: ["NORMAL", "VIBRATO"], defaultIndex: 0),
-                        GearParameter("BRIGHT",   options: ["OFF", "ON"], defaultIndex: 0, isDisabled: true),
-                        GearParameter("BRIGHT 2", options: ["OFF", "ON"], defaultIndex: 0,
-                                      shortName: "BRIGHT", isDisabled: true),
                         GearParameter("Gain",     shortName: "VOLUME", rowLabel: "NORMAL"),
                         GearParameter("Treble",   shortName: "TREBLE", rowLabel: "NORMAL"),
-                        GearParameter("Mid",      shortName: "MIDDLE", rowLabel: "NORMAL"),
                         GearParameter("Bass",     shortName: "BASS",   rowLabel: "NORMAL"),
                         GearParameter("Gain 2",   shortName: "VOLUME", rowLabel: "VIBRATO"),
                         GearParameter("Treble 2", shortName: "TREBLE", rowLabel: "VIBRATO"),
-                        GearParameter("Mid 2",    shortName: "MIDDLE", rowLabel: "VIBRATO"),
                         GearParameter("Bass 2",   shortName: "BASS",   rowLabel: "VIBRATO"),
                         GearParameter("REVERB",    rowLabel: "VIBRATO"),
                         GearParameter("SPEED",     rowLabel: "VIBRATO"),
-                        GearParameter("INTENSITY", rowLabel: "VIBRATO"),
-                        GearParameter("Master", shortName: "MASTER VOLUME")]
+                        GearParameter("INTENSITY", rowLabel: "VIBRATO")]
             }
             // VOX AC30 — the Normal channel is one volume and nothing else; Top
             // Boost is the tone channel. CUT and MASTER VOLUME are the amp's
@@ -589,9 +593,11 @@ enum PedalSpec {
             // their right. Stacking them full-width under the amp made two tiny
             // rows floating in a lot of nothing.
             //
-            // ONE MASTER. The panel had two and the amp has one that matters here;
-            // the second was me mirroring the channel pair where there is nothing
-            // to mirror.
+            // TWO MASTERS, because the chassis has two and the faceplate art draws
+            // both. This was cut back to one on the grounds that the second did
+            // nothing — true, and no longer a reason to leave a control off: a
+            // knob with no engine behind it is drawn unringed and says so when
+            // touched, which is the same treatment RESONANCE gets two lines down.
             //
             // Each channel's REVERB rides with its channel, so it dims when the
             // other one is selected — the amp has a reverb level per channel and
@@ -615,7 +621,8 @@ enum PedalSpec {
                         GearParameter("Bass",     shortName: "BASS"),
                         GearParameter("Presence", shortName: "PRESENCE"),
                         GearParameter("RESONANCE", isDisabled: true),
-                        GearParameter("Master",   shortName: "MASTER")]
+                        GearParameter("Master",   shortName: "MASTER 1"),
+                        GearParameter("Master 2", shortName: "MASTER 2", isDisabled: true)]
             }
             // THE ROCKERVERT, LEFT TO RIGHT off its own faceplate. Two corrections
             // to what was here: the clean channel has no MIDDLE — Volume, Treble
