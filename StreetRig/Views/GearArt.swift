@@ -300,23 +300,43 @@ private struct WahArt: View {
 
 extension GearArtView {
     /// The component's signature surface color (amp faceplate cream, pedal body, …).
+    ///
+    /// Pedals come from `PedalFinish` — the same artwork-sampled table the 3D
+    /// stage paints with — so zooming into a pedal shows the colour you just
+    /// tapped. The old path fell through to `spec`, whose per-model rules ("ce-2",
+    /// "rv-6", "carbon copy") name pedals this catalog no longer ships, so every
+    /// pedal landed on a category tint: the delay panel came up green behind a
+    /// white pedal, the Whammy blue behind a red one.
+    ///
+    /// The wah special-case is gone with it. It hard-coded near-black on the
+    /// grounds that wahs are black castings, which is true of the Cry Baby and the
+    /// V847 and not of the Bad Horsie sitting in a pink chassis.
     static func panelColor(for item: GearItem?) -> Color {
         let category = item?.category ?? .overdrive
         switch category {
         case .amp, .comboAmp:   return RigTheme.panel
         case .cabinet, .guitar: return RigTheme.cabinet
-        case .wah:              return Color(white: 0.16)
-        default:                return spec(name: (item?.name ?? "").lowercased(), category: category).tint
+        default:
+            if let item, let rgb = PedalFinish.rgb(for: item) {
+                return Color(red: rgb.r, green: rgb.g, blue: rgb.b)
+            }
+            return spec(name: (item?.name ?? "").lowercased(), category: category).tint
         }
     }
 
     /// Whether that surface is light (so knobs/labels pick a dark contrast).
+    ///
+    /// For anything in `PedalFinish` this is measured off the panel colour rather
+    /// than read from a flag: the two can't drift, and a pedal repainted white
+    /// can't keep white lettering that then vanishes into it.
     static func panelIsLight(for item: GearItem?) -> Bool {
         let category = item?.category ?? .overdrive
         switch category {
-        case .amp, .comboAmp:          return true
-        case .cabinet, .guitar, .wah:  return false
-        default:                       return spec(name: (item?.name ?? "").lowercased(), category: category).light
+        case .amp, .comboAmp:   return true
+        case .cabinet, .guitar: return false
+        default:
+            if let item, let rgb = PedalFinish.rgb(for: item) { return PedalFinish.isLight(rgb) }
+            return spec(name: (item?.name ?? "").lowercased(), category: category).light
         }
     }
 }

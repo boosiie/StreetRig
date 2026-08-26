@@ -2,11 +2,13 @@
 //  PedalModel3DView.swift
 //  StreetRig
 //
-//  The rig stage's pedalboard in 3D: every owned pedal as a PBR-lit stompbox on
+//  The rig stage's pedalboard in 3D: every owned pedal as a PBR-lit enclosure on
 //  a slightly-raked board, all in a SINGLE SceneKit view (one renderer for the
 //  whole board, not one per pedal — see research/3d-amp-rendering-options.md).
-//  Enclosure colors, knob counts, and LED colors mirror the vector `PedalArt`
-//  so a Tube Screamer still reads green, a Distortion orange, a tuner white, etc.
+//  Each pedal picks an ENCLOSURE ARCHETYPE from its name and category (see
+//  PedalArchetypes3D) so a wah is a hinged rocker, a Boss compact wears its
+//  tread plate and a Fuzz Face is round; colors and LED colors still mirror the
+//  vector `PedalArt` so a Tube Screamer reads green and a tuner white either way.
 //  Tap a pedal (hit-tested by node name) to open its control overlay. Gated by
 //  `FeatureFlags.amp3D` alongside the 3D amp; every other surface stays vector.
 //
@@ -56,6 +58,11 @@ struct PedalboardModel3DView: UIViewRepresentable {
             view.pointOfView = scene.rootNode.childNode(withName: "camera", recursively: false)
             context.coordinator.builtIds = ids
         }
+        // A `Position` change is a value change, not a gear change — same
+        // distinction the amp's knobs make. Move the treadle in place.
+        if let root = view.scene?.rootNode {
+            PedalboardScene.applyTreadles(pedals, in: root)
+        }
     }
 
     // MARK: Coordinator — hit-tests taps to the pedal under the finger
@@ -89,45 +96,105 @@ struct PedalboardModel3DView: UIViewRepresentable {
 // MARK: - Scene assembly
 
 enum PedalboardScene {
+
+    // MARK: Row layout
+
+    /// Where a row of pedals actually goes.
+    ///
+    /// THIS USED TO BE THREE CONSTANTS AND IT NO LONGER CAN BE. The row was a
+    /// fixed 1.5 stride with the board sized from the pedal COUNT, both of which
+    /// silently assumed every pedal was 1.1 wide. Once a wah (1.2 × 2.5) and a
+    /// 1590BB (1.56 wide) are real shapes, a fixed stride means pedals growing
+    /// through their neighbours and hanging off the front edge of the board. So
+    /// one function derives the whole layout from the archetypes' own footprints
+    /// — pedal centres, board size, and the add-slot position together, because
+    /// those three only agree by construction.
+    struct BoardLayout {
+        /// Local x of each pedal, in signal-chain order.
+        var centers: [Float]
+        var width: CGFloat
+        var length: CGFloat
+        /// Local x of the slot AFTER the last pedal — where a new one would land.
+        var nextSlotX: Float
+    }
+
+    /// Air between adjacent pedals. 0.40 is exactly what the old 1.5 stride left
+    /// between two 1.1-wide boxes, so a board of plain compacts still lays out
+    /// pixel-for-pixel as it did before archetypes existed.
+    private static let pedalGap: Float = 0.40
+    /// Board overhang past the outermost pedal, per side.
+    private static let boardMargin: Float = 0.30
+    /// Overhang front and back. Tighter than the sides on purpose: the board is
+    /// seen from a low 3/4 angle, so depth it doesn't need reads as empty floor.
+    private static let boardDepthMargin: Float = 0.10
+
+    /// Footprints come from the archetype spec, not from the built node, because
+    /// `nextSlotX` is needed by the diorama before any pedal is built. A designer's
+    /// bespoke `.usdz` is therefore laid out at ITS archetype's footprint — which
+    /// is what CUSTOMIZING-GEAR.md already asks them to author against.
+    static func layout(for pedals: [GearItem]) -> BoardLayout {
+        let sizes = pedals.map { ProceduralPedal.footprint(for: $0) }
+        let widths = sizes.map { Float($0.width) }
+        let total = widths.reduce(0, +) + pedalGap * Float(max(widths.count - 1, 0))
+
+        var centers: [Float] = []
+        var cursor = -total / 2
+        for w in widths {
+            centers.append(cursor + w / 2)
+            cursor += w + pedalGap
+        }
+
+        let reference = Float(ProceduralPedal.referenceWidth)
+        let width = CGFloat(max(total, reference) + boardMargin * 2)
+        let deepest = sizes.map { Float($0.length) }.max() ?? 0
+        let length = CGFloat(max(deepest + boardDepthMargin * 2, 1.5))
+
+        // The slot marks where ONE MORE standard pedal would land — not where the
+        // last pedal's own width happens to end, so the marker sits the same
+        // distance out whether the row ends in a compact or a wah.
+        let next: Float = centers.isEmpty ? 0
+            : (centers[centers.count - 1] + widths[widths.count - 1] / 2 + pedalGap + reference / 2)
+
+        return BoardLayout(centers: centers, width: width, length: length, nextSlotX: next)
+    }
+
     /// Board + pedals as one flat node (pedals standing on top, no rake). Reused
     /// by the standalone pedalboard view and by the combined rig diorama.
     static func boardNode(pedals: [GearItem]) -> SCNNode {
         let root = SCNNode()
         root.name = "boardRoot"
+        let row = layout(for: pedals)
 
-        let count = max(pedals.count, 1)
-        let spacing: Float = 1.5
-        let width = boardWidth(pedalCount: pedals.count)
-
-        // The board the pedals sit on — thin, just wider than the pedals.
-        let board = SCNBox(width: width, height: 0.16, length: 1.5, chamferRadius: 0.06)
+        // The board the pedals sit on — thin, just bigger than what's on it.
+        let board = SCNBox(width: row.width, height: 0.16, length: row.length, chamferRadius: 0.06)
         board.materials = [Studio3D.pbr(UIColor(white: 0.12, alpha: 1), metalness: 0.25, roughness: 0.7)]
         let boardGeo = SCNNode(geometry: board)
         boardGeo.position = SCNVector3(0, -0.08, 0)
         root.addChildNode(boardGeo)
 
         // Pedals stand on top of the board, in a centered row.
-        let startX = -Float(count - 1) * spacing / 2
         for (i, pedal) in pedals.enumerated() {
-            // Custom <slug>.usdz for this pedal, else the procedural stompbox.
+            // Custom <slug>.usdz for this pedal, else the procedural archetype.
             let node = GearModelLoader.modelNode(for: pedal) ?? ProceduralPedal.build(for: pedal)
             node.name = "pedal_\(pedal.id.uuidString)"
-            node.position = SCNVector3(startX + Float(i) * spacing, 0, 0.02)
+            node.position = SCNVector3(row.centers[i], 0, 0.02)
             root.addChildNode(node)
         }
         return root
     }
 
-    static func boardWidth(pedalCount: Int) -> CGFloat {
-        CGFloat(Float(max(pedalCount, 1) - 1) * 1.5 + 1.7)
-    }
-
-    /// Local x of the slot AFTER the last pedal — where a new one would land.
-    /// An empty board has no row to sit beside, so the slot takes the middle.
-    static func nextSlotX(pedalCount: Int) -> Float {
-        guard pedalCount > 0 else { return 0 }
-        let spacing: Float = 1.5
-        return -Float(pedalCount - 1) * spacing / 2 + Float(pedalCount) * spacing
+    /// Re-angle every rocker treadle on an ALREADY-BUILT board to match its
+    /// pedal's `Position` — the treadle's answer to `applyAmp` turning the amp's
+    /// knobs. Rebuilding the scene for a value change would throw away the user's
+    /// camera orbit and cost a full assembly per slider tick.
+    static func applyTreadles(_ pedals: [GearItem], in root: SCNNode) {
+        for pedal in pedals {
+            guard let group = root.childNode(withName: "pedal_\(pedal.id.uuidString)", recursively: true),
+                  let treadle = group.childNode(withName: ProceduralPedal.treadleNodeName,
+                                                recursively: true)
+            else { continue }
+            treadle.eulerAngles.x = Studio3D.treadleAngle(forValue: pedal.values["Position"] ?? 5)
+        }
     }
 
     /// The "drop a pedal here" marker that sits beside the board.
@@ -199,120 +266,58 @@ enum PedalboardScene {
         root.eulerAngles.x = -0.30                    // slight rake for the standalone view
         scene.rootNode.addChildNode(root)
 
-        let width = boardWidth(pedalCount: pedals.count)
+        let row = layout(for: pedals)
         Studio3D.addLighting(to: scene)
-        Studio3D.addContactShadow(to: scene.rootNode, width: width + 1.0, height: 2.0,
-                                  at: SCNVector3(0, -0.42, 0.2))
+        Studio3D.addContactShadow(to: scene.rootNode, width: row.width + 1.0,
+                                  height: row.length + 0.5, at: SCNVector3(0, -0.42, 0.2))
         // Front-above 3/4 view; distance widens with the row so it always fits.
-        let dist = Float(width) * 0.46 + 3.0
+        let dist = Float(row.width) * 0.46 + 3.0
         Studio3D.addCamera(to: scene, position: SCNVector3(0, 1.55, dist), tilt: -0.46, fov: 46)
         return scene
     }
 }
 
-// MARK: - Procedural stompbox (generic, colored per pedal)
+// MARK: - Procedural pedal (thin dispatch onto the enclosure archetypes)
 
+/// The build entry point EVERY caller uses — the board above, the AR floor row,
+/// and the exporter. Deliberately thin: the archetype family lives in
+/// `PedalArchetypes3D` and can grow without any caller learning about it, and
+/// the `GearModelLoader.modelNode(for:) ?? ProceduralPedal.build(for:)` order
+/// that lets a designer's bespoke `.usdz` win outright stays exactly where it was.
 enum ProceduralPedal {
     /// The status LED's node name. Named so a caller can light it: the AR floor
-    /// pedals turn it on when the footswitch is engaged.
+    /// pedals turn it on when the footswitch is engaged. EVERY archetype has one.
     static let ledNodeName = "led"
 
-    static func build(for pedal: GearItem) -> SCNNode {
-        let group = SCNNode()
-        let spec = spec(for: pedal)
+    /// The rocker treadle's PIVOT node name — the treadle's answer to a knob
+    /// node, so `Position` can be re-applied to a board that is already built.
+    static let treadleNodeName = "treadle"
 
-        // ---- Enclosure ----
-        let bodyMat = Studio3D.pbr(spec.color, metalness: 0.35, roughness: 0.42)
-        let body = SCNBox(width: 1.1, height: 0.42, length: 1.45, chamferRadius: 0.05)
-        body.materials = [bodyMat]
-        let bodyNode = SCNNode(geometry: body)
-        bodyNode.position = SCNVector3(0, 0.21, 0)
-        group.addChildNode(bodyNode)
+    /// One compact stompbox, in board units. Every other footprint is expressed
+    /// against it, and AR scales the whole family relative to it so archetypes
+    /// keep their real-world size ratios there too.
+    static let referenceWidth: CGFloat = 1.1
 
-        // ---- Knobs across the top (near the back edge) ----
-        let knobMat = Studio3D.pbr(UIColor(white: 0.85, alpha: 1), metalness: 0.1, roughness: 0.5)
-        let pointerMat = Studio3D.pbr(.black, metalness: 0, roughness: 0.5)
-        let n = max(1, spec.knobs)
-        let span: Float = min(0.72, Float(n) * 0.26)
-        let step = n > 1 ? span / Float(n - 1) : 0
-        for i in 0..<n {
-            let knob = SCNCylinder(radius: 0.1, height: 0.11)
-            knob.materials = [knobMat]
-            let kn = SCNNode(geometry: knob)
-            kn.position = SCNVector3(-span / 2 + Float(i) * step, 0.47, -0.42)
-            group.addChildNode(kn)
+    static func build(for pedal: GearItem) -> SCNNode { PedalArchetypes.build(pedal) }
 
-            let ptr = SCNBox(width: 0.018, height: 0.12, length: 0.05, chamferRadius: 0)
-            ptr.materials = [pointerMat]
-            let pn = SCNNode(geometry: ptr)
-            pn.position = SCNVector3(0, 0.005, 0.045)
-            kn.addChildNode(pn)
-        }
-
-        // ---- Status LED (small emissive dot; no glow wash) ----
-        let led = SCNSphere(radius: 0.045)
-        led.materials = [Studio3D.pbr(spec.led, metalness: 0, roughness: 0.3, emission: spec.led)]
-        let ledNode = SCNNode(geometry: led)
-        ledNode.name = ledNodeName
-        ledNode.position = SCNVector3(0, 0.44, 0.08)
-        group.addChildNode(ledNode)
-
-        // ---- Footswitch (front, chrome) ----
-        let fs = SCNCylinder(radius: 0.14, height: 0.12)
-        fs.materials = [Studio3D.pbr(UIColor(white: 0.62, alpha: 1), metalness: 0.85, roughness: 0.28)]
-        let fsNode = SCNNode(geometry: fs)
-        fsNode.position = SCNVector3(0, 0.47, 0.48)
-        group.addChildNode(fsNode)
-
-        return group
-    }
-
-    // MARK: Per-pedal look (mirrors GearArt's PedalArt spec)
-
-    private struct PedalSpec { var color: UIColor; var knobs: Int; var led: UIColor }
-
-    private static func spec(for pedal: GearItem) -> PedalSpec {
-        func c(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> UIColor {
-            UIColor(red: r, green: g, blue: b, alpha: 1)
-        }
-        let amber = c(1.0, 0.72, 0.2)
-        let green = c(0.3, 0.9, 0.35)
-        let n = pedal.name.lowercased()
-
-        if n.contains("tube screamer") { return .init(color: c(0.36, 0.55, 0.20), knobs: 3, led: amber) }
-        if n.contains("big muff")      { return .init(color: c(0.85, 0.84, 0.80), knobs: 3, led: amber) }
-        if n.contains("dyna")          { return .init(color: c(0.70, 0.16, 0.14), knobs: 2, led: amber) }
-        if n.contains("phase")         { return .init(color: c(0.92, 0.46, 0.09), knobs: 1, led: amber) }
-        if n.contains("distortion")    { return .init(color: c(0.93, 0.50, 0.10), knobs: 3, led: amber) }
-        if n.contains("metal zone")    { return .init(color: c(0.20, 0.20, 0.22), knobs: 4, led: amber) }
-        if n.contains("procon rat")    { return .init(color: c(0.18, 0.18, 0.20), knobs: 3, led: amber) }
-        if n.contains("centaur")       { return .init(color: c(0.62, 0.14, 0.13), knobs: 3, led: amber) }
-        if n.contains("king of tone")  { return .init(color: c(0.62, 0.44, 0.76), knobs: 4, led: amber) }
-        if n.contains("memory man")    { return .init(color: c(0.15, 0.15, 0.17), knobs: 3, led: amber) }
-        if n.contains("loop station")  { return .init(color: c(0.80, 0.13, 0.13), knobs: 1, led: green) }
-        if n.contains("chromatic tuner") { return .init(color: c(0.88, 0.88, 0.86), knobs: 1, led: green) }
-
-        switch pedal.category {
-        case .delay:      return .init(color: c(0.20, 0.45, 0.30), knobs: 3, led: amber)
-        case .reverb:     return .init(color: c(0.10, 0.44, 0.48), knobs: 3, led: amber)
-        case .modulation: return .init(color: c(0.16, 0.40, 0.70), knobs: 2, led: amber)
-        case .compressor: return .init(color: c(0.70, 0.16, 0.14), knobs: 2, led: amber)
-        case .tuner:      return .init(color: c(0.62, 0.64, 0.66), knobs: 1, led: green)
-        case .eq:         return .init(color: c(0.62, 0.64, 0.66), knobs: 3, led: amber)
-        case .pitch:      return .init(color: c(0.16, 0.40, 0.70), knobs: 2, led: amber)
-        case .looper:     return .init(color: c(0.88, 0.88, 0.86), knobs: 1, led: green)
-        default:          return .init(color: c(0.30, 0.30, 0.32), knobs: 2, led: amber)
-        }
+    /// The pedal's footprint WITHOUT building it — what the board has to know
+    /// before it can decide how much room to leave for the row.
+    static func footprint(for pedal: GearItem) -> (width: CGFloat, length: CGFloat) {
+        let spec = PedalArchetypes.enclosure(for: pedal)
+        return (spec.width, spec.length)
     }
 }
 
 #Preview {
     PedalboardModel3DView(pedals: [
+        GearItem(name: "DUNLAP CRY BABY", category: .wah, values: ["Position": 2]),
         GearItem(name: "Ibonez Tube Screamer", category: .overdrive),
+        GearItem(name: "MXP phase 90", category: .modulation),
+        GearItem(name: "VOSS Metal Zone", category: .overdrive),
+        GearItem(name: "DALLAS ARBITOR FUZZ FACE", category: .overdrive),
         GearItem(name: "VOSS Digital Delay", category: .delay),
-        GearItem(name: "VOSS Reverb", category: .reverb),
     ])
-    .frame(width: 320, height: 150)
+    .frame(width: 520, height: 190)
     .background(RigTheme.background)
     .preferredColorScheme(.dark)
 }

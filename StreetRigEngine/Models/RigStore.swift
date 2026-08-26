@@ -120,6 +120,11 @@ public final class RigStore: ObservableObject {
             }
         }
 
+        // Run against the seed as well as a loaded file: the seed is written
+        // straight to disk above, so seeding gear that is currently withheld
+        // would hand it back on every first launch.
+        applyAvailabilityRules()
+
         guard persist else { return }
 
         // Debounced autosave on any change (covers slider drags, drops, reorders, AR slots).
@@ -158,6 +163,31 @@ public final class RigStore: ObservableObject {
 
     public var pedalItems: [GearItem] { rig.pedalIds.compactMap { item($0) } }
 
+    /// Whether this gear is IN the rig right now — the guitar, either half of the
+    /// amp section, or a pedal on the board. Distinct from `isOwned`, which only
+    /// says it is in the collection: since `maxPedalsOnBoard` caps the board well
+    /// below what a player can own, most owned pedals are NOT in the rig, and the
+    /// MY GEAR rail needs to tell those two states apart.
+    ///
+    /// Defined here rather than at the call site so the rail, the stage and
+    /// anything else asking agree on what "in the rig" means -- the same reason
+    /// `removalImpact` is centralised. Note this takes the OWNED instance's id;
+    /// catalog items carry throwaway ids, so resolve through `ownedInstance`
+    /// first when asking about a catalog entry.
+    public func isInRig(_ id: UUID) -> Bool {
+        if id == rig.guitarId { return true }
+        switch rig.ampSection {
+        case .stack(let ampId, let cabinetId): if id == ampId || id == cabinetId { return true }
+        case .combo(let comboId):              if id == comboId { return true }
+        }
+        return rig.pedalIds.contains(id)
+    }
+
+    /// Whether another pedal will fit on the board. The UI asks this to decide
+    /// whether to offer the add-slot at all, so a refused drop is something the
+    /// player sees coming instead of a drag that quietly does nothing.
+    public var boardHasRoom: Bool { rig.pedalIds.count < Self.maxPedalsOnBoard }
+
     // MARK: - Mutations
 
     /// Apply a dropped/selected item to the rig, replacing the matching part.
@@ -185,6 +215,10 @@ public final class RigStore: ObservableObject {
             rig.ampSection = .combo(comboId: dropped.id)
         default: // a pedal
             guard !rig.pedalIds.contains(dropped.id) else { return }
+            // A full board refuses the add outright rather than pushing the
+            // last pedal off: which one to sacrifice is the player's call, and
+            // silently dropping a pedal they'd dialled in is the worse surprise.
+            guard boardHasRoom else { return }
             rig.pedalIds.append(dropped.id)
             rig.pedalIds.sort { chainOrder(of: $0) < chainOrder(of: $1) }
         }
@@ -192,6 +226,44 @@ public final class RigStore: ObservableObject {
 
     public func removePedal(_ id: UUID) {
         rig.pedalIds.removeAll { $0 == id }
+    }
+
+    /// Bring the collection and rig in line with today's availability rules:
+    /// withheld gear is disowned, and a board saved when more pedals were allowed
+    /// is trimmed to `maxPedalsOnBoard`.
+    ///
+    /// Runs on every launch rather than behind a `catalogVersion` bump. A bump
+    /// re-seeds, which would throw away everything else the player owns every
+    /// time a model is withheld or restored -- too destructive for a rule meant
+    /// to be reversible. Both halves are no-ops on a rig that already complies,
+    /// so the cost of running it unconditionally is a pair of scans.
+    private func applyAvailabilityRules() {
+        let withheld = Set(collection.filter { Self.withheldModels.contains($0.name) }.map(\.id))
+        if !withheld.isEmpty {
+            collection.removeAll { withheld.contains($0.id) }
+            rig.pedalIds.removeAll { withheld.contains($0) }
+            releaseARSlots(holding: withheld)
+        }
+
+        if rig.pedalIds.count > Self.maxPedalsOnBoard {
+            // Keep the front of the board as SAVED, which is chain order only
+            // until the player rearranges it -- `movePedal` reorders without
+            // re-sorting. Either way what survives is the first three they saw,
+            // so the pedals that vanish are the ones off the end they can point
+            // at, not three picked by a rule they have no view of.
+            let evicted = Set(rig.pedalIds.dropFirst(Self.maxPedalsOnBoard))
+            rig.pedalIds = Array(rig.pedalIds.prefix(Self.maxPedalsOnBoard))
+            releaseARSlots(holding: evicted)
+        }
+    }
+
+    /// Free any footswitch bound to gear that just left the chain, for the same
+    /// reason `removeFromCollection` does: a slot holding an id the graph can't
+    /// resolve compiles into a bypass rule for a pedal that isn't there.
+    private func releaseARSlots(holding ids: Set<UUID>) {
+        for i in arSlots.indices {
+            if let bound = arSlots[i].pedalId, ids.contains(bound) { arSlots[i] = ARSlot() }
+        }
     }
 
     /// An id deliberately present in no collection — the "nothing here" marker for
@@ -226,6 +298,9 @@ public final class RigStore: ObservableObject {
         if let idx = ids.firstIndex(of: slotId) {
             ids[idx] = dropped.id            // swap the hovered pedal in place
         } else if !ids.contains(dropped.id) {
+            // Not a swap after all -- the hovered slot is gone, so this is a
+            // plain add and answers to the same cap `apply` does.
+            guard ids.count < Self.maxPedalsOnBoard else { return }
             ids.append(dropped.id)           // slot was the incoming pedal itself (self-drop)
         }
         ids.sort { chainOrder(of: $0) < chainOrder(of: $1) }
@@ -419,6 +494,10 @@ public final class RigStore: ObservableObject {
 
         if let gear = item(pedalId), gear.category.isPedal, !rig.pedalIds.contains(pedalId) {
             apply(gear)                                   // structural: into the chain
+            // A full board refuses that add, and a footswitch bound to a pedal
+            // outside the chain compiles into a bypass rule for something
+            // `RigGraphCompiler` can't find -- a switch that toggles nothing.
+            guard rig.pedalIds.contains(pedalId) else { return }
         }
         // One pedal, one footswitch: release any other slot holding it, so the
         // enabled-state rule has a single unambiguous source.
@@ -515,7 +594,6 @@ public final class RigStore: ObservableObject {
         // brighter 1x12 cab IR (`ParameterMap.cabSlot` matches "ac30"), so the
         // seeded stack → combo swap keeps audibly changing the cab as before.
         let combo    = GearItem(name: "Volt AC30",         category: .comboAmp)
-        let tuner    = GearItem(name: "VOSS Chromatic Tuner", category: .tuner)
         let wah      = GearItem(name: "DUNLAP CRY BABY",   category: .wah)
         let comp     = GearItem(name: "MXP dyna comp",     category: .compressor)
         let ts       = GearItem(name: "Ibonez Tube Screamer", category: .overdrive)
@@ -524,9 +602,11 @@ public final class RigStore: ObservableObject {
         let phaser   = GearItem(name: "MXP phase 90",      category: .modulation)
         let delay    = GearItem(name: "VOSS Digital Delay", category: .delay)
         let reverb   = GearItem(name: "VOSS Reverb",       category: .reverb)
-        let looper   = GearItem(name: "VOSS Loop Station", category: .looper)
 
-        let collection = [guitar, amp, cab, combo, tuner, wah, comp, ts, muff, chorus, phaser, delay, reverb, looper]
+        // No tuner and no looper: both are in `withheldModels`, and seeding gear
+        // the library won't offer means `applyAvailabilityRules` deletes it again
+        // on the very next launch.
+        let collection = [guitar, amp, cab, combo, wah, comp, ts, muff, chorus, phaser, delay, reverb]
         let rig = RigConfiguration(
             guitarId: guitar.id,
             ampSection: .stack(ampId: amp.id, cabinetId: cab.id),
@@ -535,9 +615,65 @@ public final class RigStore: ObservableObject {
         return (collection, rig)
     }
 
+    // MARK: - Availability
+
+    /// How many pedals may sit on the board at once.
+    ///
+    /// Deliberately NOT `SRMaxPedals` (8). That one sizes the DSP's slot array
+    /// and the AU parameter address space, so lowering it would move every pedal
+    /// parameter's address and invalidate saved host automation. This is the
+    /// player-facing rule, enforced here on the model so every add path -- rail
+    /// drop, stage drop, AR footswitch binding -- obeys it without each having to
+    /// remember to ask.
+    public static let maxPedalsOnBoard = 3
+
+    /// Models withheld from the library for now.
+    ///
+    /// They stay in `allModels` below rather than being deleted, so putting one
+    /// back is removing a line from this set -- no catalog entry, artwork key or
+    /// `ParameterMap` voicing has to be reconstructed. Owned copies are stripped
+    /// on load by `applyAvailabilityRules`, so withholding a model the player
+    /// already has takes it off their board too.
+    ///
+    /// Matched on the exact `GearItem.name`, the same key the icon loader and
+    /// `ParameterMap` match on. A typo here would silently withhold nothing,
+    /// which is what the assertion in `catalog` is for.
+    public static let withheldModels: Set<String> = [
+        "VOSS Chromatic Tuner",           // the only tuner -- empties the category
+        "Keenly Compressor",
+        "Chiron CENTAUR",
+        "analogue.man KING of TONE",
+        "Fullstone OCD",
+        "Exotiq EP booster",
+        "strymo IRIDIUM",
+        "VOSS Equalizer",
+        "EMPRISS ParaEq",
+        "ITP DECIMATOR II",
+        "FORTIS ZUUL",
+        "electro-harmonium small stone",
+        "Fullstone Deja'Vibe",
+        "VOSS Octave",
+        "VOSS Harmonist",
+        "electro-harmonium micro POG",
+        "VOSS Loop Station",              // both loopers -- empties the category
+        "electro-harmonium FREEZE",
+    ]
+
     // MARK: - Catalog (the full library to add gear from)
 
+    /// What the library offers: everything that exists, minus what's withheld.
+    /// Every consumer goes through here, so a withheld model is unreachable from
+    /// the UI without each screen having to filter for itself.
     public static let catalog: [GearItem] = {
+        let available = allModels.filter { !withheldModels.contains($0.name) }
+        assert(allModels.count - available.count == withheldModels.count,
+               "a name in withheldModels matches no model in allModels -- check for a typo")
+        return available
+    }()
+
+    /// Every model that exists, withheld ones included. `catalog` is what the app
+    /// offers today; this is the definitive list and the thing to add a model to.
+    public static let allModels: [GearItem] = {
         func mk(_ name: String, _ category: GearCategory) -> GearItem {
             GearItem(name: name, category: category)
         }

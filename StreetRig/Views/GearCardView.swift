@@ -20,6 +20,10 @@ struct GearCardView: View {
     @Binding var held: GearItem.ID?
     /// Set on the rail's first card, once ever, to nudge that these lift.
     var demoLift: Bool = false
+    /// This gear is already placed in the rig on MY RIG. Passed in rather than
+    /// read from the store so this card stays a pure presentation view, the same
+    /// way `demoLift` is decided by the rail.
+    var inRig: Bool = false
 
     private var isHeld: Bool { held == item.id }
     /// True only once the ghost exists — i.e. the card really has left the rail.
@@ -73,6 +77,24 @@ struct GearCardView: View {
         // `.rigCard` before the affordance overlays so the grip dots, hold ring and
         // hint draw ON the card rather than under its edge and shadow.
         .rigCard(cornerRadius: 14)
+        // Gear already in the rig sits in shadow, matching how the library shades
+        // what you already own: darkened means "already accounted for", so the
+        // cards that stay bright are the ones still available to place. The rail
+        // lists everything owned, and `maxPedalsOnBoard` keeps most of it off the
+        // board, so without this the spare pedals and the placed ones look alike.
+        //
+        // The shadow is the standing signal that these cards do not lift (the
+        // hold is refused below). ABOVE the card fill but BELOW the overlays that
+        // follow, so the tap hint EXPLAINING the refusal stays at full contrast --
+        // dimming the one thing that answers "why did nothing happen?" would be
+        // exactly backwards. Hit testing off; the refusal lives in the gesture.
+        .overlay {
+            if inRig {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(RigTheme.background.opacity(0.58))
+                    .allowsHitTesting(false)
+            }
+        }
         .overlay(alignment: .topTrailing) { gripDots }
         .overlay { holdRing }
         .overlay(alignment: .bottom) { tapHint }
@@ -93,17 +115,26 @@ struct GearCardView: View {
         // the sequence fixed it. `.onLongPressGesture` leaves the pan alone, so a
         // flick scrolls and only a real hold picks a card up.
         .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 10) {
+            guard !inRig else { return }
             held = item.id
             didLift = true
             // Deliberately NOT discharging here: the card holds its squeeze so
             // nothing moves at the instant of success except the ring fading.
         } onPressingChanged: { isPressing in
-            pressing = isPressing
             if isPressing {
+                // Gear in the rig doesn't come out of the rail, so don't even
+                // start the charge: a ring that fills and then refuses to hand
+                // the card over teaches that the hold is broken. Guarding the
+                // press-DOWN only -- the release path below must always run, or
+                // a hold that ends after this flips would strand the ghost and
+                // leave the rail disabled for good.
+                guard !inRig else { return }
+                pressing = true
                 didLift = false
                 beginCharge()
                 return
             }
+            pressing = false
             endCharge()
             // The drag below may never reach its threshold, so lifting the finger
             // here is the only guaranteed end: without it a hold-and-release would
@@ -136,7 +167,9 @@ struct GearCardView: View {
             }
         }
         .padding(7)
-        .opacity(pressing || isHeld || isLifted ? 0 : 1)
+        // Hidden on in-rig cards: the dots are the standing "you can grab this"
+        // mark, and it is not true of gear that is already in the rig.
+        .opacity(inRig || pressing || isHeld || isLifted ? 0 : 1)
         .animation(.easeOut(duration: 0.15), value: pressing)
     }
 
@@ -154,7 +187,9 @@ struct GearCardView: View {
     @ViewBuilder
     private var tapHint: some View {
         if hinting {
-            Text("HOLD TO PICK UP")
+            // A locked card's tap answers "why won't this move?" instead of
+            // teaching the hold. Without it the refusal just reads as a dead card.
+            Text(inRig ? "IN YOUR RIG" : "HOLD TO PICK UP")
                 .font(.system(size: 8, weight: .bold))
                 .tracking(0.4)
                 .foregroundStyle(RigTheme.background)
