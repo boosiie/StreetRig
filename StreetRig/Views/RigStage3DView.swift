@@ -171,7 +171,10 @@ struct RigStage3DView: UIViewRepresentable {
         coord.stagePedals = pedals
         coord.stageGuitar = guitar
         coord.stageAmp = amp
-        coord.setAddSlot(visible: pedalInFlight)
+        // Only offer the next slot when there is one. A marker on a full board
+        // invites a drop that `RigStore.apply` will refuse, which reads as the
+        // drag having missed rather than the board being full.
+        coord.setAddSlot(visible: pedalInFlight && pedals.count < RigStore.maxPedalsOnBoard)
 
         let sig = RigDiorama.signature(amp: amp, cabinet: cabinet, pedals: pedals, guitar: guitar)
         if coord.signature != sig {

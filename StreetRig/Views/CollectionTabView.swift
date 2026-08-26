@@ -82,7 +82,14 @@ struct CollectionTabView: View {
         .frame(width: 150)
         .onAppear {
             guard !railHintShown else { return }
-            demoTarget = ampsAndCabs.first?.id ?? pedals.first?.id
+            // Demo a card that can actually lift. The first amp/cab is nearly
+            // always already in the rig, and hopping a card that then refuses to
+            // move teaches the exact opposite of what this hint is for. If every
+            // card is locked, spend nothing: leave the flag unset so the hint is
+            // still owed once something frees up.
+            guard let liftable = (ampsAndCabs + pedals).first(where: { !store.isInRig($0.id) })
+            else { return }
+            demoTarget = liftable.id
             railHintShown = true
         }
         .background(RigTheme.background.opacity(0.55))
@@ -114,7 +121,11 @@ struct CollectionTabView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .tracking(1.2)
                 .foregroundStyle(RigTheme.trim.opacity(0.9))
-            ForEach(items) { GearCardView(item: $0, held: $heldCard, demoLift: $0.id == demoTarget) }
+            ForEach(items) {
+                GearCardView(item: $0, held: $heldCard,
+                             demoLift: $0.id == demoTarget,
+                             inRig: store.isInRig($0.id))
+            }
         }
     }
 }
