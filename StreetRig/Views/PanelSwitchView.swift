@@ -48,20 +48,55 @@ import StreetRigEngine
 /// vanish into it.
 struct LiveRing: View {
     let diameter: CGFloat
-    /// Hugs the control rather than floating outside it: these plates print a
-    /// scale around every knob, and a ring with air under it collides with the
-    /// tick marks.
+    /// The mark has to beat the artwork. Half these plates print a coloured ring
+    /// around every knob already, so a hairline reads as more decoration — it has
+    /// to be thick, and it has to GLOW, which is the one thing screen-printing
+    /// cannot do. That is what makes it look switched on rather than drawn on.
+    @State private var lit = false
+
     var body: some View {
-        let inset = max(0.75, diameter * 0.055)
+        let gap = max(1, diameter * 0.10)
+        let outer = diameter + gap * 2
         ZStack {
+            // The halo. Sits under the ring and does the work at arm's length.
             Circle()
-                .strokeBorder(.black.opacity(0.38), lineWidth: max(1, diameter * 0.14))
-                .frame(width: diameter + inset * 2.6, height: diameter + inset * 2.6)
+                .stroke(RigTheme.amber.opacity(0.75), lineWidth: max(2, diameter * 0.22))
+                .frame(width: outer, height: outer)
+                .blur(radius: max(1.5, diameter * 0.16))
+            // A dark seat, so the amber still reads on a plate that IS amber —
+            // the Rockervert's orange face is within a few points of it.
             Circle()
-                .strokeBorder(RigTheme.amber, lineWidth: max(1, diameter * 0.085))
-                .frame(width: diameter + inset * 2, height: diameter + inset * 2)
+                .strokeBorder(.black.opacity(0.5), lineWidth: max(1.5, diameter * 0.20))
+                .frame(width: outer + gap, height: outer + gap)
+            Circle()
+                .strokeBorder(RigTheme.amber, lineWidth: max(1.5, diameter * 0.15))
+                .frame(width: outer, height: outer)
+        }
+        // One pulse as it arrives — on opening the panel, and again whenever the
+        // channel switch hands the rings to the other row. Motion is what a first
+        // look actually notices; the ring alone was something you had to be told.
+        .scaleEffect(lit ? 1 : 0.82)
+        .opacity(lit ? 1 : 0)
+        .onAppear {
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.55)) { lit = true }
         }
         .allowsHitTesting(false)
+    }
+}
+
+/// The ring, shrunk to sit next to words. The legend has to be the SAME mark or
+/// it teaches the wrong thing.
+struct LiveRingSwatch: View {
+    var diameter: CGFloat = 9
+    var body: some View {
+        ZStack {
+            Circle().fill(RigTheme.cabinet)
+                .frame(width: diameter, height: diameter)
+            Circle().strokeBorder(RigTheme.amber, lineWidth: max(1.2, diameter * 0.18))
+                .frame(width: diameter + 3, height: diameter + 3)
+                .shadow(color: RigTheme.amber.opacity(0.8), radius: 2.5)
+        }
+        .frame(width: diameter + 6, height: diameter + 6)
     }
 }
 

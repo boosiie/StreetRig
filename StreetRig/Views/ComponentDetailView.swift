@@ -225,9 +225,27 @@ struct ComponentDetailView: View {
                 Text(item?.name ?? "—")
                     .font(.headline.weight(.bold))
                     .foregroundStyle(RigTheme.textPrimary)
-                Text(item?.category.displayName ?? "")
-                    .font(.caption)
-                    .foregroundStyle(RigTheme.textMuted)
+                // THE KEY TO THE MARK. A ring means nothing to someone seeing the
+                // panel for the first time, so the legend spells it out and uses
+                // the SAME ring to say it. It also gives the count, which is the
+                // question behind the question: how much of this amp works?
+                if let liveCount {
+                    HStack(spacing: 5) {
+                        LiveRingSwatch()
+                        Text("\(liveCount.live) of \(liveCount.total) controls are live")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(RigTheme.textPrimary.opacity(0.9))
+                        Text("· tap a dim one to see why")
+                            .font(.caption2)
+                            .foregroundStyle(RigTheme.textMuted)
+                    }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                } else {
+                    Text(item?.category.displayName ?? "")
+                        .font(.caption)
+                        .foregroundStyle(RigTheme.textMuted)
+                }
             }
         }
     }
@@ -287,6 +305,23 @@ struct ComponentDetailView: View {
               dials.allSatisfy({ layout.anchor(for: $0) != nil })
         else { return nil }
         return (layout, art.size)
+    }
+
+    /// How much of this amp is actually wired, for the header's legend. Counts
+    /// what the PANEL shows — its dials and the switches it places — because that
+    /// is the thing the player is looking at while reading the line. `nil` when
+    /// the panel is not a faceplate, where there are no rings to explain.
+    private var liveCount: (live: Int, total: Int)? {
+        guard let placement else { return nil }
+        let placed = placement.layout.placedSwitches.compactMap { sw in
+            params.first { $0.name == sw.param }
+        }
+        let all = dials + placed
+        guard !all.isEmpty else { return nil }
+        let live = all.filter {
+            !$0.isDisabled && !paramIsInactive($0) && !rowIsOffChannel($0.rowLabel)
+        }
+        return (live.count, all.count)
     }
 
     /// The proportions of a plate that places its own knobs, or `nil` for every
