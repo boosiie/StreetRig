@@ -20,16 +20,50 @@
 //    is a shape with no label at arm's length, so touching one names it, says
 //    which way it is now, and gets out of the way after a moment.
 //
-//  A SHADED SWITCH STILL FLICKS. Most of these do nothing to the sound yet — the
-//  engine reads an amp's profile from its NAME and only the channel selector
-//  reaches the signal path — so they are drawn shaded, like a disabled knob. But
-//  they are not dead: flicking one is half of what a panel is for, and the
-//  tooltip says plainly that the switch is not wired to anything. Shaded and
-//  moving is honest; frozen would just look broken.
+//  THE MARK GOES ON WHAT WORKS, not on what doesn't — see `LiveRing`. Most of
+//  these switches do nothing to the sound yet (the engine reads an amp's profile
+//  from its NAME, and only the channel selector reaches the signal path), and the
+//  first cut shaded every one of them. That scales backwards: an amp with more
+//  unmodelled controls than modelled ones ends up a field of grey patches and
+//  reads as broken. So a live switch is RINGED and a dead one is simply left as
+//  the artwork drew it — and it still flicks, and its bubble still says plainly
+//  that nothing is listening.
 //
 
 import SwiftUI
 import StreetRigEngine
+
+// MARK: - What's live
+
+/// THE MARK GOES ON WHAT WORKS. Shading everything dead was the obvious way round
+/// and it scales backwards: the Ketana has seven unmodelled controls out of
+/// thirteen, so a panel full of grey patches reads as a broken amp rather than as
+/// a working one with limits. Ringing the live controls instead means the marks
+/// thin out as an amp gets less supported, never thicken, and the eye lands on
+/// what it can actually use.
+///
+/// Two rings, not one: amber says live, and the hairline outside it is what keeps
+/// the amber visible on a plate that is nearly the same colour — the Rockervert's
+/// orange face is within a few points of the app's amber, and a bare ring would
+/// vanish into it.
+struct LiveRing: View {
+    let diameter: CGFloat
+    /// Hugs the control rather than floating outside it: these plates print a
+    /// scale around every knob, and a ring with air under it collides with the
+    /// tick marks.
+    var body: some View {
+        let inset = max(0.75, diameter * 0.055)
+        ZStack {
+            Circle()
+                .strokeBorder(.black.opacity(0.38), lineWidth: max(1, diameter * 0.14))
+                .frame(width: diameter + inset * 2.6, height: diameter + inset * 2.6)
+            Circle()
+                .strokeBorder(RigTheme.amber, lineWidth: max(1, diameter * 0.085))
+                .frame(width: diameter + inset * 2, height: diameter + inset * 2)
+        }
+        .allowsHitTesting(false)
+    }
+}
 
 // MARK: - The switch
 
@@ -39,7 +73,8 @@ struct PanelToggle: View {
     let options: [String]
     /// Drawn size of the toggle body. The frame around it is the touch target.
     let diameter: CGFloat
-    /// Shaded, because nothing behind it is listening yet.
+    /// Nothing behind it is listening yet — so it simply goes unmarked. It still
+    /// flicks, and its bubble still says so.
     let inert: Bool
     /// Fired after the flick, with the position it landed on.
     var onFlick: (Int) -> Void = { _ in }
@@ -78,15 +113,7 @@ struct PanelToggle: View {
                 .shadow(color: .black.opacity(0.5), radius: diameter * 0.05, y: diameter * 0.03)
         }
         .frame(width: diameter, height: diameter)
-        .overlay {
-            if inert {
-                Circle()
-                    .fill(.black.opacity(0.34))
-                    .frame(width: diameter, height: diameter)
-                    .blendMode(.multiply)
-                    .allowsHitTesting(false)
-            }
-        }
+        .overlay { if !inert { LiveRing(diameter: diameter) } }
         .animation(.spring(response: 0.22, dampingFraction: 0.55), value: index)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Circle())

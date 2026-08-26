@@ -319,6 +319,11 @@ struct ComponentDetailView: View {
                 if let a = layout.anchor(for: param) {
                     let diameter = a.d * drawn.height
                     let hit = min(max(diameter, 44), max(diameter, ceiling))
+                    // In play = modelled, on the selected channel, and not gated
+                    // off by some other switch. All three are "not right now" in
+                    // the same way, and all three cost the ring.
+                    let inPlay = !param.isDisabled && !paramIsInactive(param)
+                                 && !rowIsOffChannel(param.rowLabel)
                     VStack(spacing: 2) {
                         InteractiveKnob(
                             value: store.binding(itemId: id, param: param.name),
@@ -327,15 +332,16 @@ struct ComponentDetailView: View {
                             drawnDiameter: diameter
                         )
                         .frame(width: hit, height: hit)
-                        .overlay {
-                            if param.isDisabled || paramIsInactive(param) {
-                                Circle()
-                                    .fill(.black.opacity(param.isDisabled ? 0.5 : 0.34))
-                                    .frame(width: diameter, height: diameter)
-                                    .blendMode(.multiply)
-                                    .allowsHitTesting(false)
-                            }
-                        }
+                        // THE MARK IS ON WHAT WORKS. A knob with nothing behind it
+                        // is left exactly as the artwork drew it — no shade, no
+                        // dimming — and simply goes unringed. Shading the dead ones
+                        // made a working amp look broken as soon as an amp had more
+                        // unmodelled controls than modelled ones.
+                        .overlay { if inPlay { LiveRing(diameter: diameter) } }
+                        // A gated knob loses its ring the moment the switch moves,
+                        // so flicking CHANNEL visibly hands the rings to the other
+                        // row. That is the clearest thing the switch does.
+                        .animation(.easeOut(duration: 0.18), value: inPlay)
                         if layout.drawsCaptions {
                             Text(param.displayName)
                                 .font(.system(size: 9, weight: .semibold))
@@ -344,26 +350,33 @@ struct ComponentDetailView: View {
                                 .fixedSize()
                         }
                     }
-                    .opacity(param.isDisabled ? 0.45 : (paramIsInactive(param) ? 0.62 : 1))
-                    .allowsHitTesting(!param.isDisabled)
+                    // A DEAD KNOB STILL ANSWERS. It cannot be turned, but touching
+                    // it says what it is and that nothing is behind it — otherwise
+                    // removing the shade would have left a control that looks
+                    // ordinary, does nothing, and never says why.
+                    .contentShape(Circle())
+                    .onTapGesture {
+                        guard !inPlay else { return }
+                        flicked = FlickedSwitch(
+                            param: param.name,
+                            title: param.displayName,
+                            detail: param.isDisabled ? "" : "not on this channel",
+                            inert: param.isDisabled,
+                            at: CGPoint(x: origin.x + a.x * drawn.width,
+                                        y: origin.y + a.y * drawn.height),
+                            serial: (flicked?.serial ?? 0) + 1)
+                    }
+                    .allowsHitTesting(true)
                     .position(x: origin.x + a.x * drawn.width,
                               y: origin.y + a.y * drawn.height)
                 }
             }
 
-            // The painted controls nothing is behind: power, standby, a fuse
-            // holder. Shaded to the same recipe as a dead knob, and deaf, so the
-            // panel is honest about which of its switches are furniture.
-            ForEach(Array(layout.deadControls.enumerated()), id: \.offset) { _, dead in
-                RoundedRectangle(cornerRadius: min(dead.w * drawn.width, dead.h * drawn.height) * 0.35,
-                                 style: .continuous)
-                    .fill(.black.opacity(0.5))
-                    .blendMode(.multiply)
-                    .frame(width: dead.w * drawn.width, height: dead.h * drawn.height)
-                    .allowsHitTesting(false)
-                    .position(x: origin.x + dead.x * drawn.width,
-                              y: origin.y + dead.y * drawn.height)
-            }
+            // NOTHING IS DRAWN OVER THE FURNITURE any more. A shaded socket looks
+            // like a fault rather than like a socket, and under positive marking
+            // it needs no mark at all: it has no ring because it is not a control.
+            // The measured regions stay in the sidecar — they are what a
+            // touch-to-explain pass would hang off — but they paint nothing.
 
             // The switches the plate draws, made live in place — see PanelToggle.
             ForEach(layout.placedSwitches, id: \.param) { placed in

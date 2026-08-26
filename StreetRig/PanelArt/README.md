@@ -111,8 +111,18 @@ segmented buttons under the panel drops it — you flick the switch on the amp i
   positions. `color` is `#rrggbb`, defaulting to the app's amber.
 - A switch the sidecar does NOT name stays in the strip below, so a partly-marked plate
   never loses a control.
-- A switch with no engine behind it is drawn **shaded** and says so in its bubble — but
-  it still flicks. A faceplate whose switches are frozen reads as broken.
+- **Live controls are RINGED; dead ones are left alone.** A knob or switch that reaches
+  the engine wears a thin amber ring (with a dark hairline outside it, so it still reads
+  on a plate whose own colour is nearly amber — the Rockervert's orange face). Anything
+  unmodelled simply goes unringed: no shade, no dimming. Marking the dead ones was the
+  first cut and it scales backwards — an amp with seven unmodelled controls out of
+  thirteen became a field of grey patches and looked broken rather than partly supported.
+- **The ring follows the channel.** A knob on the row you are not hearing loses its ring
+  until you flick back, so the channel switch visibly hands the rings to the other row.
+- A dead control still **answers**: it cannot be turned, but touching it names it and says
+  nothing is behind it. A switch with no engine behind it still flicks, too.
+- `shades` regions paint **nothing** now. They stay in the sidecar as measured positions
+  for a touch-to-explain pass; a shaded socket looked like a fault rather than a socket.
 
 ## What a control is actually called: `controls.txt`
 
