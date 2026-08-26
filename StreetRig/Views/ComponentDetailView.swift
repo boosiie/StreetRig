@@ -351,6 +351,20 @@ struct ComponentDetailView: View {
                 }
             }
 
+            // The painted controls nothing is behind: power, standby, a fuse
+            // holder. Shaded to the same recipe as a dead knob, and deaf, so the
+            // panel is honest about which of its switches are furniture.
+            ForEach(Array(layout.deadControls.enumerated()), id: \.offset) { _, dead in
+                RoundedRectangle(cornerRadius: min(dead.w * drawn.width, dead.h * drawn.height) * 0.35,
+                                 style: .continuous)
+                    .fill(.black.opacity(0.5))
+                    .blendMode(.multiply)
+                    .frame(width: dead.w * drawn.width, height: dead.h * drawn.height)
+                    .allowsHitTesting(false)
+                    .position(x: origin.x + dead.x * drawn.width,
+                              y: origin.y + dead.y * drawn.height)
+            }
+
             // The switches the plate draws, made live in place — see PanelToggle.
             ForEach(layout.placedSwitches, id: \.param) { placed in
                 if let param = params.first(where: { $0.name == placed.param }),
@@ -626,6 +640,20 @@ struct ComponentDetailView: View {
                             }
                         }
                         .opacity(off ? 0.55 : 1)
+                    }
+                    // SHADED LIKE A DEAD KNOB, for the same reason: MODE, VOICE,
+                    // PATCH, BRIGHT and the rest are real switches with nothing
+                    // behind them — the engine takes an amp's voicing from its
+                    // profile. They stay pressable; the shade only says they are
+                    // not in the signal path.
+                    .opacity(param.isDisabled ? 0.5 : 1)
+                    .overlay {
+                        if param.isDisabled {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(.black.opacity(0.28))
+                                .blendMode(.multiply)
+                                .allowsHitTesting(false)
+                        }
                     }
                     .frame(width: unit * counts[i])
                 }

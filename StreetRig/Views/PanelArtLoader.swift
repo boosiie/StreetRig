@@ -130,11 +130,28 @@ struct PanelKnobLayout: Decodable {
         let color: String?
     }
 
+    /// A painted control this build cannot drive at all — a power switch, a
+    /// standby, a fuse holder. Not a parameter, so there is nothing to place:
+    /// it just gets the same shade a dead knob gets, so the panel says which of
+    /// its controls are furniture instead of letting you hunt for the one that
+    /// does nothing.
+    struct Shade: Decodable {
+        let x: CGFloat
+        let y: CGFloat
+        /// Fraction of the plate's WIDTH…
+        let w: CGFloat
+        /// …and of its height. Painted switches are rarely square.
+        let h: CGFloat
+    }
+
     let knobs: [Anchor]
     /// Switches the plate places. Any the plate does NOT name stay in the strip
     /// under the panel, so a partly-marked plate loses no control.
     private let switches: [Switch]?
     var placedSwitches: [Switch] { switches ?? [] }
+    private let shades: [Shade]?
+    /// Painted controls to shade out. Nothing is placed over them; they are dead.
+    var deadControls: [Shade] { shades ?? [] }
 
     /// Draw the app's own knob captions over the plate. Defaults to NO: a plate
     /// that places its knobs has the names printed on it already, and drawing

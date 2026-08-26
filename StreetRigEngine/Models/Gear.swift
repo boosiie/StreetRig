@@ -394,10 +394,10 @@ enum PedalSpec {
             // reverb and the chorus/vibrato that the amp is named for.
             if n.contains("jc-120") || n.contains("jc120") || n.contains("jazz chorus") {
                 return [GearParameter("CHANNEL", options: ["CHANNEL 1", "CHANNEL 2"], defaultIndex: 0),
-                        GearParameter("BRIGHT",   options: ["OFF", "ON"], defaultIndex: 0),
+                        GearParameter("BRIGHT",   options: ["OFF", "ON"], defaultIndex: 0, isDisabled: true),
                         GearParameter("BRIGHT 2", options: ["OFF", "ON"], defaultIndex: 0,
-                                      shortName: "BRIGHT"),
-                        GearParameter("EFFECT", options: ["VIBRATO", "OFF", "CHORUS"], defaultIndex: 1),
+                                      shortName: "BRIGHT", isDisabled: true),
+                        GearParameter("EFFECT", options: ["VIBRATO", "OFF", "CHORUS"], defaultIndex: 1, isDisabled: true),
                         GearParameter("Gain",     shortName: "VOLUME", rowLabel: "CHANNEL 1"),
                         GearParameter("Treble",   shortName: "TREBLE", rowLabel: "CHANNEL 1"),
                         GearParameter("Mid",      shortName: "MIDDLE", rowLabel: "CHANNEL 1"),
@@ -422,7 +422,7 @@ enum PedalSpec {
                 // Four jacks like the Plexi — two BRIGHT, two NORMAL — and a
                 // volume for each pair, jumpered together the same way.
                 return [GearParameter("PATCH", options: ["BRIGHT", "NORMAL", "JUMPERED"],
-                                      defaultIndex: 2),
+                                      defaultIndex: 2, isDisabled: true),
                         GearParameter("Presence", shortName: "PRESENCE"),
                         GearParameter("Mid",      shortName: "MIDDLE"),
                         GearParameter("Bass",     shortName: "BASS"),
@@ -434,9 +434,9 @@ enum PedalSpec {
             // on the Vibrato one only, which is why that row is longer.
             if n.contains("twin") {
                 return [GearParameter("CHANNEL", options: ["NORMAL", "VIBRATO"], defaultIndex: 0),
-                        GearParameter("BRIGHT",   options: ["OFF", "ON"], defaultIndex: 0),
+                        GearParameter("BRIGHT",   options: ["OFF", "ON"], defaultIndex: 0, isDisabled: true),
                         GearParameter("BRIGHT 2", options: ["OFF", "ON"], defaultIndex: 0,
-                                      shortName: "BRIGHT"),
+                                      shortName: "BRIGHT", isDisabled: true),
                         GearParameter("Gain",     shortName: "VOLUME", rowLabel: "NORMAL"),
                         GearParameter("Treble",   shortName: "TREBLE", rowLabel: "NORMAL"),
                         GearParameter("Mid",      shortName: "MIDDLE", rowLabel: "NORMAL"),
@@ -479,7 +479,7 @@ enum PedalSpec {
             // feeding the same signal, which is the sound people are after.
             if n.contains("plexi") || n.contains("plaxi") || n.contains("super lead") {
                 return [GearParameter("PATCH", options: ["HIGH TREBLE", "NORMAL", "JUMPERED"],
-                                      defaultIndex: 2),
+                                      defaultIndex: 2, isDisabled: true),
                         GearParameter("Presence", shortName: "PRESENCE"),
                         GearParameter("Bass",     shortName: "BASS"),
                         GearParameter("Mid",      shortName: "MIDDLE"),
@@ -506,9 +506,14 @@ enum PedalSpec {
                         GearParameter($0.0 + suffix, shortName: $0.1, rowLabel: row)
                     }
                 }
+                // LOOP ACTIVE MASTER is on the chassis and not in the engine: the
+                // effects loop is not modelled, so its master has nothing to
+                // scale. Drawn disabled rather than left off, so the panel stays
+                // a true picture of the amp.
                 return [GearParameter("CHANNEL", options: ["CHANNEL 1", "CHANNEL 2"], defaultIndex: 0),
-                        GearParameter("MODE", options: ["CLEAN", "PUSHED"], defaultIndex: 0),
-                        GearParameter("VOICE", options: ["VINTAGE", "MODERN"], defaultIndex: 1)]
+                        GearParameter("MODE", options: ["CLEAN", "PUSHED"], defaultIndex: 0, isDisabled: true),
+                        GearParameter("VOICE", options: ["VINTAGE", "MODERN"], defaultIndex: 1, isDisabled: true),
+                        GearParameter("LOOP ACTIVE MASTER", isDisabled: true)]
                      + ch("",   "CHANNEL 1")
                      + ch(" 2", "CHANNEL 2")
             }
@@ -595,10 +600,10 @@ enum PedalSpec {
                 return [GearParameter("CHANNEL", options: ["ULTRA GAIN", "CLASSIC GAIN"],
                                       defaultIndex: 0),
                         GearParameter("CLEAN/CRUNCH", options: ["CLEAN", "CRUNCH"], defaultIndex: 1,
-                                      rowLabel: "CLASSIC GAIN"),
+                                      isDisabled: true, rowLabel: "CLASSIC GAIN"),
                         GearParameter("OD1/OD2",      options: ["OD1", "OD2"], defaultIndex: 0,
-                                      rowLabel: "ULTRA GAIN"),
-                        GearParameter("TONE SHIFT",   options: ["OFF", "ON"], defaultIndex: 0),
+                                      isDisabled: true, rowLabel: "ULTRA GAIN"),
+                        GearParameter("TONE SHIFT",   options: ["OFF", "ON"], defaultIndex: 0, isDisabled: true),
                         GearParameter("Gain",     shortName: "GAIN",   rowLabel: "ULTRA GAIN"),
                         GearParameter("Volume",   shortName: "VOLUME", rowLabel: "ULTRA GAIN"),
                         GearParameter("ULTRA REVERB", shortName: "REVERB", rowLabel: "ULTRA GAIN"),
@@ -612,8 +617,17 @@ enum PedalSpec {
                         GearParameter("RESONANCE", isDisabled: true),
                         GearParameter("Master",   shortName: "MASTER")]
             }
+            // THE ROCKERVERT, LEFT TO RIGHT off its own faceplate. Two corrections
+            // to what was here: the clean channel has no MIDDLE — Volume, Treble
+            // and Bass is the whole of it — and the amp HAS an attenuator, which
+            // this did not. So the clean mid goes and the attenuator arrives,
+            // which is also what the artwork is drawn to.
+            //
+            // ATTENUATOR is drawn disabled: the power amp models one output stage
+            // and has nothing to attenuate into yet.
             if n.contains("rockerver") {
                 return [GearParameter("CHANNEL", options: ["DIRTY", "CLEAN"], defaultIndex: 0),
+                        GearParameter("ATTENUATOR", shortName: "ATTENUATOR", isDisabled: true),
                         GearParameter("REVERB", shortName: "REVERB"),
                         GearParameter("Master",  shortName: "VOLUME", rowLabel: "DIRTY"),
                         GearParameter("Treble",  shortName: "TREBLE", rowLabel: "DIRTY"),
@@ -621,7 +635,6 @@ enum PedalSpec {
                         GearParameter("Bass",    shortName: "BASS",   rowLabel: "DIRTY"),
                         GearParameter("Gain",    shortName: "GAIN",   rowLabel: "DIRTY"),
                         GearParameter("Treble 2", shortName: "TREBLE", rowLabel: "CLEAN"),
-                        GearParameter("Mid 2",    shortName: "MIDDLE", rowLabel: "CLEAN"),
                         GearParameter("Bass 2",   shortName: "BASS",   rowLabel: "CLEAN"),
                         GearParameter("Volume 2", shortName: "VOLUME", rowLabel: "CLEAN")]
             }
