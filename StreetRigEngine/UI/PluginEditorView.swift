@@ -236,8 +236,11 @@ private struct KnobGrid: View {
 
     var body: some View {
         let cols = Array(repeating: GridItem(.flexible(), spacing: 14), count: max(1, columns))
+        // `item.parameters`, not `item.category.parameters`: an amp's panel is as
+        // model-specific as a pedal's (a Katana has Volume and three selectors; a
+        // JC-120 has no Presence), and the category can only describe the shared six.
         LazyVGrid(columns: cols, alignment: .leading, spacing: 12) {
-            ForEach(item.category.parameters) { param in
+            ForEach(item.parameters) { param in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text(param.name).font(.caption.weight(.medium))

@@ -111,19 +111,92 @@ public enum GearCategory: String, Codable, CaseIterable, Hashable {
     }
 }
 
-/// A tweakable knob definition (0–10, Marshall-style dial).
+/// A tweakable control: a 0–10 Marshall-style dial by default, or — when
+/// `options` is set — a DISCRETE SELECTOR whose stored value is an index into
+/// those options.
+///
+/// The distinction is real hardware, not decoration. A Katana's Character is a
+/// five-position rotary and its Power switch has three detents; drawing either as
+/// a 0–10 dial would invite the player to set "Character 6.3", which is not a
+/// thing. `options` lets the same knob list describe both kinds, so every surface
+/// that already iterates `GearItem.parameters` picks the right control up for
+/// free instead of growing an amp-specific branch.
+///
+/// `Codable` only for symmetry with the rest of the model — the persisted form of
+/// a control is its VALUE in `GearItem.values`, so adding this field changes no
+/// saved JSON.
 public struct GearParameter: Codable, Hashable, Identifiable {
     public var name: String
     public var min: Double
     public var max: Double
     public var defaultValue: Double
+    /// Labels for a discrete selector, in index order. `nil` = a continuous dial.
+    public var options: [String]?
+    /// Which SECTION of the panel this control belongs to. `nil` = the main
+    /// panel (the knob row and the switch strip, exactly as before). A non-nil
+    /// group is a named sub-panel — the Katana's five FX blocks are one group
+    /// each — so a surface that already iterates `GearItem.parameters` can lay
+    /// them out as blocks instead of stringing twenty-six controls across one
+    /// row. Adding this changes no saved JSON: the persisted form of a control
+    /// is its VALUE in `GearItem.values`, keyed by name.
+    public var group: String?
+    /// Short label to show inside a group, where the group name already carries
+    /// the context ("Level" rather than "Booster Level"). Falls back to `name`.
+    public var shortName: String?
+    /// Drawn, but greyed and inert. For a control that EXISTS on the hardware and
+    /// has no engine behind it yet — the panel stays a faithful picture of the amp
+    /// without pretending the knob does something. Distinct from omitting it: the
+    /// player can see the amp has a THUMP control and that this build cannot use
+    /// it, which is more honest than a gap where a knob should be.
+    public var isDisabled: Bool = false
+    /// Puts this dial on a NAMED ROW of the knob panel. Amps with two channels
+    /// have two rows of the same six controls with the channel's name between
+    /// them, which is how the chassis reads and the only way the duplicate labels
+    /// make sense. `nil` = the main, unlabelled row. Distinct from `group`, which
+    /// makes a separate PANE (the Katana's FX blocks); a row is still the one
+    /// panel, just stacked.
+    public var rowLabel: String? = nil
+    /// Dim this control unless the control named here holds one of `activeValues`.
+    /// The JC-120's SPEED and DEPTH do nothing while its effect switch is OFF, and
+    /// a panel that says so is easier to read than one that leaves you guessing.
+    public var activeWhen: String? = nil
+    public var activeValues: [Int]? = nil
     public var id: String { name }
 
-    public init(_ name: String, min: Double = 0, max: Double = 10, defaultValue: Double = 5) {
+    /// True when this is a switch/selector rather than a dial.
+    public var isDiscrete: Bool { options != nil }
+    /// What a surface should print next to the control.
+    public var displayName: String { shortName ?? name }
+
+    public init(_ name: String, min: Double = 0, max: Double = 10, defaultValue: Double = 5,
+                group: String? = nil, shortName: String? = nil, isDisabled: Bool = false,
+                rowLabel: String? = nil, activeWhen: String? = nil, activeValues: [Int]? = nil) {
+        self.rowLabel = rowLabel
+        self.activeWhen = activeWhen
+        self.activeValues = activeValues
         self.name = name
         self.min = min
         self.max = max
         self.defaultValue = defaultValue
+        self.options = nil
+        self.group = group
+        self.shortName = shortName
+        self.isDisabled = isDisabled
+    }
+
+    /// A discrete selector: `min` 0 … `max` options.count − 1, stored as an index.
+    public init(_ name: String, options: [String], defaultIndex: Int,
+                group: String? = nil, shortName: String? = nil, isDisabled: Bool = false,
+                rowLabel: String? = nil) {
+        self.isDisabled = isDisabled
+        self.rowLabel = rowLabel
+        self.name = name
+        self.min = 0
+        self.max = Double(Swift.max(0, options.count - 1))
+        self.defaultValue = Double(Swift.min(Swift.max(defaultIndex, 0), Swift.max(0, options.count - 1)))
+        self.options = options
+        self.group = group
+        self.shortName = shortName
     }
 }
 
@@ -153,7 +226,12 @@ public struct GearItem: Identifiable, Codable, Hashable, Transferable {
 
     /// The knobs to DISPLAY + persist for this specific item: its real per-model
     /// control set when known (PedalSpec), else the generic per-category set.
-    public var parameters: [GearParameter] { PedalSpec.parameters(forName: name, category: category) }
+    /// `values` is passed so a block whose dial set depends on its selected TYPE
+    /// can show the right dials — the Katana's FX blocks gain a Rate only for the
+    /// LFO effects. Everything else ignores it.
+    public var parameters: [GearParameter] {
+        PedalSpec.parameters(forName: name, category: category, values: values)
+    }
 
     public init(id: UUID = UUID(), name: String, category: GearCategory,
          values: [String: Double]? = nil,
@@ -210,7 +288,8 @@ public struct ARSlot: Codable, Hashable {
 /// Which knob drives which DSP role is resolved separately, by ALIAS, in
 /// ParameterMap.pedalParams — so renaming a knob here never breaks the sound.
 enum PedalSpec {
-    static func parameters(forName name: String, category: GearCategory) -> [GearParameter] {
+    static func parameters(forName name: String, category: GearCategory,
+                           values: [String: Double]? = nil) -> [GearParameter] {
         let n = name.lowercased()
         func p(_ names: [String]) -> [GearParameter] { names.map { GearParameter($0) } }
 
@@ -266,7 +345,317 @@ enum PedalSpec {
         case .reverb:
             if n.contains("holy") || n.contains("grail")           { return p(["Reverb"]) }
             return p(["Decay", "Tone", "Mix"])
-        case .wah, .volume, .tuner, .looper, .guitar, .cabinet, .amp, .comboAmp:
+        // AMPS. The shared six knobs are the fallback, but an amp's panel is as
+        // model-specific as a pedal's, and the per-item mechanism that already
+        // handles that for pedals handles it here with no new machinery.
+        case .amp, .comboAmp:
+            // The Katana's real panel: the shared EQ, plus a Volume that drives
+            // the power section (distinct from Master, which is the room level),
+            // plus two DISCRETE selectors. Character and Variation choose the
+            // voicing PROFILE — a structural change.
+            //
+            // NO WATTAGE SELECTOR. The hardware has one (0.5 / 50 / 100 W) and it
+            // was modelled here, faithfully, as where the output stage begins to
+            // compress. But a power attenuator exists to solve a problem this app
+            // does not have: getting a valve amp to break up at a volume that will
+            // not deafen a room. There is no room and no valve — the level you
+            // hear is a slider — so the control asks the player to pick a wattage
+            // for an amp that has no watts, and the honest answer is that the tone
+            // they want is the Character and Gain, not a power rating.
+            //
+            // The power-amp VOICING stays: headroom, sag, feedback and output
+            // compression are per-profile and are most of what separates a Twin
+            // from a Plexi. What is gone is asking the player to dial the wattage.
+            // `SRParamAmpPower` also stays (addresses are append-only, and host
+            // sessions carry it) — it is simply pinned to full power now.
+            // EVERY AMP GETS ITS OWN PANEL, because they do not share one. Checked
+            // model by model rather than assumed; the shared six were a placeholder
+            // and several of them were simply wrong.
+            //
+            //   • Fender Twin Reverb / Bassman — NO presence on the Twin. The panel
+            //     is Volume / Treble / Middle / Bass plus Reverb; presence belongs
+            //     to the Bassman, which really does have one.
+            //   • Vox AC30 — the control is CUT, not Presence, and it works
+            //     backwards (turning it up removes top end). The DSP already models
+            //     it as a negative presence scale; only the LABEL was wrong.
+            //   • Roland JC-120 — no presence, no gain. It is Volume / Treble /
+            //     Middle / Bass with the chorus, and it never distorts by design.
+            //   • Marshall JCM800 2203 — a master-volume head: Presence, Bass,
+            //     Middle, Treble, Master Volume and PREAMP volume. "Gain" is the
+            //     modern name for the preamp control.
+            //   • Marshall DSL40C — the hardware also has RESONANCE, a low-end
+            //     feedback control that mirrors presence. It is NOT here: there is
+            //     no DSP behind it (the power amp models one NFB shelf, not two),
+            //     and a knob that does nothing is the thing this codebase already
+            //     refuses to draw. It goes in when the power amp grows a low shelf.
+            //   • Orange Rockerverb — Gain / Bass / Middle / Treble / Master, plus
+            //     its reverb. No presence knob on the dirty channel.
+            // ROLAND JC-120 — two channels; channel 2 carries the distortion, the
+            // reverb and the chorus/vibrato that the amp is named for.
+            if n.contains("jc-120") || n.contains("jc120") || n.contains("jazz chorus") {
+                return [GearParameter("CHANNEL", options: ["CHANNEL 1", "CHANNEL 2"], defaultIndex: 0),
+                        GearParameter("BRIGHT",   options: ["OFF", "ON"], defaultIndex: 0),
+                        GearParameter("BRIGHT 2", options: ["OFF", "ON"], defaultIndex: 0,
+                                      shortName: "BRIGHT"),
+                        GearParameter("EFFECT", options: ["VIBRATO", "OFF", "CHORUS"], defaultIndex: 1),
+                        GearParameter("Gain",     shortName: "VOLUME", rowLabel: "CHANNEL 1"),
+                        GearParameter("Treble",   shortName: "TREBLE", rowLabel: "CHANNEL 1"),
+                        GearParameter("Mid",      shortName: "MIDDLE", rowLabel: "CHANNEL 1"),
+                        GearParameter("Bass",     shortName: "BASS",   rowLabel: "CHANNEL 1"),
+                        GearParameter("Gain 2",     shortName: "VOLUME",     rowLabel: "CHANNEL 2"),
+                        GearParameter("Treble 2",   shortName: "TREBLE",     rowLabel: "CHANNEL 2"),
+                        GearParameter("Mid 2",      shortName: "MIDDLE",     rowLabel: "CHANNEL 2"),
+                        GearParameter("Bass 2",     shortName: "BASS",       rowLabel: "CHANNEL 2"),
+                        GearParameter("DISTORTION", rowLabel: "CHANNEL 2"),
+                        GearParameter("REVERB",     rowLabel: "CHANNEL 2"),
+                        // Idle unless the effect switch is on VIBRATO (0) or
+                        // CHORUS (2) — with it OFF these two drive nothing.
+                        GearParameter("SPEED", rowLabel: "CHANNEL 2",
+                                      activeWhen: "EFFECT", activeValues: [0, 2]),
+                        GearParameter("DEPTH", rowLabel: "CHANNEL 2",
+                                      activeWhen: "EFFECT", activeValues: [0, 2])]
+            }
+            // FENDER BASSMAN — a tweed 5F6-A: presence and the tone stack, then a
+            // volume for EACH input, bright and normal. No master, no gain knob;
+            // the input volume IS the gain.
+            if n.contains("bassman") {
+                // Four jacks like the Plexi — two BRIGHT, two NORMAL — and a
+                // volume for each pair, jumpered together the same way.
+                return [GearParameter("PATCH", options: ["BRIGHT", "NORMAL", "JUMPERED"],
+                                      defaultIndex: 2),
+                        GearParameter("Presence", shortName: "PRESENCE"),
+                        GearParameter("Mid",      shortName: "MIDDLE"),
+                        GearParameter("Bass",     shortName: "BASS"),
+                        GearParameter("Treble",   shortName: "TREBLE"),
+                        GearParameter("Gain",     shortName: "VOL BRIGHT"),
+                        GearParameter("Volume",   shortName: "VOL NORMAL")]
+            }
+            // FENDER TWIN REVERB — two channels, and the reverb and vibrato live
+            // on the Vibrato one only, which is why that row is longer.
+            if n.contains("twin") {
+                return [GearParameter("CHANNEL", options: ["NORMAL", "VIBRATO"], defaultIndex: 0),
+                        GearParameter("BRIGHT",   options: ["OFF", "ON"], defaultIndex: 0),
+                        GearParameter("BRIGHT 2", options: ["OFF", "ON"], defaultIndex: 0,
+                                      shortName: "BRIGHT"),
+                        GearParameter("Gain",     shortName: "VOLUME", rowLabel: "NORMAL"),
+                        GearParameter("Treble",   shortName: "TREBLE", rowLabel: "NORMAL"),
+                        GearParameter("Mid",      shortName: "MIDDLE", rowLabel: "NORMAL"),
+                        GearParameter("Bass",     shortName: "BASS",   rowLabel: "NORMAL"),
+                        GearParameter("Gain 2",   shortName: "VOLUME", rowLabel: "VIBRATO"),
+                        GearParameter("Treble 2", shortName: "TREBLE", rowLabel: "VIBRATO"),
+                        GearParameter("Mid 2",    shortName: "MIDDLE", rowLabel: "VIBRATO"),
+                        GearParameter("Bass 2",   shortName: "BASS",   rowLabel: "VIBRATO"),
+                        GearParameter("REVERB",    rowLabel: "VIBRATO"),
+                        GearParameter("SPEED",     rowLabel: "VIBRATO"),
+                        GearParameter("INTENSITY", rowLabel: "VIBRATO"),
+                        GearParameter("Master", shortName: "MASTER VOLUME")]
+            }
+            // VOX AC30 — the Normal channel is one volume and nothing else; Top
+            // Boost is the tone channel. CUT and MASTER VOLUME are the amp's
+            // global pair, and Cut runs backwards (the profile's negative
+            // presenceScale is what does that).
+            if n.contains("ac30") {
+                // Per the manual: NORMAL is a single volume, TOP BOOST adds the
+                // tone pair (and only TREBLE and BASS — there is no middle), while
+                // REVERB, TREMOLO and the MASTER pair serve BOTH channels and so
+                // sit on the global row rather than dimming with a selection.
+                return [GearParameter("CHANNEL", options: ["TOP BOOST", "NORMAL"], defaultIndex: 0),
+                        GearParameter("Gain",   shortName: "VOLUME", rowLabel: "TOP BOOST"),
+                        GearParameter("Treble", shortName: "TREBLE", rowLabel: "TOP BOOST"),
+                        GearParameter("Bass",   shortName: "BASS",   rowLabel: "TOP BOOST"),
+                        GearParameter("Gain 2", shortName: "VOLUME", rowLabel: "NORMAL"),
+                        GearParameter("REVERB TONE"),
+                        GearParameter("REVERB LEVEL"),
+                        GearParameter("TREMOLO SPEED"),
+                        GearParameter("TREMOLO DEPTH"),
+                        GearParameter("Cut",    shortName: "TONE CUT"),
+                        GearParameter("Master", shortName: "MASTER VOLUME")]
+            }
+            // THE FRIEDMAN, LEFT TO RIGHT, exactly as it reads on the chassis.
+            // Duplicated names (two channels' worth of TREBLE / MIDDLE / BASS) need
+            // unique keys because a value dictionary is keyed by name, so the
+            // second set is suffixed internally and `shortName` puts the real word
+            // back on the panel.
+            //
+            // WHAT IS LIVE: GAIN, BASS, MIDDLE, TREBLE, VOLUME, PRESENCE and
+            // MASTER 1 drive the existing engine. The channel-2 set, the four
+            // switches and SYSTEM VOL are drawn because they are on the amp, and
+            // they will do nothing until the profile grows a second channel.
+            // THUMP is drawn DISABLED, as asked.
+            // MARSHALL JCM800 / PLEXI — a master-volume head reads right to left
+            // on the chassis, and these are the six it actually has.
+            // PLEXI — no master volume. Four jacks (two channels, high and low
+            // sensitivity each) and two LOUDNESS controls; the patch lead from one
+            // channel's spare jack into the other is how both preamps end up
+            // feeding the same signal, which is the sound people are after.
+            if n.contains("plexi") || n.contains("super lead") {
+                return [GearParameter("PATCH", options: ["HIGH TREBLE", "NORMAL", "JUMPERED"],
+                                      defaultIndex: 2),
+                        GearParameter("Presence", shortName: "PRESENCE"),
+                        GearParameter("Bass",     shortName: "BASS"),
+                        GearParameter("Mid",      shortName: "MIDDLE"),
+                        GearParameter("Treble",   shortName: "TREBLE"),
+                        GearParameter("Gain",     shortName: "LOUDNESS I"),
+                        GearParameter("Volume",   shortName: "LOUDNESS II")]
+            }
+            if n.contains("jcm800") || n.contains("2203") {
+                return [GearParameter("Presence", shortName: "PRESENCE"),
+                        GearParameter("Bass", shortName: "BASS"),
+                        GearParameter("Mid", shortName: "MIDDLE"),
+                        GearParameter("Treble", shortName: "TREBLE"),
+                        GearParameter("Master", shortName: "MASTER VOLUME"),
+                        GearParameter("Gain", shortName: "PRE-AMP VOLUME")]
+            }
+            // MESA DUAL RECTIFIER — two channels of the same six, one row each
+            // with the channel named between them, and the two mode switches to
+            // the left. CHANNEL 2's set is stored under suffixed keys because a
+            // values dictionary cannot hold two knobs called BASS.
+            if n.contains("rectifier") || n.contains("recto") {
+                func ch(_ suffix: String, _ row: String) -> [GearParameter] {
+                    [("Master", "MASTER"), ("Presence", "PRESENCE"), ("Bass", "BASS"),
+                     ("Mid", "MID"), ("Treble", "TREBLE"), ("Gain", "GAIN")].map {
+                        GearParameter($0.0 + suffix, shortName: $0.1, rowLabel: row)
+                    }
+                }
+                return [GearParameter("CHANNEL", options: ["CHANNEL 1", "CHANNEL 2"], defaultIndex: 0),
+                        GearParameter("MODE", options: ["CLEAN", "PUSHED"], defaultIndex: 0),
+                        GearParameter("VOICE", options: ["VINTAGE", "MODERN"], defaultIndex: 1)]
+                     + ch("",   "CHANNEL 1")
+                     + ch(" 2", "CHANNEL 2")
+            }
+            if n.contains("be-100") || n.contains("be100") {
+                func k(_ label: String, _ key: String? = nil, disabled: Bool = false) -> GearParameter {
+                    GearParameter(key ?? label, shortName: label, isDisabled: disabled)
+                }
+                func sw(_ label: String, _ opts: [String], _ key: String? = nil) -> GearParameter {
+                    GearParameter(key ?? label, options: opts, defaultIndex: 0, shortName: label)
+                }
+                // The two knob sets ARE the two channels: the first is HBE, the
+                // second BE, which is what the CHANNEL switch picks between. Naming
+                // the rows after the switch's options is what lets the panel dim
+                // the one you are not hearing.
+                func kr(_ label: String, _ key: String, _ row: String) -> GearParameter {
+                    GearParameter(key, shortName: label, rowLabel: row)
+                }
+                return [
+                    sw("CHANNEL", ["BE", "HBE"]),
+                    sw("VOICE", ["1", "2"]),
+                    sw("STRUCTURE", ["TIGHT", "LOOSE"]),
+                    sw("BRIGHT", ["OFF", "ON"]),
+                    k("SYSTEM VOL"),
+                    k("THUMP", disabled: true),
+                    k("PRESENCE"),
+                    kr("GAIN",   "Gain",     "BE"),
+                    kr("VOLUME", "Volume",   "BE"),
+                    kr("TREBLE", "Treble",   "BE"),
+                    kr("MIDDLE", "Mid",      "BE"),
+                    kr("BASS",   "Bass",     "BE"),
+                    kr("MASTER", "Master",   "BE"),
+                    kr("GAIN",   "Gain 2",   "HBE"),
+                    kr("VOLUME", "Volume 2", "HBE"),
+                    kr("TREBLE", "Treble 2", "HBE"),
+                    kr("MIDDLE", "Mid 2",    "HBE"),
+                    kr("BASS",   "Bass 2",   "HBE"),
+                    kr("MASTER", "Master 2", "HBE"),
+                ]
+            }
+            // MARSHALL DSL — two gain channels, a shared tone stack, and its own
+            // reverb per channel. RESONANCE is real on this amp and is drawn here,
+            // though the power amp models a single feedback shelf so it does
+            // nothing yet.
+            // MARSHALL DSL — the two gain channels are a BLOCK ON THE LEFT, each a
+            // short row of its own controls, with everything shared sitting to
+            // their right. Stacking them full-width under the amp made two tiny
+            // rows floating in a lot of nothing.
+            //
+            // ONE MASTER. The panel had two and the amp has one that matters here;
+            // the second was me mirroring the channel pair where there is nothing
+            // to mirror.
+            //
+            // Each channel's REVERB rides with its channel, so it dims when the
+            // other one is selected — the amp has a reverb level per channel and
+            // that is what makes them per-channel rather than one control.
+            if n.contains("dsl") {
+                return [GearParameter("CHANNEL", options: ["ULTRA GAIN", "CLASSIC GAIN"],
+                                      defaultIndex: 0),
+                        GearParameter("CLEAN/CRUNCH", options: ["CLEAN", "CRUNCH"], defaultIndex: 1,
+                                      rowLabel: "CLASSIC GAIN"),
+                        GearParameter("OD1/OD2",      options: ["OD1", "OD2"], defaultIndex: 0,
+                                      rowLabel: "ULTRA GAIN"),
+                        GearParameter("TONE SHIFT",   options: ["OFF", "ON"], defaultIndex: 0),
+                        GearParameter("Gain",     shortName: "GAIN",   rowLabel: "ULTRA GAIN"),
+                        GearParameter("Volume",   shortName: "VOLUME", rowLabel: "ULTRA GAIN"),
+                        GearParameter("ULTRA REVERB", shortName: "REVERB", rowLabel: "ULTRA GAIN"),
+                        GearParameter("Gain 2",   shortName: "GAIN",   rowLabel: "CLASSIC GAIN"),
+                        GearParameter("Volume 2", shortName: "VOLUME", rowLabel: "CLASSIC GAIN"),
+                        GearParameter("CLASSIC REVERB", shortName: "REVERB", rowLabel: "CLASSIC GAIN"),
+                        GearParameter("Treble",   shortName: "TREBLE"),
+                        GearParameter("Mid",      shortName: "MIDDLE"),
+                        GearParameter("Bass",     shortName: "BASS"),
+                        GearParameter("Presence", shortName: "PRESENCE"),
+                        GearParameter("RESONANCE", isDisabled: true),
+                        GearParameter("Master",   shortName: "MASTER")]
+            }
+            if n.contains("rockerverb") {
+                return [GearParameter("CHANNEL", options: ["DIRTY", "CLEAN"], defaultIndex: 0),
+                        GearParameter("REVERB", shortName: "REVERB"),
+                        GearParameter("Master",  shortName: "VOLUME", rowLabel: "DIRTY"),
+                        GearParameter("Treble",  shortName: "TREBLE", rowLabel: "DIRTY"),
+                        GearParameter("Mid",     shortName: "MIDDLE", rowLabel: "DIRTY"),
+                        GearParameter("Bass",    shortName: "BASS",   rowLabel: "DIRTY"),
+                        GearParameter("Gain",    shortName: "GAIN",   rowLabel: "DIRTY"),
+                        GearParameter("Treble 2", shortName: "TREBLE", rowLabel: "CLEAN"),
+                        GearParameter("Mid 2",    shortName: "MIDDLE", rowLabel: "CLEAN"),
+                        GearParameter("Bass 2",   shortName: "BASS",   rowLabel: "CLEAN"),
+                        GearParameter("Volume 2", shortName: "VOLUME", rowLabel: "CLEAN")]
+            }
+            if n.contains("katana") {
+                var p: [GearParameter] = [
+                    // NO PRESENCE. Reported from the hardware; the panel is
+                    // Gain / Volume / Bass / Middle / Treble / Master plus the
+                    // character and FX sections, and a presence knob was carried
+                    // over from the shared six by mistake.
+                    GearParameter("Gain"), GearParameter("Bass"), GearParameter("Mid"),
+                    GearParameter("Treble"),
+                    GearParameter("Volume"), GearParameter("Master"),
+                    GearParameter("Character", options: ["Acoustic", "Clean", "Crunch", "Lead", "Brown"],
+                                  defaultIndex: 2),
+                    GearParameter("Variation", options: ["A", "B"], defaultIndex: 0)]
+                // THE FX SECTION. Five blocks, each a named group: a type
+                // selector (index 0 = Off, and the only STRUCTURAL control here,
+                // because it decides whether the block occupies a chain slot at
+                // all), an On switch (CONTINUOUS — it rides the same lock-free
+                // enable an AR footswitch stomp uses, so toggling a block never
+                // rebuilds the chain), and the block's own dial(s).
+                //
+                // Every default is "Off", so a Katana loaded from a rig saved
+                // before this existed compiles to exactly the chain it did
+                // before — no keys, no slots, no change.
+                for block in ParameterMap.katanaFXBlocks {
+                    p.append(GearParameter(block.name, options: block.options, defaultIndex: 0,
+                                           group: block.name, shortName: "Type"))
+                    p.append(GearParameter("\(block.name) On", options: ["Off", "On"], defaultIndex: 1,
+                                           group: block.name, shortName: "On"))
+                    // nil values (building an item's defaults) yields the
+                    // superset, so every dial has a stored default the first time
+                    // its type is selected.
+                    let selected = values.map { Int(($0[block.name] ?? 0).rounded()) }
+                    for dial in block.dials(forType: selected) {
+                        p.append(GearParameter("\(block.name) \(dial)", group: block.name, shortName: dial))
+                    }
+                }
+                return p
+            }
+            // The JC-120 genuinely has no presence control, so its profile sets
+            // `presenceScale = 0` and the knob is not offered. Showing an inert
+            // dial would be worse than showing none. (The real amp has a Bright
+            // switch instead; whether to model that is a product decision, not a
+            // DSP one — see research/amp-emulation-approaches.md §13 Q5.)
+            if n.contains("jc-120") || n.contains("jc120") || n.contains("jazz chorus") {
+                return p(["Gain", "Bass", "Mid", "Treble", "Master"])
+            }
+            return category.parameters
+        case .wah, .volume, .tuner, .looper, .guitar, .cabinet:
             return category.parameters
         }
     }

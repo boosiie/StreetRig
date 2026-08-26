@@ -42,6 +42,8 @@ inline RampedGain *gainForAddress(DSPKernel *k, uint64_t address) noexcept {
         case SRParamOutputLevel: return &k->outputLevel;
         case SRParamAmpDrive:    return &k->ampDrive;
         case SRParamAmpMakeup:   return &k->ampMakeup;
+        case SRParamAmpVolume:   return &k->ampVolume;
+        case SRParamAmpPower:    return &k->ampPower;
         default:                 return nullptr;
     }
 }
@@ -58,6 +60,13 @@ SRKernelRef SRKernelCreate(void) {
     k->ampDrive.current = 3.0f;
     k->ampMakeup.target.store(1.0f, std::memory_order_relaxed);
     k->ampMakeup.current = 1.0f;
+    // Unity volume into the power amp and 100 W of headroom, so an untouched
+    // kernel — and every already-saved rig or host session, which carries no
+    // value for either — behaves exactly as it did before the power amp existed.
+    k->ampVolume.target.store(1.0f, std::memory_order_relaxed);
+    k->ampVolume.current = 1.0f;
+    k->ampPower.target.store(1.0f, std::memory_order_relaxed);
+    k->ampPower.current = 1.0f;
     return k;
 }
 
@@ -75,6 +84,8 @@ void SRKernelPrepare(SRKernelRef kernel, double sampleRate, int channelCount, in
     k->outputLevel.reset();
     k->ampDrive.reset();
     k->ampMakeup.reset();
+    k->ampVolume.reset();
+    k->ampPower.reset();
     k->pedals.prepare(k->sampleRate, k->channelCount);
     k->processor.prepare(k->sampleRate, k->channelCount, k->maxFrames);
     k->chainGain = 1.0f;
@@ -87,8 +98,16 @@ void SRKernelReset(SRKernelRef kernel) {
     k->outputLevel.reset();
     k->ampDrive.reset();
     k->ampMakeup.reset();
+    k->ampVolume.reset();
+    k->ampPower.reset();
     k->pedals.reset();
     k->processor.reset();
+    // Expander opens on reset. Left where it was, a session that stopped during a
+    // silence would fade the first notes of the next one in.
+    for (int c = 0; c < 8; ++c) {
+        k->gateEnv[c] = 0.0f; k->gateGain[c] = 1.0f;
+        k->speakerComp[c].reset();
+    }
 }
 
 // MARK: - Parameter bus
@@ -125,7 +144,12 @@ void SRKernelSetParameter(SRKernelRef kernel, uint64_t address, float value) {
         case SRParamAmpBass:      k->processor.setToneBandDB(0, value); break;
         case SRParamAmpMid:       k->processor.setToneBandDB(1, value); break;
         case SRParamAmpTreble:    k->processor.setToneBandDB(2, value); break;
-        case SRParamAmpPresence:  k->processor.setToneBandDB(3, value); break;
+        // Presence is routed by the PROFILE, not by the kernel: tone band 3 for
+        // the legacy voicing, the power-amp NFB shelf for every profiled amp.
+        // Both destinations recompute off the audio thread, so this adds no new
+        // threading concern — and the kernel stays profile-agnostic.
+        case SRParamAmpPresence:  k->processor.setPresenceDB(value); break;
+        case SRParamSpeakerComp:  k->speakerCompOn.store(value >= 0.5f, std::memory_order_relaxed); break;
         default: break;
     }
 }
@@ -140,6 +164,7 @@ float SRKernelGetParameter(SRKernelRef kernel, uint64_t address) {
         case SRParamAmpBypass:    return k->ampBypass.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
         case SRParamCabBypass:    return k->cabBypass.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
         case SRParamAmpUseNeural: return k->useNeural.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
+        case SRParamSpeakerComp:  return k->speakerCompOn.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
         case SRParamCabSelect:    return (float)k->cabSelect.load(std::memory_order_relaxed);
         default: return 0.0f;
     }
@@ -210,6 +235,33 @@ void SRKernelConfigurePedal(SRKernelRef kernel, int slot, int type, int characte
     if (!k) return;
     k->pedals.configureSlot(slot, type, character);
     k->pedals.setParam(slot, streetrig::PedalChain::Enabled, enabled ? 1.0f : 0.0f);
+}
+
+void SRKernelSetPedalSplits(SRKernelRef kernel, int splitPre, int splitPost) {
+    auto *k = static_cast<DSPKernel *>(kernel);
+    if (!k) return;
+    k->pedals.setSplits(splitPre, splitPost);
+}
+
+uint64_t SRKernelPedalArenaBytes(SRKernelRef kernel) {
+    auto *k = static_cast<DSPKernel *>(kernel);
+    return k ? (uint64_t)k->pedals.arenaBytes() : 0;
+}
+
+void SRKernelConfigureAmp(SRKernelRef kernel, int profile) {
+    auto *k = static_cast<DSPKernel *>(kernel);
+    if (!k) return;
+    k->processor.configureAmp(profile);
+}
+
+int SRKernelActiveAmpProfile(SRKernelRef kernel) {
+    auto *k = static_cast<DSPKernel *>(kernel);
+    return k ? k->processor.activeAmpProfile() : 0;
+}
+
+bool SRKernelAmpProfileBypassesCab(SRKernelRef kernel) {
+    auto *k = static_cast<DSPKernel *>(kernel);
+    return k ? k->processor.profileBypassesCab() : false;
 }
 
 void SRKernelSetReconfiguring(SRKernelRef kernel, bool reconfiguring) {
@@ -284,22 +336,32 @@ double SRKernelBenchmarkFullNsPerSample(SRKernelRef kernel, int frames, int iter
     p.ampBypass = k->ampBypass.load(std::memory_order_relaxed);
     p.cabBypass = k->cabBypass.load(std::memory_order_relaxed);
     p.useNeural = k->useNeural.load(std::memory_order_relaxed);
-    p.drive     = k->ampDrive.target.load(std::memory_order_relaxed);
-    p.ampOut    = k->ampMakeup.target.load(std::memory_order_relaxed);
+    p.drive      = k->ampDrive.target.load(std::memory_order_relaxed);
+    p.ampOut     = k->ampMakeup.target.load(std::memory_order_relaxed);
+    p.ampVolume  = k->ampVolume.target.load(std::memory_order_relaxed);
+    p.powerScale = k->ampPower.target.load(std::memory_order_relaxed);
 
-    // Warm caches through the WHOLE board (pedals → amp → tone → cab).
-    for (int w = 0; w < 8; ++w) {
-        k->pedals.process(buf.data(), frames, 0);
-        k->processor.process(buf.data(), frames, 0, p);
-    }
+    // Warm caches through the WHOLE board, composed EXACTLY as the render block
+    // composes it — the three pedal spans around the amp, not one span in front
+    // of it. Measuring a different composition than the one that ships would
+    // make the reported CPU a fiction the moment a slot moved into the FX loop.
+    const int splitPre = k->pedals.splitPre();
+    const int splitPost = k->pedals.splitPost();
+    const int slots = streetrig::PedalChain::kMaxPedals;
+    auto board = [&]() noexcept {
+        k->pedals.processSpan(buf.data(), frames, 0, 0, splitPre);
+        k->processor.processPreamp(buf.data(), frames, 0, p);
+        k->pedals.processSpan(buf.data(), frames, 0, splitPre, splitPost);
+        k->processor.processPowerAmp(buf.data(), frames, 0, p);
+        k->processor.processCab(buf.data(), frames, 0, p);
+        k->pedals.processSpan(buf.data(), frames, 0, splitPost, slots);
+    };
+    for (int w = 0; w < 8; ++w) board();
     k->pedals.reset();
     k->processor.reset();
 
     const auto t0 = std::chrono::high_resolution_clock::now();
-    for (int it = 0; it < iterations; ++it) {
-        k->pedals.process(buf.data(), frames, 0);
-        k->processor.process(buf.data(), frames, 0, p);
-    }
+    for (int it = 0; it < iterations; ++it) board();
     const auto t1 = std::chrono::high_resolution_clock::now();
     k->pedals.reset();
     k->processor.reset();
@@ -384,23 +446,37 @@ void SRKernelProcess(SRKernelRef kernel,
     // close over 150 ms so it never chatters on a decay.
     const float gateAttack  = 1.0f - std::exp(-1.0f / (0.001f * srF));
     const float gateRelease = 1.0f - std::exp(-1.0f / (0.150f * srF));
-    constexpr float invGateThreshold = 1.0f / DSPKernel::kGateThreshold;
+    // Threshold tracks amp drive — see kGateDriveRef. Read once per buffer from
+    // the same ramped value the amp stage uses, so the two can never disagree.
+    const float driveNow = k->ampDrive.target.load(std::memory_order_relaxed);
+    const float gateScale = std::fmin(DSPKernel::kGateMaxScale,
+                                      std::fmax(1.0f, driveNow / DSPKernel::kGateDriveRef));
+    const float invGateThreshold = 1.0f / (DSPKernel::kGateThreshold * gateScale);
+    // Gain smoothing, asymmetric on purpose: instant open, slow close.
+    const float gateOpen  = 1.0f - std::exp(-1.0f / float(DSPKernel::kGateOpenSec  * srF));
+    const float gateClose = 1.0f - std::exp(-1.0f / float(DSPKernel::kGateCloseSec * srF));
 
-    // How dirty this fader position asks to be: 0 below the clean line, 1 at the
-    // top. Read from the output level itself, so there is no second control to
-    // find and no way for the two to disagree about how hard the stage is driven.
-    const float outDB = 20.0f * std::log10(std::fmax(outTarget, 1.0e-6f));
-    const float dirt = std::fmin(1.0f, std::fmax(0.0f,
-        (outDB - DSPKernel::kCleanUpToDB) /
-        (DSPKernel::kFullDirtDB - DSPKernel::kCleanUpToDB)));
+    // No fader-driven saturation any more: loudness is the limiter's job, dirt is
+    // the amp's. See kCeilingKnee in the internal header for why.
 
     // Amp/cab params (drive + makeup are de-zippered inside the processor).
     AmpCabParams p;
     p.ampBypass = k->ampBypass.load(std::memory_order_relaxed);
     p.cabBypass = k->cabBypass.load(std::memory_order_relaxed);
     p.useNeural = k->useNeural.load(std::memory_order_relaxed);
-    p.drive     = k->ampDrive.target.load(std::memory_order_relaxed);
-    p.ampOut    = k->ampMakeup.target.load(std::memory_order_relaxed);
+    p.drive      = k->ampDrive.target.load(std::memory_order_relaxed);
+    p.ampOut     = k->ampMakeup.target.load(std::memory_order_relaxed);
+    // Volume and the power scale are de-zippered INSIDE the power amp (like
+    // drive and makeup), so the targets go across and the ~5 ms one-pole there
+    // is what keeps a power-switch flip click-free.
+    p.ampVolume  = k->ampVolume.target.load(std::memory_order_relaxed);
+    p.powerScale = k->ampPower.target.load(std::memory_order_relaxed);
+
+    // The three pedal spans. Read ONCE per buffer, not per channel, so the two
+    // channels can never straddle a split change mid-block.
+    const int splitPre = k->pedals.splitPre();
+    const int splitPost = k->pedals.splitPost();
+    const int slotCount = streetrig::PedalChain::kMaxPedals;
 
     for (int ch = 0; ch < channels; ++ch) {
         const int inIndex = (static_cast<int>(in->mNumberBuffers) == channels)
@@ -421,25 +497,52 @@ void SRKernelProcess(SRKernelRef kernel,
         //    spends the rest of the chain amplifying.
         float g0 = inStart;
         float genv = k->gateEnv[limCh];
+        float ggain = k->gateGain[limCh];
         for (int i = 0; i < frameCount; ++i) {
             const float v = src[i] * g0;
             g0 += inStep;
             const float a = std::fabs(v);
             genv += (a > genv ? gateAttack : gateRelease) * (a - genv);
             const float t = std::fmin(1.0f, genv * invGateThreshold);
-            dst[i] = v * t * t;
+            // SMOOTHED, not applied raw. The envelope ripples at the waveform rate
+            // on a low note; `t·t` squares that ripple; applying it per sample put
+            // audio-rate AM on everything that decayed near the threshold. Opening
+            // is fast so an attack is never late, closing is slow so nothing can
+            // wobble. See kGateOpenSec / kGateCloseSec.
+            const float want = t * t * t;   // 4:1 — see kGateRatioPowers
+            ggain += (want > ggain ? gateOpen : gateClose) * (want - ggain);
+            dst[i] = v * ggain;
         }
         k->gateEnv[limCh] = genv;
+        k->gateGain[limCh] = ggain;
 
-        // 2. PEDAL CHAIN (ordered, pre-amp) — matches the on-screen chain order.
-        k->pedals.process(dst, frameCount, ch);
+        // 2. PEDAL CHAIN — PRE span: everything in front of the amp, in
+        //    on-screen chain order.
+        k->pedals.processSpan(dst, frameCount, ch, 0, splitPre);
 
-        // 3. Amp → tone stack → cab, in place on dst (only channels the processor
-        //    was prepared for; extra channels fall through as pedalboard output).
-        k->processor.process(dst, frameCount, ch, p);
+        // 3. Preamp cascade → tone stack. This is the tap point of a real amp's
+        //    FX loop, which is why the processor exposes it separately.
+        k->processor.processPreamp(dst, frameCount, ch, p);
 
-        // 4. Output level × chain fade ramp (fade covers structural swaps), then
-        //    the LIMITER — the last thing between the rig and the converter.
+        // 4. PEDAL CHAIN — MID span: the FX loop. Delay and reverb belong here,
+        //    so their tails go THROUGH the power amp and compress with the notes
+        //    instead of floating on top of a finished, cab-filtered signal.
+        k->pedals.processSpan(dst, frameCount, ch, splitPre, splitPost);
+
+        // 5. Power amp (+ master) → cabinet IR.
+        k->processor.processPowerAmp(dst, frameCount, ch, p);
+        k->processor.processCab(dst, frameCount, ch, p);
+
+        // 6. PEDAL CHAIN — POST span: after the speaker, the "post-loop"
+        //    position. Empty unless the rig asks for it.
+        k->pedals.processSpan(dst, frameCount, ch, splitPost, slotCount);
+
+        // 7. Output level × chain fade ramp (fade covers structural swaps), then
+        //    the LIMITER — the last thing between the rig and the converter, and
+        //    therefore after every span above, including POST. A block dropped
+        //    into the post-loop position is part of the rig and belongs under the
+        //    limiter like everything else; putting it after would let it hand the
+        //    converter exactly the peaks the limiter exists to catch.
         //
         //    This was a waveshaper first, and a waveshaper is the wrong tool: bend
         //    a full-range signal that hard and you have built a fuzz box, complete
@@ -447,8 +550,34 @@ void SRKernelProcess(SRKernelRef kernel,
         //    scratch you can hear underneath the note. A limiter never touches the
         //    shape of the wave — it moves a gain, smoothly, so nothing is added
         //    that wasn't played. Loud costs dynamics here; it no longer costs tone.
-        constexpr float ceiling = DSPKernel::kOutputCeiling;
-        constexpr float invCeiling = 1.0f / ceiling;
+        // SPEAKER COMPENSATION, ahead of the limiter on purpose: the whole point
+        // is that the limiter never sees the sub-bass the phone cannot play.
+        const bool spkOn = k->speakerCompOn.load(std::memory_order_relaxed);
+        DSPKernel::SpeakerComp &sc = k->speakerComp[limCh];
+        const float hpCoef = 1.0f - std::exp(-2.0f * (float)M_PI * (float)DSPKernel::kSpeakerHPHz / srF);
+        const float shCoef = 1.0f - std::exp(-2.0f * (float)M_PI * (float)DSPKernel::kSpeakerLiftHz / srF);
+        const float liftGain = std::pow(10.0f, DSPKernel::kSpeakerLiftDB / 20.0f) - 1.0f;
+        if (spkOn) {
+            for (int i = 0; i < frameCount; ++i) {
+                // Two one-pole low-passes subtracted out = 12 dB/oct high-pass.
+                sc.hp1 += hpCoef * (dst[i] - sc.hp1);
+                const float h1 = dst[i] - sc.hp1;
+                sc.hp2 += hpCoef * (h1 - sc.hp2);
+                const float hp = h1 - sc.hp2;
+                // Broad presence lift: the high part of a one-pole split, added.
+                sc.shelf += shCoef * (hp - sc.shelf);
+                dst[i] = hp + (hp - sc.shelf) * liftGain;
+            }
+        } else {
+            sc.reset();
+        }
+
+        // The limiter aims at the KNEE, not the ceiling. Hold peaks at the knee
+        // and the soft ceiling above is a straight wire for everything the limiter
+        // caught — the gap between the two is headroom kept in reserve for the
+        // transient that outruns a 2 ms envelope. Aiming at the ceiling instead
+        // would park the whole signal in the bend and undo the point of the knee.
+        constexpr float target = DSPKernel::kCeilingKnee;
         float env = k->limiterEnv[limCh];
         float lim = k->limiterGain[limCh];
         float g1 = outStart, cg = cgStart;
@@ -460,24 +589,18 @@ void SRKernelProcess(SRKernelRef kernel,
             // keeps it under the ceiling.
             const float a = std::fabs(x);
             env += (a > env ? attackCoef : releaseCoef) * (a - env);
-            const float want = (env > ceiling) ? (ceiling / env) : 1.0f;
+            const float want = (env > target) ? (target / env) : 1.0f;
             lim += ((want < lim) ? attackCoef : releaseCoef) * (want - lim);
 
-            // TWO WAYS TO FIT UNDER THE CEILING, mixed by where the fader sits.
-            // The limiter holds the level without touching the waveform; the
-            // saturator bends the waveform and gets more out of the same ceiling
-            // for it. Clean at the bottom of the travel, driven at the top, and
-            // the whole way between is a real position rather than a switch.
+            // ONE WAY TO FIT UNDER THE CEILING: hold the level, keep the wave.
+            // The limiter moves a gain and nothing else, so a clean patch is still
+            // the clean patch at the top of the fader — just louder.
             const float clean = x * lim;
-            const float drivenIn = x * invCeiling;
-            const float driven = ceiling * drivenIn / std::sqrt(1.0f + drivenIn * drivenIn);
-            const float mixed = clean + dirt * (driven - clean);
 
             // Whatever still overshoots — a transient that outran the envelope —
-            // is bent rather than snapped. At the clean end this is the only
-            // non-linearity in the path, and it sees a millisecond at a time.
-            const float y = mixed * invCeiling;
-            dst[i] = ceiling * y / std::sqrt(1.0f + y * y);
+            // is bent rather than snapped, and ONLY the overshoot: below the knee
+            // this returns its input unchanged. It sees a millisecond at a time.
+            dst[i] = DSPKernel::softCeil(clean);
         }
         k->limiterEnv[limCh] = env;
         k->limiterGain[limCh] = lim;

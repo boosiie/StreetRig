@@ -12,6 +12,7 @@
 #define STREETRIG_DSP_KERNEL_INTERNAL_HPP
 
 #include <atomic>
+#include <cmath>
 #include "AmpCabProcessor.hpp"
 #include "Pedals/PedalChain.hpp"
 
@@ -32,6 +33,12 @@ struct DSPKernel {
     RampedGain outputLevel;
     RampedGain ampDrive{ };       // default set in create()
     RampedGain ampMakeup;
+    /// Channel volume into the power amp, and the power-amp headroom scale. Both
+    /// are RampedGains for the same reason drive and makeup are: the power
+    /// control in particular must glide, never step — a rebuild on a power-switch
+    /// flip would be a ~60 ms dropout where the hardware is instant and silent.
+    RampedGain ampVolume;
+    RampedGain ampPower;
     std::atomic<bool> ampBypass{false};
     std::atomic<bool> cabBypass{false};
     std::atomic<bool> useNeural{false};
@@ -63,26 +70,134 @@ struct DSPKernel {
     // playing passes untouched and only the overs are bent.
     static constexpr float kOutputCeiling = 0.891f;   // −1 dBFS
 
-    /// WHERE CLEAN ENDS AND DRIVE BEGINS, in dB of output level. Below this the
-    /// output stage is a limiter and nothing else — loud, and the wave is the one
-    /// that was played. Above it, saturation is blended in the rest of the way to
-    /// the fader's top, so the fader IS the trade: turn it up for the last of the
-    /// level and it gets dirtier on the way, exactly like opening up a master
-    /// volume into a power amp.
-    static constexpr float kCleanUpToDB = 12.0f;
-    static constexpr float kFullDirtDB  = 42.0f;   // the fader's own ceiling
+    /// THE FADER DOES NOT DIRTY THE TONE. It used to: past +12 dB saturation was
+    /// blended in the rest of the way to +42, on the reasoning that a master
+    /// volume opening into a power amp behaves that way. It does — but a real amp
+    /// with that much headroom stays clean, and this made every CLEAN patch break
+    /// up as soon as it was loud enough to play against. Amped and Tonebridge get
+    /// very loud and stay glassy at the top of their travel, and that is the bar.
+    ///
+    /// So loudness is the limiter's job alone, and dirt is the AMP's job alone —
+    /// gain, character, power-amp headroom, all of which are per-profile and
+    /// already voiced. Turn the fader up and you get the same tone, louder. Want
+    /// it rough, turn the amp up.
+    ///
+    /// KNEE, so that "clean" is really clean. The soft ceiling below used to be a
+    /// sigmoid applied from zero, which bends the waveform everywhere — at the
+    /// ceiling it costs ~3 dB and audibly rounds the peaks, so even the limiter's
+    /// "untouched" path was not untouched. Below this knee the stage is now a
+    /// literal straight wire, and only the overshoot a fast transient sneaks past
+    /// the envelope gets bent at all.
+    static constexpr float kCeilingKnee = 0.75f * kOutputCeiling;   // ≈ −3.5 dBFS
+
+    /// Transparent below the knee; smoothly asymptotic to the ceiling above it.
+    /// Continuous in value and slope at the knee, so there is no edge to hear.
+    static inline float softCeil(float x) noexcept {
+        const float a = std::fabs(x);
+        if (a <= kCeilingKnee) return x;
+        const float span = kOutputCeiling - kCeilingKnee;
+        const float over = (a - kCeilingKnee) / span;
+        const float bent = kCeilingKnee + span * (over / std::sqrt(1.0f + over * over));
+        return (x < 0.0f) ? -bent : bent;
+    }
+
+    /// SPEAKER COMPENSATION — the app's real listening chain.
+    ///
+    /// 320 Hz, second order. An iPhone driver is a few millimetres of excursion:
+    /// below roughly 400 Hz it makes almost no sound, and asking it to try wastes
+    /// the limiter's whole budget on energy that never leaves the phone. Cutting
+    /// there before the limiter is not thinning the tone — the tone below 320 Hz
+    /// was never arriving. What changes is that the midrange stops being ducked
+    /// to make room for it.
+    ///
+    /// Second order rather than first because the point is to get the energy OUT
+    /// of the limiter's detector, and a 6 dB/octave slope still hands it plenty.
+    static constexpr double kSpeakerHPHz = 320.0;
+    /// A broad lift where a small driver is actually efficient, which is also
+    /// where a guitar's note definition lives. Not a smile curve — the speaker
+    /// cannot do the bottom of one and does not need help at the top.
+    static constexpr double kSpeakerLiftHz = 2200.0;
+    static constexpr float  kSpeakerLiftDB = 3.5f;
+
+    /// Two cascaded one-poles = the 12 dB/oct high-pass, plus a one-pole shelf for
+    /// the lift. Per channel, and only run when the destination is the phone.
+    struct SpeakerComp {
+        float hp1 = 0.0f, hp2 = 0.0f;   // running low-pass state (subtracted out)
+        float shelf = 0.0f;
+        void reset() noexcept { hp1 = hp2 = shelf = 0.0f; }
+    };
+    SpeakerComp speakerComp[8];
+    std::atomic<bool> speakerCompOn{false};
 
     /// INPUT EXPANDER — the quiet answer to a noisy front end.
     ///
     /// A guitar at mic level brings its own hiss, and every dB of gain after it
     /// brings the hiss too. This works only BELOW the threshold, so it is doing
-    /// nothing at all while a note is sounding: playing runs from about −20 dBFS,
-    /// and this starts 30 dB underneath that. Below the line it is a 3:1 downward
+    /// nothing at all while a note is sounding. Below the line it is a 3:1 downward
     /// expander (`t·t`), not a gate — the gain slides rather than switching, so a
     /// note decaying through the threshold keeps its tail instead of being cut off
     /// at it, and there is no edge to hear opening and closing.
-    static constexpr float kGateThreshold = 0.00316f;   // −50 dBFS
+    ///
+    /// −62 dBFS, NOT −50. Reported by ear on an iPhone 17e: chords sounded uneven
+    /// and dulled and clean tones crackled faintly, and both were this. A guitar
+    /// arriving through a headphone adapter is ~40 dB down, which put ordinary
+    /// playing — and every chord's decay — right ON the old threshold instead of
+    /// 30 dB above it, so the expander was working during notes rather than
+    /// between them. 12 dB lower puts real playing clear of it again.
+    /// −56 dBFS. It went to −62 to stop the expander chewing chords, and that
+    /// worked — but the real culprit was the UNSMOOTHED gain below, not the line
+    /// itself, and −62 gave up 6 dB of hiss suppression to fix something the
+    /// smoothing had already fixed. Reported back as "there's still some
+    /// background noise", which is exactly that 6 dB. Still ~35 dB under a played
+    /// note, so a chord's useful decay never reaches it.
+    static constexpr float kGateThreshold = 0.0016f;    // −56 dBFS
+
+    /// EXPANSION RATIO below the line: 4:1, was 3:1 (`t·t` → `t·t·t`).
+    ///
+    /// This is the lever that kills hiss WITHOUT touching playing, and it is
+    /// better than raising the threshold further. Above the line `t` clamps to 1
+    /// and the exponent is irrelevant — a note is untouched no matter what this
+    /// is. Below it, every extra power pushes the quiet stuff down harder: 10 dB
+    /// under the line, 3:1 gives −20 dB and 4:1 gives −30 dB. Hiss is steady and
+    /// sits well below; that is what makes it hiss, and what makes it the only
+    /// thing this reaches.
+    static constexpr int kGateRatioPowers = 3;
+
+    /// GAIN SMOOTHING, and the actual cause of the crackle. The computed gain used
+    /// to be applied straight from the envelope, per sample. That envelope is a
+    /// peak follower with a 1 ms attack, so on a low note it RIPPLES at the
+    /// waveform rate — and `t·t` squares the ripple. The result is amplitude
+    /// modulation at audio rate: sidebands on a sustained note, and a chord whose
+    /// individual strings appear to wobble as the sum decays past the threshold.
+    ///
+    /// A gain that may only fall slowly cannot modulate at audio rate. Opening
+    /// stays fast so no pick attack is ever late — that asymmetry is the whole
+    /// design: instant when a note arrives, molasses on the way back down.
+    static constexpr double kGateOpenSec  = 0.001;   // 1 ms — never late
+    static constexpr double kGateCloseSec = 0.250;   // 250 ms — never rippling
+
+    /// THE THRESHOLD FOLLOWS THE GAIN, because the problem it solves does.
+    ///
+    /// A fixed threshold cannot serve both ends of this app. Reported by ear: at
+    /// −62 dBFS a clean tone is perfect, and a high-gain patch roars between notes
+    /// — obviously so, because the preamp cascade amplifies the noise floor by
+    /// tens of dB before anyone hears it, and the gate is sitting in front of all
+    /// of that judging the raw input. Raise it to suit high gain and clean chords
+    /// get chewed again; that is the exact trade that produced the first bug.
+    ///
+    /// So it scales with amp drive: the more the amp is about to amplify, the
+    /// higher the line has to be to hold the same noise DOWNSTREAM. This is also
+    /// what a guitarist does by hand — more gain, more gate. It is safe here in a
+    /// way it was not before because the gain is smoothed now: a higher threshold
+    /// can no longer put ripple on a note, only pull its far tail down sooner.
+    ///
+    /// Clean stays at −62 dBFS; a cranked amp lands near −45.
+    static constexpr float kGateDriveRef = 2.0f;    // drive at/below this = base
+    static constexpr float kGateMaxScale = 8.0f;    // ≈ +18 dB at full gain
     float gateEnv[8]{};
+    /// The expander's SMOOTHED gain, per channel. Starts open so the very first
+    /// buffer after a reset is not faded in.
+    float gateGain[8] = {1, 1, 1, 1, 1, 1, 1, 1};
 
     /// Limiter state, one set per channel — the render walks a channel at a time,
     /// and the guitar arrives mono and duplicated, so the sets track each other

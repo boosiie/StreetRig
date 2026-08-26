@@ -3,10 +3,11 @@
 //  StreetRig
 //
 //  The whole rig as ONE 3D diorama in a single SceneKit view: the amp (center),
-//  the pedalboard (in front), and the guitar (to the right) all placed on a
-//  common floor and lit together. Dragging orbits the entire scene at once —
-//  "moving the living room" — instead of the old split model where a SwiftUI
-//  rotation3DEffect warped a flat snapshot while each model orbited on its own.
+//  the pedalboard (in front), and the guitar (to the right, leaning on the stage's
+//  own bar stool) all standing on a modelled floor and lit together. Dragging
+//  orbits the entire scene at once — "moving the living room" — instead of the old
+//  split model where a SwiftUI rotation3DEffect warped a flat snapshot while each
+//  model orbited on its own.
 //
 //  Tapping a component plays a TWO-STAGE focus transition: stage 1 flies the
 //  camera in to center that component and turn it face-on ("flat" to the screen);
@@ -14,7 +15,8 @@
 //  the overlay flies the camera back to the diorama.
 //
 //  Reuses the same procedural builders as the standalone views (ProceduralAmp,
-//  PedalboardScene, ProceduralGuitar). The amp head and the cabinet each wear
+//  PedalboardScene); the guitar comes through `GearModelLoader.guitarNode`, which
+//  falls back to ProceduralGuitar. The amp head and the cabinet each wear
 //  their own bespoke artwork when they have one — the SAME `<slug>.imageset`
 //  that dresses the cards and the library, mapped onto the front of the box —
 //  so swapping either piece visibly changes the stack. A piece with no artwork
@@ -27,6 +29,7 @@
 import SwiftUI
 import StreetRigEngine
 import SceneKit
+import simd
 import UIKit
 
 /// What a dragged gear card would replace on the 3D stage, resolved by what the
@@ -197,7 +200,7 @@ struct RigStage3DView: UIViewRepresentable {
         view.scene = scene
         view.pointOfView = scene.rootNode.childNode(withName: "camera", recursively: false)
         view.defaultCameraController.target = RigDiorama.lookTarget
-        context.coordinator.cacheKnobs(in: scene)
+        context.coordinator.cacheKnobs(in: scene, names: AmpScene.knobParamNames(for: amp))
         context.coordinator.applyAmp(values: amp?.values ?? [:])
         context.coordinator.signature = RigDiorama.signature(amp: amp, cabinet: cabinet,
                                                              pedals: pedals, guitar: guitar)
@@ -259,9 +262,9 @@ struct RigStage3DView: UIViewRepresentable {
         /// are part of the drawing (see `ProceduralAmp.build`) — so these lookups
         /// return nil, the keys never land in the dictionary, and `applyAmp`
         /// simply has nothing to turn. That is the expected quiet path, not a bug.
-        func cacheKnobs(in scene: SCNScene) {
+        func cacheKnobs(in scene: SCNScene, names: [String]) {
             knobs.removeAll()
-            for p in AmpScene.knobParamNames {
+            for p in names {
                 knobs[p] = scene.rootNode.childNode(withName: AmpScene.knobNodeName(p), recursively: true)
             }
         }
@@ -900,6 +903,133 @@ enum RigDiorama {
     static let maxCameraDistance = defaultCameraDistance * 1.75
     static let minCameraDistance: Float = 7.2
 
+    // MARK: Backdrop
+
+    /// The blue the diorama sits in — the colour the stage model's own author
+    /// photographs it against.
+    ///
+    /// Set on the SCENE, and that is the whole point of it living here rather than
+    /// only in `RigStageView`. The SCNView asks for a clear background
+    /// (`backgroundColor = .clear`, `isOpaque = false`) and lets a SwiftUI colour show
+    /// through — which works right up until the camera turns on post-processing.
+    /// `wantsHDR` plus bloom, saturation and contrast route the frame through an
+    /// offscreen pass that does not carry the clear background out with it, so the
+    /// view composites opaque and paints over whatever SwiftUI put behind it.
+    ///
+    /// The symptom is badly misleading: the backdrop reads as "too dark" no matter
+    /// what colour you set in SwiftUI, because none of those colours were ever on
+    /// screen. Giving the scene its own background renders the blue in SceneKit,
+    /// where it cannot be covered. `RigStageView.stageBackground` paints the SAME
+    /// value for the strip of padding around the view, so the two agree whichever
+    /// one you end up looking at.
+    static let backdrop = UIColor(red: 0.196, green: 0.588, blue: 0.757, alpha: 1)   // #3296C1
+
+    // MARK: Guitar placement
+
+    /// Where the guitar's lower bout meets the boards. Unchanged from where the
+    /// guitar stood when it was on a stand — the lean happens ABOUT this point, so
+    /// moving it moves the whole guitar rather than just its top.
+    static let guitarBase = SIMD2<Float>(1.80, -0.30)
+
+    /// Ceiling on the lean. 25° is already a guitar propped at a lazy angle; past
+    /// that it reads as falling over rather than resting.
+    private static let maxGuitarLean: Float = 25 * .pi / 180
+
+    /// How to tip the guitar so it comes to rest on the stool — a rotation for a node
+    /// that pivots on the guitar's base.
+    ///
+    /// Solved against the guitar's OWN MESH, not a formula. The first version placed
+    /// the guitar's centre line one body-half-depth outside the seat's rim, which
+    /// quietly assumes the guitar meets the stool broadside. It does not: at the
+    /// height of a bar stool's seat a guitar is not a body, it is a NECK, so that
+    /// allowance was about three times too generous and left it hanging 0.04 units
+    /// clear of the stool — a visible gap, and contact is the entire point of a lean.
+    ///
+    /// So: tip the guitar until its geometry first meets the stool, by bisection. The
+    /// stool is treated as a solid cylinder from the boards up to the seat, and first
+    /// contact lands on the rim where a leaning guitar actually rests. Because the
+    /// answer is measured, a different guitar — a Les Paul is a very different
+    /// silhouette from a Strat — comes to rest correctly without retuning anything.
+    ///
+    /// Yaw alone when there is no stool, or when the guitar is too short to reach it
+    /// at `maxGuitarLean`, which stands it up straight — the pose it had before there
+    /// was anything to lean it on.
+    static func leanPose(onto seat: StageEnvironment.SeatRest?,
+                         resting points: [SIMD3<Float>],
+                         from base: SIMD2<Float>,
+                         yaw: Float) -> simd_quatf {
+        let spin = simd_quatf(angle: yaw, axis: SIMD3<Float>(0, 1, 0))
+        guard let seat, seat.radius > 0, seat.centre.y > 0, !points.isEmpty else { return spin }
+
+        let toSeat = SIMD2<Float>(seat.centre.x, seat.centre.z) - base
+        let reach = simd_length(toSeat)
+        guard reach > seat.radius else { return spin }        // standing on top of it already
+        let direction = toSeat / reach
+
+        // Work in the lean's own frame: `along` runs toward the stool, `up` is up, and
+        // `across` is the axis the guitar turns about — which the lean never changes.
+        // That makes the whole search two-dimensional and the inner loop a handful of
+        // multiplies, which is what keeps bisecting an 85k-vertex mesh cheap.
+        var along = [Float](repeating: 0, count: points.count)
+        var up = [Float](repeating: 0, count: points.count)
+        var across = [Float](repeating: 0, count: points.count)
+        for (i, p) in points.enumerated() {
+            let q = spin.act(p)
+            along[i]  = q.x * direction.x + q.z * direction.y
+            up[i]     = q.y
+            across[i] = q.x * direction.y - q.z * direction.x
+        }
+
+        // In that frame the stool is a circle at (reach, 0) rising to the seat.
+        func meetsStool(at angle: Float) -> Bool {
+            let c = cos(angle), s = sin(angle)
+            for i in points.indices {
+                let height = -along[i] * s + up[i] * c
+                guard height < seat.centre.y else { continue }          // clears the seat
+                let forward = along[i] * c + up[i] * s - reach
+                if forward * forward + across[i] * across[i] < seat.radius * seat.radius { return true }
+            }
+            return false
+        }
+
+        // Upright and already touching means the layout moved under us; leave it be.
+        guard !meetsStool(at: 0), meetsStool(at: maxGuitarLean) else { return spin }
+
+        var clear: Float = 0, touching = maxGuitarLean
+        for _ in 0..<18 {
+            let mid = (clear + touching) / 2
+            if meetsStool(at: mid) { touching = mid } else { clear = mid }
+        }
+        return simd_quatf(angle: touching, axis: SIMD3<Float>(direction.y, 0, -direction.x)) * spin
+    }
+
+    /// Every vertex `node` draws, in the space of `node`'s parent, scaled and lifted
+    /// onto the lean pivot. Feeds `leanPose`, which needs the guitar's real silhouette
+    /// rather than its bounding box — a box would come to rest on a corner that is not
+    /// there.
+    private static func leanPoints(of node: SCNNode, scale: Float, liftedBy lift: Float) -> [SIMD3<Float>] {
+        var out: [SIMD3<Float>] = []
+        func walk(_ n: SCNNode, _ m: simd_float4x4) {
+            let w = m * simd_float4x4(n.transform)
+            if let g = n.geometry, let src = g.sources(for: .vertex).first, src.componentsPerVector >= 3 {
+                src.data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+                    for i in 0..<src.vectorCount {
+                        let b = i * src.dataStride + src.dataOffset
+                        guard b + 12 <= raw.count else { continue }
+                        let p = w * SIMD4<Float>(raw.loadUnaligned(fromByteOffset: b,     as: Float.self),
+                                                 raw.loadUnaligned(fromByteOffset: b + 4, as: Float.self),
+                                                 raw.loadUnaligned(fromByteOffset: b + 8, as: Float.self),
+                                                 1)
+                        out.append(SIMD3(p.x, p.y + lift, p.z) * scale)
+                    }
+                }
+            }
+            for c in n.childNodes { walk(c, w) }
+        }
+        walk(node, matrix_identity_float4x4)
+        return out
+    }
+
     /// Straight-line distance between two points (the camera↔lookTarget zoom radius).
     static func distance(from p: SCNVector3, to q: SCNVector3) -> Float {
         let dx = p.x - q.x, dy = p.y - q.y, dz = p.z - q.z
@@ -940,8 +1070,15 @@ enum RigDiorama {
     static func make(amp: GearItem?, cabinet: GearItem?,
                      pedals: [GearItem], guitar: GearItem?) -> SCNScene {
         let scene = SCNScene()
+        scene.background.contents = backdrop        // see `backdrop` — NOT decoration
         let world = SCNNode()
         world.name = "world"
+
+        // ---- Stage: the modelled club floor everything else stands on. Added
+        // FIRST so it is behind the gear in the node order, and parented to
+        // `world` so it orbits with the rig instead of sliding under it. Absent
+        // asset → nil → the diorama renders on nothing, exactly as it used to.
+        if let stage = StageEnvironment.node() { world.addChildNode(stage) }
 
         // ---- Amp: center, slightly back. Bottom (local y ≈ −2.15) sits on the floor.
         // Omitted entirely when the rig has no amp — exactly as the pedalboard
@@ -1002,27 +1139,40 @@ enum RigDiorama {
         addSlot.isHidden = true
         world.addChildNode(addSlot)
 
-        // ---- Guitar: to the right of the amp, angled toward center.
+        // ---- Guitar: stood on the boards and leaned against the stool, to the
+        // right of the amp. There is no stand any more — the stage supplies
+        // something real to lean on, and a guitar left against the furniture is what
+        // the end of a set actually looks like.
         let guitarRoot = SCNNode()
         guitarRoot.name = "guitarRoot"
-        if let loaded = GearModelLoader.modelNode(for: guitar) {   // custom <slug>.usdz for the guitar body
-            guitarRoot.addChildNode(loaded)
-        } else {
-            ProceduralGuitar.buildGuitar(into: guitarRoot)
-        }
-        if let stand = GearModelLoader.namedModel("guitar-stand") { // swappable stand file, independent of the guitar
-            guitarRoot.addChildNode(stand)
-        } else {
-            ProceduralGuitar.buildStand(into: guitarRoot)
-        }
+        // The guitar body is a real `.usdz` now, resolved and fitted to the
+        // procedural envelope by `GearModelLoader.guitarNode` — the one path both
+        // this stage and the zoom detail view share, so they cannot disagree about
+        // how big a guitar is. Never nil: it falls back loudly, never to nothing.
+        let body = GearModelLoader.guitarNode(for: guitar)
+        guitarRoot.addChildNode(body)
         // Bigger, which pushes the guitar's right edge out — and that edge is what
         // sets `minCameraDistance`, since it is the widest thing on the stage. The
         // two numbers move together; see the note there.
         let gScale: Float = 0.42
         guitarRoot.scale = SCNVector3(gScale, gScale, gScale)
-        guitarRoot.position = SCNVector3(1.8, 2.1 * gScale, -0.3)   // in closer to the amp
-        guitarRoot.eulerAngles.y = -0.5
-        world.addChildNode(guitarRoot)
+        // The base of the body sits on `guitarLean`'s origin, so the tilt below
+        // pivots on the point where the guitar meets the boards. The lift this
+        // replaces (`2.1 * gScale`) was the depth of the STAND'S FEET, measured from
+        // `ProceduralGuitar.buildStand`; with the stand gone it would just float the
+        // guitar a third of a unit off the floor.
+        let bounds = GearModelLoader.proceduralGuitarBounds
+        guitarRoot.position = SCNVector3(0, -bounds.min.y * gScale, 0)
+
+        let guitarLean = SCNNode()
+        guitarLean.name = "guitarLean"
+        guitarLean.addChildNode(guitarRoot)
+        guitarLean.position = SCNVector3(guitarBase.x, 0, guitarBase.y)
+        guitarLean.simdOrientation = leanPose(onto: StageEnvironment.stoolSeat,
+                                              resting: leanPoints(of: body, scale: gScale, liftedBy: -bounds.min.y),
+                                              from: guitarBase,
+                                              yaw: -0.5)                 // body toward the camera
+        world.addChildNode(guitarLean)
 
         scene.rootNode.addChildNode(world)
 
@@ -1037,8 +1187,12 @@ enum RigDiorama {
         if !pedals.isEmpty {
             Studio3D.addContactShadow(to: scene.rootNode, width: 3.6, height: 1.6, at: SCNVector3(-0.1, 0.02, 0.4))
         }
+        // Keeps the same 0.1 forward offset it always had, now measured off the
+        // guitar's base rather than repeated as a literal — a leaning guitar touches
+        // the floor at its lower bout, which is exactly where that base is.
         Studio3D.addContactShadow(to: scene.rootNode, width: 1.7, height: 1.4,
-                                  at: SCNVector3(1.8, 0.02, -0.2), name: "guitarRootShadow")
+                                  at: SCNVector3(guitarBase.x, 0.02, guitarBase.y + 0.1),
+                                  name: "guitarRootShadow")
 
         // Natural 3/4 "living-room" view, pulled back a touch so the full amp
         // (head included) fits. Horizontal projection makes the fov span the

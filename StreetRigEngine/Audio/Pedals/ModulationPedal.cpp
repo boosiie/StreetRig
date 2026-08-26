@@ -52,14 +52,26 @@ void ModulationPedal::process(float *buffer, int n, int channel, const float *pa
             break;
         }
         case Phaser:
+        case DeepPhaser:
         case Univibe: {
             // Cascade of first-order all-pass sections whose break frequency is
             // swept by the LFO. Summed with the dry signal → moving notches.
-            // Univibe uses more stages, staggered centres, and a little throb.
-            const int stages = (voicing_ == Univibe) ? 6 : 4;
-            const float aCenter = 0.55f;
-            const float aSpan   = 0.40f * depth;
-            const float feedback = (voicing_ == Univibe) ? 0.35f : 0.25f;
+            //
+            // REPORTED AS "PHASER IS NON EXISTENT", and it very nearly was. Four
+            // stages is two notches, 0.25 feedback puts almost no resonance on
+            // them, and `aCenter` 0.55 parked the sweep around 4 kHz — above where
+            // a guitar has body and above where a phone speaker is strong. All
+            // three fixed: six stages (three notches), real resonance, and the
+            // sweep re-centred on 400 Hz–3 kHz where the notches are audible AND
+            // where the speaker can reproduce them.
+            //
+            // DeepPhaser is the same circuit taken to twelve stages and near-self-
+            // oscillating feedback — six notches marching through the midrange.
+            const int stages = (voicing_ == Univibe) ? 6 : (voicing_ == DeepPhaser ? 12 : 6);
+            const float aCenter = 0.78f;                    // ≈ 1.2 kHz, not 4 kHz
+            const float aSpan   = 0.19f * (0.35f + 0.65f * depth);
+            const float feedback = (voicing_ == Univibe) ? 0.35f
+                                 : (voicing_ == DeepPhaser ? 0.72f : 0.55f);
             for (int i = 0; i < n; ++i) {
                 const float lfo = std::sin(phase);                     // -1..1
                 const float dry = buffer[i];
@@ -90,10 +102,16 @@ void ModulationPedal::process(float *buffer, int n, int channel, const float *pa
             // Short modulated delay. Chorus: longer base delay, gentle depth, low
             // feedback → detuned doubling. Flanger: very short delay + feedback →
             // sweeping comb notches.
+            // REPORTED AS "CHORUS SOUNDS SAD AND DEPRESSED", which is what ±7 ms
+            // of sweep does: that is not a chorus, it is a pitch-bend. A delay
+            // line moving that far retunes the note continuously and the ear
+            // hears it as seasick and flat. Real chorus lives at ±1–3 ms — the
+            // detuning is meant to be felt as thickness, not heard as pitch.
+            // 2.2 ms at full depth now, on a slightly shorter base.
             const bool isFlanger = (voicing_ == Flanger);
-            const float baseMs = isFlanger ? 2.5f : 14.0f;
-            const float modMs  = (isFlanger ? 2.0f : 7.0f) * depth;
-            const float feedback = isFlanger ? (0.55f * depth) : 0.12f;
+            const float baseMs = isFlanger ? 2.5f : 11.0f;
+            const float modMs  = (isFlanger ? 2.0f : 2.2f) * depth;
+            const float feedback = isFlanger ? (0.55f * depth) : 0.10f;
             const float msToSamp = (float)sampleRate_ / 1000.0f;
             for (int i = 0; i < n; ++i) {
                 const float lfo = std::sin(phase);                     // -1..1
