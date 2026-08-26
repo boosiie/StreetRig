@@ -377,8 +377,9 @@ enum PedalArchetypes {
 
         // Level knob to the right of the readout rather than centred — the panel
         // owns the middle of the back face.
-        let knobMat = Studio3D.pbr(UIColor(white: 0.85, alpha: 1), metalness: 0.1, roughness: 0.5)
-        let pointerMat = Studio3D.pbr(.black, metalness: 0, roughness: 0.5)
+        let tone = knobColors(on: e.color)
+        let knobMat = Studio3D.pbr(tone.knob, metalness: 0.1, roughness: 0.5)
+        let pointerMat = Studio3D.pbr(tone.pointer, metalness: 0, roughness: 0.5)
         let knob = knobNode(radius: 0.10, mat: knobMat, pointerMat: pointerMat)
         knob.position = SCNVector3(0.58, top + 0.055, -halfL + 0.32)
         group.addChildNode(knob)
@@ -477,11 +478,27 @@ enum PedalArchetypes {
     /// `pitch` caps how far apart adjacent knobs are allowed to sit, so two
     /// controls on a big enclosure cluster like real ones instead of hugging the
     /// edges — except on the round fuzz, whose two knobs genuinely do span it.
+    /// Knob colours picked against the body they sit on. These were a fixed pale
+    /// grey, which was fine while every pedal was a mid-tone but disappears on the
+    /// white Boss delay and the cream OCD now that the finishes match the art.
+    /// Same luminance rule as the zoomed-in knob panel, so the two surfaces agree
+    /// on what counts as a light pedal.
+    private static func knobColors(on body: UIColor) -> (knob: UIColor, pointer: UIColor) {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 1
+        guard body.getRed(&r, green: &g, blue: &b, alpha: &a) else {
+            return (UIColor(white: 0.85, alpha: 1), .black)
+        }
+        return PedalFinish.isLight((r: Double(r), g: Double(g), b: Double(b)))
+            ? (UIColor(white: 0.14, alpha: 1), UIColor(white: 0.93, alpha: 1))
+            : (UIColor(white: 0.85, alpha: 1), .black)
+    }
+
     private static func addControls(_ e: PedalEnclosure, top: Float, backZ: Float,
                                     usable: Float, pitch: Float = 0.30, to group: SCNNode) {
         guard e.knobs > 0 else { return }
-        let knobMat = Studio3D.pbr(UIColor(white: 0.85, alpha: 1), metalness: 0.1, roughness: 0.5)
-        let pointerMat = Studio3D.pbr(.black, metalness: 0, roughness: 0.5)
+        let tone = knobColors(on: e.color)
+        let knobMat = Studio3D.pbr(tone.knob, metalness: 0.1, roughness: 0.5)
+        let pointerMat = Studio3D.pbr(tone.pointer, metalness: 0, roughness: 0.5)
 
         switch e.knobLayout {
         case .none:
@@ -580,7 +597,7 @@ enum PedalArchetypes {
         return UIColor(red: r * factor, green: g * factor, blue: b * factor, alpha: a)
     }
 
-    // MARK: - Finish (mirrors GearArt's PedalArt spec)
+    // MARK: - Finish (sampled from the shipped icons in Assets.xcassets)
 
     private static func finish(for pedal: GearItem) -> (color: UIColor, led: UIColor) {
         func c(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> UIColor {
@@ -588,21 +605,11 @@ enum PedalArchetypes {
         }
         let amber = c(1.0, 0.72, 0.2)
         let green = c(0.3, 0.9, 0.35)
-        let n = pedal.name.lowercased()
+        // Tuners and loopers run a green status lamp; everything else is amber.
+        let led: UIColor = (pedal.category == .tuner || pedal.category == .looper) ? green : amber
 
-        if n.contains("tube screamer") { return (c(0.36, 0.55, 0.20), amber) }
-        if n.contains("big muff")      { return (c(0.85, 0.84, 0.80), amber) }
-        if n.contains("dyna")          { return (c(0.70, 0.16, 0.14), amber) }
-        if n.contains("phase")         { return (c(0.92, 0.46, 0.09), amber) }
-        if n.contains("distortion")    { return (c(0.93, 0.50, 0.10), amber) }
-        if n.contains("metal zone")    { return (c(0.20, 0.20, 0.22), amber) }
-        if n.contains("procon rat")    { return (c(0.18, 0.18, 0.20), amber) }
-        if n.contains("centaur")       { return (c(0.62, 0.14, 0.13), amber) }
-        if n.contains("king of tone")  { return (c(0.62, 0.44, 0.76), amber) }
-        if n.contains("memory man")    { return (c(0.15, 0.15, 0.17), amber) }
-        if n.contains("fuzz face")     { return (c(0.16, 0.30, 0.55), amber) }
-        if n.contains("loop station")  { return (c(0.80, 0.13, 0.13), green) }
-        if n.contains("chromatic tuner") { return (c(0.88, 0.88, 0.86), green) }
+        // One table, shared with the zoomed-in knob panel — see PedalFinish.
+        if let rgb = PedalFinish.rgb(for: pedal) { return (c(rgb.r, rgb.g, rgb.b), led) }
 
         switch pedal.category {
         case .delay:      return (c(0.20, 0.45, 0.30), amber)
