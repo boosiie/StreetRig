@@ -93,12 +93,15 @@ enum AppIconExporter {
 
     // MARK: - Launch trigger
 
-    /// Called from `StreetRigApp.init()` under `#if DEBUG`.
+    /// Called from the scene's `.task` in `StreetRigApp`, under `#if DEBUG`.
     ///
-    /// Always deferred to a later main-queue turn rather than run inline: at
-    /// `App.init` there is no connected `UIWindowScene` yet, which the `.live`
-    /// route needs, and running the bake before the first frame would stall the
-    /// splash for no reason. 1.5s is comfortably after the scene is up.
+    /// Runs inline, because by the time a `.task` on the scene's content fires
+    /// there IS a connected `UIWindowScene` and the Metal shader library has
+    /// resolved — which is the whole precondition this bake needs. An earlier cut
+    /// called this from `App.init()` and bought the same guarantee with a 1.5s
+    /// `asyncAfter`; that was a guess about how long a scene takes to come up, and
+    /// it would have been wrong on a cold launch on a slow device. `PanelArtExporter`
+    /// is triggered from the same place for the same reason — see its `.task`.
     @MainActor
     static func runFromLaunchEnvironment(_ mode: String) {
         let scale: CGFloat
@@ -107,14 +110,8 @@ enum AppIconExporter {
         case "3": scale = 3
         default:  scale = 1
         }
-        let wantsProbe = (mode == "probe")
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            MainActor.assumeIsolated {
-                if wantsProbe { _ = exportProbe() }
-                _ = exportAll(scale: scale)
-            }
-        }
+        if mode == "probe" { _ = exportProbe() }
+        _ = exportAll(scale: scale)
     }
 
     // MARK: - Export

@@ -394,10 +394,10 @@ enum PedalSpec {
             // reverb and the chorus/vibrato that the amp is named for.
             if n.contains("jc-120") || n.contains("jc120") || n.contains("jazz chorus") {
                 return [GearParameter("CHANNEL", options: ["CHANNEL 1", "CHANNEL 2"], defaultIndex: 0),
-                        GearParameter("BRIGHT",   options: ["OFF", "ON"], defaultIndex: 0),
+                        GearParameter("BRIGHT",   options: ["OFF", "ON"], defaultIndex: 0, isDisabled: true),
                         GearParameter("BRIGHT 2", options: ["OFF", "ON"], defaultIndex: 0,
-                                      shortName: "BRIGHT"),
-                        GearParameter("EFFECT", options: ["VIBRATO", "OFF", "CHORUS"], defaultIndex: 1),
+                                      shortName: "BRIGHT", isDisabled: true),
+                        GearParameter("EFFECT", options: ["VIBRATO", "OFF", "CHORUS"], defaultIndex: 1, isDisabled: true),
                         GearParameter("Gain",     shortName: "VOLUME", rowLabel: "CHANNEL 1"),
                         GearParameter("Treble",   shortName: "TREBLE", rowLabel: "CHANNEL 1"),
                         GearParameter("Mid",      shortName: "MIDDLE", rowLabel: "CHANNEL 1"),
@@ -418,11 +418,11 @@ enum PedalSpec {
             // FENDER BASSMAN — a tweed 5F6-A: presence and the tone stack, then a
             // volume for EACH input, bright and normal. No master, no gain knob;
             // the input volume IS the gain.
-            if n.contains("bassman") {
+            if n.contains("bassman") || n.contains("bassdude") {
                 // Four jacks like the Plexi — two BRIGHT, two NORMAL — and a
                 // volume for each pair, jumpered together the same way.
                 return [GearParameter("PATCH", options: ["BRIGHT", "NORMAL", "JUMPERED"],
-                                      defaultIndex: 2),
+                                      defaultIndex: 2, isDisabled: true),
                         GearParameter("Presence", shortName: "PRESENCE"),
                         GearParameter("Mid",      shortName: "MIDDLE"),
                         GearParameter("Bass",     shortName: "BASS"),
@@ -432,23 +432,27 @@ enum PedalSpec {
             }
             // FENDER TWIN REVERB — two channels, and the reverb and vibrato live
             // on the Vibrato one only, which is why that row is longer.
+            // THE PANEL IS THE DELUXE its faceplate is drawn as, not the Twin the
+            // name suggests: NORMAL is Volume / Treble / Bass, VIBRATO adds
+            // Reverb, Speed and Intensity, and there is no MIDDLE on either
+            // channel and no master volume. Nine knobs, which is what the artwork
+            // draws and what the amp has. The two BRIGHT switches go with them —
+            // the faceplate has four jacks and no toggles.
+            //
+            // Dropping MIDDLE and MASTER is audible: the mid band sits flat and
+            // the master at unity, which is exactly what an amp without those
+            // controls does.
             if n.contains("twin") {
                 return [GearParameter("CHANNEL", options: ["NORMAL", "VIBRATO"], defaultIndex: 0),
-                        GearParameter("BRIGHT",   options: ["OFF", "ON"], defaultIndex: 0),
-                        GearParameter("BRIGHT 2", options: ["OFF", "ON"], defaultIndex: 0,
-                                      shortName: "BRIGHT"),
                         GearParameter("Gain",     shortName: "VOLUME", rowLabel: "NORMAL"),
                         GearParameter("Treble",   shortName: "TREBLE", rowLabel: "NORMAL"),
-                        GearParameter("Mid",      shortName: "MIDDLE", rowLabel: "NORMAL"),
                         GearParameter("Bass",     shortName: "BASS",   rowLabel: "NORMAL"),
                         GearParameter("Gain 2",   shortName: "VOLUME", rowLabel: "VIBRATO"),
                         GearParameter("Treble 2", shortName: "TREBLE", rowLabel: "VIBRATO"),
-                        GearParameter("Mid 2",    shortName: "MIDDLE", rowLabel: "VIBRATO"),
                         GearParameter("Bass 2",   shortName: "BASS",   rowLabel: "VIBRATO"),
                         GearParameter("REVERB",    rowLabel: "VIBRATO"),
                         GearParameter("SPEED",     rowLabel: "VIBRATO"),
-                        GearParameter("INTENSITY", rowLabel: "VIBRATO"),
-                        GearParameter("Master", shortName: "MASTER VOLUME")]
+                        GearParameter("INTENSITY", rowLabel: "VIBRATO")]
             }
             // VOX AC30 — the Normal channel is one volume and nothing else; Top
             // Boost is the tone channel. CUT and MASTER VOLUME are the amp's
@@ -471,26 +475,15 @@ enum PedalSpec {
                         GearParameter("Cut",    shortName: "TONE CUT"),
                         GearParameter("Master", shortName: "MASTER VOLUME")]
             }
-            // THE FRIEDMAN, LEFT TO RIGHT, exactly as it reads on the chassis.
-            // Duplicated names (two channels' worth of TREBLE / MIDDLE / BASS) need
-            // unique keys because a value dictionary is keyed by name, so the
-            // second set is suffixed internally and `shortName` puts the real word
-            // back on the panel.
-            //
-            // WHAT IS LIVE: GAIN, BASS, MIDDLE, TREBLE, VOLUME, PRESENCE and
-            // MASTER 1 drive the existing engine. The channel-2 set, the four
-            // switches and SYSTEM VOL are drawn because they are on the amp, and
-            // they will do nothing until the profile grows a second channel.
-            // THUMP is drawn DISABLED, as asked.
             // MARSHALL JCM800 / PLEXI — a master-volume head reads right to left
             // on the chassis, and these are the six it actually has.
             // PLEXI — no master volume. Four jacks (two channels, high and low
             // sensitivity each) and two LOUDNESS controls; the patch lead from one
             // channel's spare jack into the other is how both preamps end up
             // feeding the same signal, which is the sound people are after.
-            if n.contains("plexi") || n.contains("super lead") {
+            if n.contains("plexi") || n.contains("plaxi") || n.contains("super lead") {
                 return [GearParameter("PATCH", options: ["HIGH TREBLE", "NORMAL", "JUMPERED"],
-                                      defaultIndex: 2),
+                                      defaultIndex: 2, isDisabled: true),
                         GearParameter("Presence", shortName: "PRESENCE"),
                         GearParameter("Bass",     shortName: "BASS"),
                         GearParameter("Mid",      shortName: "MIDDLE"),
@@ -510,53 +503,85 @@ enum PedalSpec {
             // with the channel named between them, and the two mode switches to
             // the left. CHANNEL 2's set is stored under suffixed keys because a
             // values dictionary cannot hold two knobs called BASS.
-            if n.contains("rectifier") || n.contains("recto") {
+            if n.contains("rectifier") || n.contains("ractifier") || n.contains("recto") {
                 func ch(_ suffix: String, _ row: String) -> [GearParameter] {
                     [("Master", "MASTER"), ("Presence", "PRESENCE"), ("Bass", "BASS"),
                      ("Mid", "MID"), ("Treble", "TREBLE"), ("Gain", "GAIN")].map {
                         GearParameter($0.0 + suffix, shortName: $0.1, rowLabel: row)
                     }
                 }
+                // LOOP ACTIVE MASTER is on the chassis and not in the engine: the
+                // effects loop is not modelled, so its master has nothing to
+                // scale. Drawn disabled rather than left off, so the panel stays
+                // a true picture of the amp.
                 return [GearParameter("CHANNEL", options: ["CHANNEL 1", "CHANNEL 2"], defaultIndex: 0),
-                        GearParameter("MODE", options: ["CLEAN", "PUSHED"], defaultIndex: 0),
-                        GearParameter("VOICE", options: ["VINTAGE", "MODERN"], defaultIndex: 1)]
+                        GearParameter("MODE", options: ["CLEAN", "PUSHED"], defaultIndex: 0, isDisabled: true),
+                        GearParameter("VOICE", options: ["VINTAGE", "MODERN"], defaultIndex: 1, isDisabled: true),
+                        GearParameter("LOOP ACTIVE MASTER", isDisabled: true)]
                      + ch("",   "CHANNEL 1")
                      + ch(" 2", "CHANNEL 2")
             }
+            // THE FRIEDMAN BE-100, LEFT TO RIGHT, exactly as its front panel reads.
+            //
+            // NINE KNOBS, NOT FIFTEEN. This used to model BE and HBE as two full
+            // six-knob channels, which the amp does not have: BE and HBE SHARE one
+            // set of controls and the channel switch simply voices them hotter.
+            // What the amp does have, and this did not, is a CLEAN channel with its
+            // own Volume, Treble and Bass. So the panel is the real thing now —
+            // six for the gain channel, three for the clean one — which is also
+            // what the faceplate artwork is drawn to (see PanelArt).
+            //
+            // The rest of the front panel is switches: FAT, C45 and SAT voice the
+            // gain channel, VOICE and BRIGHT the clean one, and CLN-BE-HBE picks
+            // between them. `activeWhen` dims whichever set is not selected, which
+            // is the switch's whole visible job — none of these reach the DSP,
+            // which resolves this amp's profile from its NAME alone.
+            //
+            // WHAT IS LIVE: GAIN, BASS, MIDDLE, TREBLE, MASTER and PRESENCE drive
+            // the engine, exactly as before and under the same keys. The clean
+            // channel's three are drawn DISABLED — the engine has one amp profile
+            // and no clean voicing to point them at, and a knob that stores a value
+            // nothing reads is worse than one that says it cannot help yet.
+            //
+            // SYSTEM VOL and THUMP go with the second channel: neither is on the
+            // front panel this is drawn from.
             if n.contains("be-100") || n.contains("be100") {
-                func k(_ label: String, _ key: String? = nil, disabled: Bool = false) -> GearParameter {
-                    GearParameter(key ?? label, shortName: label, isDisabled: disabled)
-                }
+                /// A VOICING SWITCH, drawn shaded. FAT, C45, SAT, VOICE and BRIGHT are
+                /// real switches on a real amp and none of them reaches the DSP —
+                /// this engine takes the amp's voicing from its profile, which comes
+                /// from the NAME. Shaded says so. They still flick: the shade is
+                /// "this is not in the signal path", not "do not touch", and a
+                /// faceplate whose switches are frozen reads as broken.
                 func sw(_ label: String, _ opts: [String], _ key: String? = nil) -> GearParameter {
-                    GearParameter(key ?? label, options: opts, defaultIndex: 0, shortName: label)
+                    GearParameter(key ?? label, options: opts, defaultIndex: 0,
+                                  shortName: label, isDisabled: true)
                 }
-                // The two knob sets ARE the two channels: the first is HBE, the
-                // second BE, which is what the CHANNEL switch picks between. Naming
-                // the rows after the switch's options is what lets the panel dim
-                // the one you are not hearing.
-                func kr(_ label: String, _ key: String, _ row: String) -> GearParameter {
-                    GearParameter(key, shortName: label, rowLabel: row)
+                /// A knob and the channels it serves — index 0 is CLEAN, 1 BE, 2 HBE.
+                func k(_ key: String, _ label: String, on channels: [Int],
+                       disabled: Bool = false) -> GearParameter {
+                    GearParameter(key, shortName: label, isDisabled: disabled,
+                                  activeWhen: "CHANNEL", activeValues: channels)
                 }
+                let gain = [1, 2], clean = [0]
                 return [
-                    sw("CHANNEL", ["BE", "HBE"]),
+                    // Defaults to BE — the channel this amp was always on before
+                    // the clean one existed here, so no saved rig changes its sound.
+                    GearParameter("CHANNEL", options: ["CLEAN", "BE", "HBE"],
+                                  defaultIndex: 1, shortName: "CLN-BE-HBE"),
+                    sw("FAT", ["OFF", "ON"]),
+                    sw("C45", ["OFF", "ON"]),
+                    sw("SAT", ["OFF", "ON"]),
                     sw("VOICE", ["1", "2"]),
-                    sw("STRUCTURE", ["TIGHT", "LOOSE"]),
                     sw("BRIGHT", ["OFF", "ON"]),
-                    k("SYSTEM VOL"),
-                    k("THUMP", disabled: true),
-                    k("PRESENCE"),
-                    kr("GAIN",   "Gain",     "BE"),
-                    kr("VOLUME", "Volume",   "BE"),
-                    kr("TREBLE", "Treble",   "BE"),
-                    kr("MIDDLE", "Mid",      "BE"),
-                    kr("BASS",   "Bass",     "BE"),
-                    kr("MASTER", "Master",   "BE"),
-                    kr("GAIN",   "Gain 2",   "HBE"),
-                    kr("VOLUME", "Volume 2", "HBE"),
-                    kr("TREBLE", "Treble 2", "HBE"),
-                    kr("MIDDLE", "Mid 2",    "HBE"),
-                    kr("BASS",   "Bass 2",   "HBE"),
-                    kr("MASTER", "Master 2", "HBE"),
+                    k("Presence", "PRESENCE", on: gain),
+                    k("Bass",     "BASS",     on: gain),
+                    k("Mid",      "MIDDLE",   on: gain),
+                    k("Treble",   "TREBLE",   on: gain),
+                    k("Master",   "MASTER",   on: gain),
+                    k("Gain",     "GAIN",     on: gain),
+                    k("Clean Volume", "CLEAN VOLUME", on: clean, disabled: true),
+                    k("Clean Treble", "TREBLE",       on: clean, disabled: true),
+                    k("Clean Bass",   "BASS",         on: clean, disabled: true),
                 ]
             }
             // MARSHALL DSL — two gain channels, a shared tone stack, and its own
@@ -568,9 +593,11 @@ enum PedalSpec {
             // their right. Stacking them full-width under the amp made two tiny
             // rows floating in a lot of nothing.
             //
-            // ONE MASTER. The panel had two and the amp has one that matters here;
-            // the second was me mirroring the channel pair where there is nothing
-            // to mirror.
+            // TWO MASTERS, because the chassis has two and the faceplate art draws
+            // both. This was cut back to one on the grounds that the second did
+            // nothing — true, and no longer a reason to leave a control off: a
+            // knob with no engine behind it is drawn unringed and says so when
+            // touched, which is the same treatment RESONANCE gets two lines down.
             //
             // Each channel's REVERB rides with its channel, so it dims when the
             // other one is selected — the amp has a reverb level per channel and
@@ -579,10 +606,10 @@ enum PedalSpec {
                 return [GearParameter("CHANNEL", options: ["ULTRA GAIN", "CLASSIC GAIN"],
                                       defaultIndex: 0),
                         GearParameter("CLEAN/CRUNCH", options: ["CLEAN", "CRUNCH"], defaultIndex: 1,
-                                      rowLabel: "CLASSIC GAIN"),
+                                      isDisabled: true, rowLabel: "CLASSIC GAIN"),
                         GearParameter("OD1/OD2",      options: ["OD1", "OD2"], defaultIndex: 0,
-                                      rowLabel: "ULTRA GAIN"),
-                        GearParameter("TONE SHIFT",   options: ["OFF", "ON"], defaultIndex: 0),
+                                      isDisabled: true, rowLabel: "ULTRA GAIN"),
+                        GearParameter("TONE SHIFT",   options: ["OFF", "ON"], defaultIndex: 0, isDisabled: true),
                         GearParameter("Gain",     shortName: "GAIN",   rowLabel: "ULTRA GAIN"),
                         GearParameter("Volume",   shortName: "VOLUME", rowLabel: "ULTRA GAIN"),
                         GearParameter("ULTRA REVERB", shortName: "REVERB", rowLabel: "ULTRA GAIN"),
@@ -594,10 +621,20 @@ enum PedalSpec {
                         GearParameter("Bass",     shortName: "BASS"),
                         GearParameter("Presence", shortName: "PRESENCE"),
                         GearParameter("RESONANCE", isDisabled: true),
-                        GearParameter("Master",   shortName: "MASTER")]
+                        GearParameter("Master",   shortName: "MASTER 1"),
+                        GearParameter("Master 2", shortName: "MASTER 2", isDisabled: true)]
             }
-            if n.contains("rockerverb") {
+            // THE ROCKERVERT, LEFT TO RIGHT off its own faceplate. Two corrections
+            // to what was here: the clean channel has no MIDDLE — Volume, Treble
+            // and Bass is the whole of it — and the amp HAS an attenuator, which
+            // this did not. So the clean mid goes and the attenuator arrives,
+            // which is also what the artwork is drawn to.
+            //
+            // ATTENUATOR is drawn disabled: the power amp models one output stage
+            // and has nothing to attenuate into yet.
+            if n.contains("rockerver") {
                 return [GearParameter("CHANNEL", options: ["DIRTY", "CLEAN"], defaultIndex: 0),
+                        GearParameter("ATTENUATOR", shortName: "ATTENUATOR", isDisabled: true),
                         GearParameter("REVERB", shortName: "REVERB"),
                         GearParameter("Master",  shortName: "VOLUME", rowLabel: "DIRTY"),
                         GearParameter("Treble",  shortName: "TREBLE", rowLabel: "DIRTY"),
@@ -605,22 +642,28 @@ enum PedalSpec {
                         GearParameter("Bass",    shortName: "BASS",   rowLabel: "DIRTY"),
                         GearParameter("Gain",    shortName: "GAIN",   rowLabel: "DIRTY"),
                         GearParameter("Treble 2", shortName: "TREBLE", rowLabel: "CLEAN"),
-                        GearParameter("Mid 2",    shortName: "MIDDLE", rowLabel: "CLEAN"),
                         GearParameter("Bass 2",   shortName: "BASS",   rowLabel: "CLEAN"),
                         GearParameter("Volume 2", shortName: "VOLUME", rowLabel: "CLEAN")]
             }
-            if n.contains("katana") {
+            if n.contains("katana") || n.contains("ketana") {
                 var p: [GearParameter] = [
-                    // NO PRESENCE. Reported from the hardware; the panel is
-                    // Gain / Volume / Bass / Middle / Treble / Master plus the
-                    // character and FX sections, and a presence knob was carried
-                    // over from the shared six by mistake.
+                    // PRESENCE IS BACK. It was taken off as a knob carried over
+                    // from the shared six by mistake — but the faceplate prints
+                    // one, between MASTER and the effects, and the amp has it. It
+                    // drives the engine's presence role like any other.
                     GearParameter("Gain"), GearParameter("Bass"), GearParameter("Mid"),
                     GearParameter("Treble"),
-                    GearParameter("Volume"), GearParameter("Master"),
+                    GearParameter("Volume"), GearParameter("Presence"), GearParameter("Master"),
                     GearParameter("Character", options: ["Acoustic", "Clean", "Crunch", "Lead", "Brown"],
                                   defaultIndex: 2),
-                    GearParameter("Variation", options: ["A", "B"], defaultIndex: 0)]
+                    GearParameter("Variation", options: ["A", "B"], defaultIndex: 0),
+                    // The wattage selector the chassis has and the power amp does
+                    // not: one output stage, pinned to full (see RigGraphCompiler,
+                    // which reads power from the profile and deliberately ignores
+                    // any stored key). Drawn because it is on the amp, unringed
+                    // because nothing is behind it.
+                    GearParameter("POWER CONTROL", options: ["STANDBY", "0.5W", "HALF", "MAX"],
+                                  defaultIndex: 3, isDisabled: true)]
                 // THE FX SECTION. Five blocks, each a named group: a type
                 // selector (index 0 = Off, and the only STRUCTURAL control here,
                 // because it decides whether the block occupies a chain slot at

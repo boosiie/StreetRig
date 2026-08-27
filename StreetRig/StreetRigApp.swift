@@ -31,21 +31,6 @@ struct StreetRigApp: App {
         if ProcessInfo.processInfo.environment["STREETRIG_EXPORT"] == "1" {
             ModelExporter.exportAll()
         }
-        // The 2D sibling: bake every component's knob panel to an editable PNG in
-        // Documents/PanelArt (see PanelArtExporter). `=1` fills in what is
-        // missing and never touches a plate you have edited; `=force` replaces
-        // the lot with clean baselines.
-        if let mode = ProcessInfo.processInfo.environment["STREETRIG_EXPORT_PANELS"] {
-            _ = MainActor.assumeIsolated { PanelArtExporter.exportAll(force: mode == "force") }
-        }
-        // And the app icon: the three 1024² appearance variants iOS 26 wants, baked
-        // from the same `AmpLogoView` the splash draws (see AppIconExporter). `=1`
-        // for the catalog sizes, `=2`/`=3` for marketing renders, `=probe` to also
-        // write the render-route comparison. The bake itself is deferred to a later
-        // main-queue turn — there is no window scene yet at this point.
-        if let mode = ProcessInfo.processInfo.environment["STREETRIG_EXPORT_ICON"] {
-            MainActor.assumeIsolated { AppIconExporter.runFromLaunchEnvironment(mode) }
-        }
         #endif
     }
 
@@ -57,6 +42,43 @@ struct StreetRigApp: App {
                 .environmentObject(dragController)
                 .environmentObject(slotLift)
                 .environmentObject(onboarding)
+                // The 2D sibling of ModelExporter: bake every component's knob
+                // panel to an editable PNG in Documents/PanelArt (see
+                // PanelArtExporter). `=1` fills in what is missing and never
+                // touches a plate you have edited; `=force` replaces the lot with
+                // clean baselines.
+                //
+                // Here rather than in `init()` on purpose. A plate is rendered
+                // through `ImageRenderer`, and the metal finishes are `Canvas`
+                // drawings — that wants a live scene, not a half-built app.
+                .task { exportPanelsIfAsked() }
+                // The app icon, for the same reason and by the same route: three
+                // 1024² appearance variants baked from the `AmpLogoView` the
+                // splash draws (see AppIconExporter). `=1` for the catalog sizes,
+                // `=2`/`=3` for marketing renders, `=probe` to also write the
+                // render-route comparison.
+                //
+                // This one is MORE dependent on a live scene than the plates are,
+                // not less: the knobs are Metal `.colorEffect` shaders, and the
+                // shader library has to have resolved before `ImageRenderer` can
+                // rasterise them. An earlier cut ran this from `init()` behind a
+                // 1.5s `asyncAfter` to wait the scene out — a guess dressed up as
+                // a delay. `.task` just waits for the real thing.
+                .task { exportIconIfAsked() }
         }
+    }
+
+    private func exportPanelsIfAsked() {
+        #if DEBUG
+        guard let mode = ProcessInfo.processInfo.environment["STREETRIG_EXPORT_PANELS"] else { return }
+        PanelArtExporter.exportAll(force: mode == "force")
+        #endif
+    }
+
+    private func exportIconIfAsked() {
+        #if DEBUG
+        guard let mode = ProcessInfo.processInfo.environment["STREETRIG_EXPORT_ICON"] else { return }
+        AppIconExporter.runFromLaunchEnvironment(mode)
+        #endif
     }
 }

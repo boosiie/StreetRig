@@ -1,0 +1,88 @@
+{
+  "_comment": "Anchors measured from this artwork's placement marks; shades cover painted controls this build cannot drive.",
+  "captions": false,
+  "knobs": [
+    {
+      "param": "ATTENUATOR",
+      "x": 0.39275,
+      "y": 0.59491,
+      "d": 0.38889
+    },
+    {
+      "param": "REVERB",
+      "x": 0.44725,
+      "y": 0.59491,
+      "d": 0.38889
+    },
+    {
+      "param": "Master",
+      "x": 0.516,
+      "y": 0.59491,
+      "d": 0.38889
+    },
+    {
+      "param": "Treble",
+      "x": 0.56825,
+      "y": 0.61574,
+      "d": 0.32407
+    },
+    {
+      "param": "Mid",
+      "x": 0.619,
+      "y": 0.61574,
+      "d": 0.31944
+    },
+    {
+      "param": "Bass",
+      "x": 0.67,
+      "y": 0.61574,
+      "d": 0.31944
+    },
+    {
+      "param": "Gain",
+      "x": 0.72825,
+      "y": 0.59491,
+      "d": 0.38889
+    },
+    {
+      "param": "Treble 2",
+      "x": 0.7985,
+      "y": 0.61574,
+      "d": 0.31944
+    },
+    {
+      "param": "Bass 2",
+      "x": 0.8495,
+      "y": 0.61574,
+      "d": 0.31944
+    },
+    {
+      "param": "Volume 2",
+      "x": 0.90775,
+      "y": 0.59491,
+      "d": 0.38889
+    }
+  ],
+  "switches": [
+    {
+      "param": "CHANNEL",
+      "x": 0.3005,
+      "y": 0.62037,
+      "d": 0.20833
+    }
+  ],
+  "shades": [
+    {
+      "x": 0.229,
+      "y": 0.62037,
+      "w": 0.022,
+      "h": 0.20833
+    },
+    {
+      "x": 0.265,
+      "y": 0.62037,
+      "w": 0.022,
+      "h": 0.20833
+    }
+  ]
+}
