@@ -2,12 +2,21 @@
 //  MainView.swift
 //  StreetRig
 //
-//  The app shell: a persistent left MY GEAR rail and bottom control panel frame a
-//  center area that pages between four screens — the gear library, the rig, the
-//  AR pedal setup, and the player's profile. Move between them with the top
-//  arrows, by swiping the center area, or with a decisive horizontal swipe across
-//  the header — the dots under the title say which page you're on. A tapped rig
-//  component zooms into a control overlay.
+//  The app shell: a RETRACTABLE left MY GEAR drawer and a bottom control panel
+//  frame a center area that pages between four screens — the gear library, the
+//  rig, the AR pedal setup, and the player's profile. Move between them with the
+//  top arrows, by swiping the center area, or with a decisive horizontal swipe
+//  across the header — the dots under the title say which page you're on. A
+//  tapped rig component zooms into a control overlay.
+//
+//  THE DRAWER IS THE PLAYER'S, NOT THE APP'S. The rail is 150 of the 874 points
+//  a landscape-only phone has, and whether that is worth spending depends
+//  entirely on what is being done with the app: setting a rig up at a desk wants
+//  the gear in reach, a phone on the floor with a guitar over it wants the floor.
+//  The app used to answer that question for the player by hiding the rail on the
+//  pages it guessed did not want it; now the rail is on all four and a tab on its
+//  right edge retracts it, with each page only choosing where it STARTS (see
+//  `AppPage.remembersGearDrawer`).
 //
 //  PAGE ORDER IS `AppPage`'s `rawValue` AND NOTHING ELSE. `previous`/`next` do
 //  arithmetic on it and `pageDots` iterates `allCases`, so adding a page is one
@@ -33,6 +42,30 @@ enum AppPage: Int, CaseIterable, Hashable {
 
     var previous: AppPage? { AppPage(rawValue: rawValue - 1) }
     var next: AppPage? { AppPage(rawValue: rawValue + 1) }
+
+    /// Whether opening or closing the MY GEAR drawer ON THIS PAGE is a preference
+    /// worth keeping, or a one-off reach.
+    ///
+    /// THE ONE PER-PAGE EXCEPTION IN THIS FILE, and it is deliberately a single
+    /// exhaustive expression rather than an `if page == .ar` sprinkled through the
+    /// shell — the header above is right that scattered special cases make the
+    /// other pages unpredictable, and an exhaustive switch at least makes a fifth
+    /// page a compile error instead of a silent default.
+    ///
+    /// LIBRARY and RIG are where a rig gets built: gear is dragged out of the
+    /// drawer onto the stage and into it off the library grid, so how the player
+    /// leaves it there is how they want the app to open. AR and PROFILE have
+    /// nothing to drag onto by default — AR is a real floor seen through a lens
+    /// where every point of chrome is a point of floor a propped phone cannot
+    /// show, and profile wants its width for a name field — so they start closed
+    /// every time, and pulling the drawer out there is a reach for one thing, not
+    /// a change of mind about how the app opens.
+    var remembersGearDrawer: Bool {
+        switch self {
+        case .library, .main: return true
+        case .ar, .profile:   return false
+        }
+    }
 }
 
 struct MainView: View {
@@ -41,10 +74,10 @@ struct MainView: View {
     /// switch — see `ARSlotLift`. Two renders per lift, not one per finger move.
     @EnvironmentObject private var slotLift: ARSlotLift
     @EnvironmentObject var drag: RigDragController
-    /// The tutorial. Observed by the shell for two things only: which page the
-    /// tour wants to be on, and whether the trash target has to be shown while
-    /// the step that explains it is up. Everything else the tour does, it draws
-    /// itself in `CoachMarkOverlay`.
+    /// The tutorial. Observed by the shell for three things only: which page the
+    /// tour wants to be on, and whether the trash target or the gear drawer has to
+    /// be shown while the step that explains it is up. Everything else the tour
+    /// does, it draws itself in `CoachMarkOverlay`.
     @EnvironmentObject private var onboarding: OnboardingCoordinator
     @State private var focused: RigComponent?
     @State private var page: AppPage = .main
@@ -53,33 +86,46 @@ struct MainView: View {
     @State private var libraryDestination: LibraryContentView.Drill?
     @State private var showCredits = false
 
-    /// Whether the current page runs edge to edge with the app chrome hidden.
+    /// HOW THE PLAYER LIKES THE DRAWER, and WHERE IT IS RIGHT NOW. Two values on
+    /// purpose, because they are two different questions: the preference is a
+    /// standing answer, the state is what this page is showing at this moment.
+    /// Collapsing one into the other would mean a reach for the drawer on the AR
+    /// page silently rewrote how the rig page opens tomorrow.
+    @AppStorage("streetrig.gearDrawerOpen") private var drawerOpenPreference = true
+    @State private var drawerOpen = true
+
+    /// Whether this page's content is a live camera feed, which is the one thing
+    /// the AR page still gets treated differently for.
     ///
-    /// Only the AR page does. It is the one page whose content is a real floor seen
-    /// through a lens: the nav bar, the gear rail and the control panel between them
-    /// were taking about two thirds of the screen, which on a propped phone is two
-    /// thirds of the floor the player is trying to aim at. Everywhere else the chrome
-    /// IS the app and stays put.
-    private var immersive: Bool { page == .ar }
+    /// It used to be called `immersive` and it used to hide the nav bar, the rail
+    /// and the panel — the whole of the app's chrome — because 50 + 150 + 77 points
+    /// of it was two thirds of the floor a propped phone was trying to show. Two of
+    /// those three are now the player's to reclaim with the drawer, and the nav bar
+    /// came back for consistency, so what is left is narrow enough to say plainly:
+    /// this page is a camera, so it keeps the bottom 77 points and runs to the glass.
+    private var cameraPage: Bool { page == .ar }
+
+    /// Is the rail on screen? The player's answer, unless the tour needs it out —
+    /// exactly the arrangement `GearTrashTarget.forcedVisible` already uses, and for
+    /// the same reason: a spotlight cut over a rail that is not there is a hole in
+    /// the screen with nothing in it.
+    private var drawerShown: Bool { drawerOpen || onboarding.revealsGearRail }
 
     var body: some View {
         ZStack {
             RigTheme.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                if !immersive { topNav }
+                // ON EVERY PAGE NOW, THE AR ONE INCLUDED. The player asked for the
+                // same bar everywhere over a few more points of floor: a camera
+                // page with no header is a page with no visible way off it, and
+                // the pager's swipe is invisible over a live feed. The width it
+                // used to buy is the drawer's to give back instead.
+                topNav
                 HStack(spacing: 0) {
-                    // THE RAIL STANDS DOWN ON TWO PAGES NOW, for two different
-                    // reasons that happen to want the same thing.
-                    //
-                    // On PROFILE, because there is nothing there to drag gear onto,
-                    // so all the rail does is take 150 pt off a page that wants the
-                    // width for a name field and a settings list.
-                    //
-                    // On AR, because that page is a real floor seen through a lens
-                    // and every point of chrome is a point of floor a propped phone
-                    // cannot show the player.
-                    if !immersive, page != .profile {
+                    // THE RAIL IS ON ALL FOUR PAGES, and how much of it you see is
+                    // the tab's business, not the page's — see `gearDrawerTab`.
+                    if drawerShown {
                         CollectionTabView()
                             .coachMarkTarget(.gearRail)
                             .transition(.move(edge: .leading).combined(with: .opacity))
@@ -99,6 +145,27 @@ struct MainView: View {
                     // on, and the pager would otherwise take that movement as a
                     // swipe. Same switch the rail throws for the same reason.
                     .scrollDisabled(slotLift.armed)
+                    // AN OVERLAY ON THE PAGER, NOT A SIBLING BESIDE IT — and that
+                    // is a correction, made on a device with the app in hand.
+                    //
+                    // As a sibling the tab owned a column in the stack, and a column
+                    // is full height: 22 points wide from the nav bar to the control
+                    // panel, of which the handle covered 56. Every other point of it
+                    // showed the shell's background through, so what read on screen
+                    // was not a handle on the rail but a BLACK STRIP down the side of
+                    // the page with a chevron halfway along it.
+                    //
+                    // Floating costs the page nothing and leaves only the handle. The
+                    // objection to it was that a floating tab covers whatever the page
+                    // puts at its leading edge and takes taps meant for that — true,
+                    // but it is 44×56 points at the vertical centre of one edge, which
+                    // is the same region it was covering as a sibling anyway. A strip
+                    // the height of the screen was the larger of the two costs.
+                    //
+                    // `.gearRail` still stays on `CollectionTabView` alone: the tour's
+                    // spotlight is for the rail, and a handle stuck to the outside of
+                    // that rect would widen the hole by a tab for no reason.
+                    .overlay(alignment: .leading) { gearDrawerTab }
                     // The trash lives HERE — top-left of the centre area, just
                     // past the MY GEAR rail — so it is somewhere you drag TO,
                     // equally reachable from the rail and from the rig stage.
@@ -108,14 +175,20 @@ struct MainView: View {
                     // outside the UIPageViewController bridge, where measurements
                     // still mean what they say (see RigDragController.appRootOrigin).
                     .overlay(alignment: .topLeading) {
-                        // Hidden on the AR page for the same reason the rail is —
-                        // but it keeps the tour's forced reveal, so the step that
-                        // explains the trash still works everywhere it can be shown.
-                        if !immersive {
-                            GearTrashTarget(forcedVisible: onboarding.revealsTrash)
-                                .padding(.leading, 10)
-                                .padding(.top, 8)
-                        }
+                        // ON EVERY PAGE, because the question is "can a drag start
+                        // here", not "which page is this" — and the answer is now
+                        // yes everywhere. The drawer reaches all four pages, so a
+                        // rail card can be lifted on any of them; the stage and the
+                        // AR footswitches are drag sources in their own right. This
+                        // used to be switched off on AR along with the rail, which
+                        // left a pedal pulled off a switch there with nowhere to
+                        // drop — a drag with no target is worse than a visible bin.
+                        //
+                        // Costs nothing when idle: it is drawn at zero opacity and
+                        // takes no hits until something is actually moving.
+                        GearTrashTarget(forcedVisible: onboarding.revealsTrash)
+                            .padding(.leading, 10)
+                            .padding(.top, 8)
                     }
                     // The pager's own rectangle, tagged OUTSIDE the bridge. It is
                     // both the spotlight for the four "here is a page" steps and
@@ -123,25 +196,46 @@ struct MainView: View {
                     // looking wrong — see CoachMarkAnchor's header.
                     .coachMarkTarget(.pageArea)
                 }
-                // Same reasoning as the rail: on the AR page the control panel is
-                // 77 pt of floor the player cannot see. It keeps its coach-mark
+                // THE CAMERA RUNS TO THE GLASS; THE NAV BAR DOES NOT.
+                //
+                // This modifier used to sit one level out, on the VStack, reading
+                // `immersive ? .all : []`, and the note it carried is still true and
+                // still load-bearing: put it a level DOWN, on the TabView, and the
+                // page measured 750×293 on a screen larger in both directions,
+                // because a child cannot grow past a parent that has already been
+                // inset — the HStack and the VStack had taken the insets before the
+                // page ever saw them.
+                //
+                // What changed is that the nav bar is now on the camera page too. A
+                // bar inside a stack that ignores the safe area puts its left arrow
+                // under a landscape notch inset, so the VStack cannot be the one to
+                // ignore it any more. This band — rail, tab and pager — is a direct
+                // child of a stack that has NOT consumed its insets, which is the
+                // one condition the failure above was missing, so it can still take
+                // them itself. The bar keeps the safe area; everything under it
+                // gives it up.
+                //
+                // `.horizontal` and `.bottom`, never `.all`: there is nothing above
+                // this band to reclaim — the nav bar is up there — and `.top` would
+                // pull it up underneath the bar it is supposed to sit below.
+                //
+                // THE PRICE, SAID OUT LOUD: the drawer tab is in this band, so on the
+                // camera page it parks against the glass rather than against the safe
+                // area, which in one of the two landscape orientations puts it beside
+                // the sensor housing. It is the one control out there and it is still
+                // whole and still 44 points to aim at; the alternative is a black bar
+                // down the side of a page whose entire job is to show the floor.
+                .ignoresSafeArea(edges: cameraPage ? [.horizontal, .bottom] : [])
+                // THE ONE PIECE OF CHROME THE CAMERA PAGE STILL TAKES BACK. On the
+                // AR page the control panel is 77 pt of floor the player cannot
+                // see, and unlike the rail it has no handle to pull it out with —
+                // it is out of scope here on purpose. It keeps its coach-mark
                 // target for every page that still shows it.
-                if !immersive {
+                if !cameraPage {
                     ControlPanelView()
                         .coachMarkTarget(.controlPanel)
                 }
             }
-            // The AR page is aimed at a floor from ankle height and read from
-            // standing. Every point the chrome keeps is a point of floor the player
-            // cannot see, so on that page it gets the glass.
-            //
-            // ON THE VSTACK, NOT ON THE TABVIEW INSIDE IT, and that move is the
-            // difference between nearly full-screen and full-screen. A child cannot
-            // grow past a parent that has already been inset: with this a level lower
-            // the page measured 750×293 on a device whose screen is larger in both
-            // directions — the safe-area inset had been taken by the stack before the
-            // page ever saw it.
-            .ignoresSafeArea(edges: immersive ? .all : [])
             // THE SHELL DOES NOT MOVE FOR THE KEYBOARD, and this one line is the
             // whole reason the profile page's name field is usable.
             //
@@ -157,28 +251,10 @@ struct MainView: View {
             // sit at the top of their column.
             .ignoresSafeArea(.keyboard, edges: .bottom)
 
-            // Hiding `topNav` took the only VISIBLE way off this page with it. The
-            // pager still swipes, but a full-screen camera feed gives no hint that it
-            // does, and "I could not get out of the AR page" is a worse bug than a
-            // cramped one. Deliberately small and low-contrast: it is an exit, not a
-            // control the player needs mid-song.
-            if immersive {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { page = .main }
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(RigTheme.textMuted)
-                        .frame(width: 34, height: 34)
-                        .background(Circle().fill(.black.opacity(0.45)))
-                        .overlay(Circle().strokeBorder(.white.opacity(0.14), lineWidth: 1))
-                }
-                .padding(.leading, 14)
-                .padding(.top, 10)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .zIndex(3)
-            }
-
+            // (A small chevron used to float here on the AR page. It existed only
+            // because hiding `topNav` took the only visible way off that page with
+            // it — its own comment said so. The bar is back, and a second, quieter
+            // exit sitting on top of the real one is just something else to explain.)
 
             if let component = focused {
                 ComponentDetailView(component: component) {
@@ -239,8 +315,114 @@ struct MainView: View {
         }
         // …and reports back once it has landed, so a step that points INSIDE the
         // pager waits for the page instead of spotlighting the outgoing one.
-        .onChange(of: page) { _, current in onboarding.currentPage = current }
-        .onAppear { onboarding.currentPage = page }
+        .onChange(of: page) { _, current in
+            onboarding.currentPage = current
+            // Arriving somewhere puts the drawer where that page starts. Animated
+            // by hand because an `onChange` body runs in its own transaction — the
+            // `withAnimation` that moved the page is long finished by the time this
+            // is called, so without this the rail would blink in or out beside a
+            // page that is still sliding.
+            syncGearDrawer(to: current, animated: true)
+        }
+        .onAppear {
+            onboarding.currentPage = page
+            // Launching is an arrival too, and the one that makes the preference
+            // worth storing at all: the app opens on RIG, so this is where a player
+            // who closed the drawer last time finds it still closed.
+            syncGearDrawer(to: page, animated: false)
+        }
+    }
+
+    // MARK: - The MY GEAR drawer
+
+    /// The handle on the rail's right edge, and the whole of the drawer's control
+    /// surface — there is deliberately no second way to collapse it, no settings
+    /// toggle and no gesture, because a control the player cannot find is worse
+    /// than one that is always in the same place.
+    ///
+    /// Small on purpose: 22 × 56 is a handle, not a button bar, and it is parked
+    /// against the glass for the whole time the rail is away. The hit area is
+    /// another matter — see the padding pair below.
+    private var gearDrawerTab: some View {
+        Button { toggleGearDrawer() } label: {
+            // Points the way it will MOVE, not at what is behind it: open, it will
+            // travel left and take the rail with it.
+            Image(systemName: drawerShown ? "chevron.left" : "chevron.right")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(RigTheme.textMuted)
+                .frame(width: Self.drawerTabWidth, height: Self.drawerTabHeight)
+                .background(
+                    UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
+                                           bottomTrailingRadius: 7, topTrailingRadius: 7)
+                        .fill(RigTheme.surface)
+                )
+                .overlay(
+                    UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
+                                           bottomTrailingRadius: 7, topTrailingRadius: 7)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                )
+                // A 22pt-wide target is not a legal one. Pad the touchable area out
+                // to 44 and take the shape at THAT size — the extra 22 points hang
+                // over the page, invisible. Nothing has to be handed back: this
+                // floats, and an overlay reserves no width to begin with.
+                .padding(.trailing, Self.drawerTabHitWidth - Self.drawerTabWidth)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(drawerShown ? "Hide the MY GEAR rail" : "Show the MY GEAR rail")
+        // DRAGGING GEAR IN STILL HAS TO WORK. Pulling a card off the GEAR LIBRARY
+        // grid onto the rail is the only way to add gear to the collection, so a
+        // collapsed rail would silently delete that path. Hovering the tab springs
+        // the drawer open — and the tab takes the drop itself, through the same
+        // `store.addToCollection` the rail calls, rather than trusting the rail to
+        // have arrived under the finger in time to catch it.
+        .dropDestination(for: GearItem.self) { items, _ in
+            var added = false
+            for item in items where !store.isOwned(item) {
+                store.addToCollection(item)
+                added = true
+            }
+            return added
+        } isTargeted: { targeted in
+            // Opening to receive a drop is the app getting out of the way, not the
+            // player changing their mind — so it moves the drawer and writes
+            // nothing. Come back to this page later and it is closed again.
+            guard targeted, !drawerOpen else { return }
+            moveGearDrawer(to: true, animated: true)
+        }
+    }
+
+    private static let drawerTabWidth: CGFloat = 22
+    private static let drawerTabHeight: CGFloat = 56
+    /// The 44pt minimum a target has to be to be worth aiming at.
+    private static let drawerTabHitWidth: CGFloat = 44
+
+    /// The tab was pressed. THE ONLY PLACE THE PREFERENCE IS EVER WRITTEN, and
+    /// only from the pages that keep one — see `AppPage.remembersGearDrawer`.
+    private func toggleGearDrawer() {
+        let open = !drawerOpen
+        moveGearDrawer(to: open, animated: true)
+        if page.remembersGearDrawer { drawerOpenPreference = open }
+    }
+
+    /// Slide the drawer, deciding nothing about how the app opens next time.
+    private func moveGearDrawer(to open: Bool, animated: Bool) {
+        guard drawerOpen != open else { return }
+        guard animated else {
+            drawerOpen = open
+            return
+        }
+        // The pager's curve and the nav arrows', not a third one: this moves the
+        // same 150pt band across the screen that those move a whole page across,
+        // and a shell with three motion vocabularies reads as three apps.
+        withAnimation(.easeInOut(duration: 0.28)) { drawerOpen = open }
+    }
+
+    /// Put the drawer where `page` says it starts: the remembered state on the
+    /// pages that keep one, shut on the pages that do not.
+    private func syncGearDrawer(to page: AppPage, animated: Bool) {
+        moveGearDrawer(to: page.remembersGearDrawer ? drawerOpenPreference : false,
+                       animated: animated)
     }
 
     /// The no-amp warning's destination: the amp models, not merely the library's
