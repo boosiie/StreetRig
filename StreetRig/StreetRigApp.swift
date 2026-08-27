@@ -11,8 +11,18 @@ import StreetRigEngine
 @main
 struct StreetRigApp: App {
     @StateObject private var store = RigStore()
+    /// The player's name and avatar. Injected alongside `store` and for the same
+    /// reason: it is read by the profile page today and will be read by the
+    /// forthcoming tutorial and (very likely) the top nav, and a second instance
+    /// would be a second copy of the same file racing the first to write it.
+    @StateObject private var profileStore = ProfileStore()
     @StateObject private var dragController = RigDragController()
     @StateObject private var slotLift = ARSlotLift()
+    /// The tutorial's state. Owned here rather than in `ContentView` because two
+    /// unrelated places have to see it: the splash gate that starts the
+    /// first-run chain, and `MainView`, which the coach-mark tour has to be able
+    /// to page. See `OnboardingCoordinator`'s header.
+    @StateObject private var onboarding = OnboardingCoordinator()
 
     init() {
         #if DEBUG
@@ -35,8 +45,10 @@ struct StreetRigApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(store)
+                .environmentObject(profileStore)
                 .environmentObject(dragController)
                 .environmentObject(slotLift)
+                .environmentObject(onboarding)
         }
     }
 }

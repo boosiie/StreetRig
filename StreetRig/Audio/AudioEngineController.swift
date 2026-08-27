@@ -133,6 +133,37 @@ final class AudioEngineController: ObservableObject {
         let defaults = UserDefaults.standard
         asksAboutNewDevices = defaults.object(forKey: Self.asksKey) as? Bool ?? true
         autoAdoptNewDevices = defaults.object(forKey: Self.adoptKey) as? Bool ?? true
+        observeDevicePreferenceChanges()
+    }
+
+    /// Re-read the two device preferences when something else writes them.
+    ///
+    /// WHY THIS IS HERE. Those two lines above run ONCE, and this object lives for
+    /// the whole session — so before this, a player who changed the preference on
+    /// the profile page would have been obeyed only after a relaunch, while the
+    /// live engine carried on with the value it read at startup. The profile page
+    /// writes the same `UserDefaults` keys deliberately rather than reaching for
+    /// this object; the full argument for that is at the top of `AppPreferences`,
+    /// and this observer is the price it agreed to pay.
+    ///
+    /// The write-back in each `didSet` cannot loop: a value is only assigned here
+    /// when it DIFFERS from what is held, so the resulting `set` is a no-op write
+    /// of a value already on disk and the next notification finds nothing to do.
+    private func observeDevicePreferenceChanges() {
+        observers.append(
+            NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
+                                                   object: UserDefaults.standard,
+                                                   queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    let defaults = UserDefaults.standard
+                    let asks = defaults.object(forKey: Self.asksKey) as? Bool ?? true
+                    let adopt = defaults.object(forKey: Self.adoptKey) as? Bool ?? true
+                    if asks != self.asksAboutNewDevices { self.asksAboutNewDevices = asks }
+                    if adopt != self.autoAdoptNewDevices { self.autoAdoptNewDevices = adopt }
+                }
+            }
+        )
     }
 
     deinit {
@@ -221,7 +252,14 @@ final class AudioEngineController: ObservableObject {
             // the floor with a guitar in the way, so iOS reads a live rig as an
             // idle device and locks it mid-song. Held awake for exactly as long
             // as the engine is running, and handed straight back on teardown.
-            UIApplication.shared.isIdleTimerDisabled = true
+            //
+            // Now asks first (profile page → Display → "Keep the screen awake").
+            // The old unconditional hold was right for a phone propped in front
+            // of a player and wrong for one left running on a desk, and there was
+            // no way to say which. `teardown()` still clears it unconditionally —
+            // releasing a hold you never took is harmless, and it means turning
+            // the preference off mid-session cannot strand the screen awake.
+            UIApplication.shared.isIdleTimerDisabled = AppPreferences.keepScreenAwakeEnabled
             log("Live engine started. \(latencyLine())")
         } catch {
             status = .error(error.localizedDescription)

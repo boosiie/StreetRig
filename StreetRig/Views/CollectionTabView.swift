@@ -107,6 +107,12 @@ struct CollectionTabView: View {
         } isTargeted: { isDropTargeted = $0 }
     }
 
+    /// The card the coach-mark tour points at when it teaches the hold-and-drag.
+    /// The SAME card the one-shot hint hops, and for the same reason: it is the
+    /// first thing in the rail, so it is on screen without scrolling and it is
+    /// where a new player's eye already is.
+    private var tourCardID: GearItem.ID? { ampsAndCabs.first?.id ?? pedals.first?.id }
+
     @ViewBuilder
     private func section(_ title: String, items: [GearItem]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -114,7 +120,10 @@ struct CollectionTabView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .tracking(1.2)
                 .foregroundStyle(RigTheme.trim.opacity(0.9))
-            ForEach(items) { GearCardView(item: $0, held: $heldCard, demoLift: $0.id == demoTarget) }
+            ForEach(items) { item in
+                GearCardView(item: item, held: $heldCard, demoLift: item.id == demoTarget)
+                    .coachMarkTargetIf(item.id == tourCardID, .railCard)
+            }
         }
     }
 }

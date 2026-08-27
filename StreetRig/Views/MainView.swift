@@ -3,24 +3,31 @@
 //  StreetRig
 //
 //  The app shell: a persistent left MY GEAR rail and bottom control panel frame a
-//  center area that pages between three screens — the gear library (left), the
-//  rig (center), and the AR pedal setup (right). Move between them with the top
+//  center area that pages between four screens — the gear library, the rig, the
+//  AR pedal setup, and the player's profile. Move between them with the top
 //  arrows, by swiping the center area, or with a decisive horizontal swipe across
 //  the header — the dots under the title say which page you're on. A tapped rig
 //  component zooms into a control overlay.
+//
+//  PAGE ORDER IS `AppPage`'s `rawValue` AND NOTHING ELSE. `previous`/`next` do
+//  arithmetic on it and `pageDots` iterates `allCases`, so adding a page is one
+//  case plus one `.tag` — the arrows, the dots and both swipes follow for free.
+//  Resist adding a special case here; the moment one page is exceptional the
+//  other three stop being predictable.
 //
 
 import SwiftUI
 import StreetRigEngine
 
 enum AppPage: Int, CaseIterable, Hashable {
-    case library = 0, main = 1, ar = 2
+    case library = 0, main = 1, ar = 2, profile = 3
 
     var title: String {
         switch self {
         case .library:  return "GEAR LIBRARY"
         case .main:     return "MY RIG"
         case .ar:       return "PEDAL AR"
+        case .profile:  return "PROFILE"
         }
     }
 
@@ -34,6 +41,11 @@ struct MainView: View {
     /// switch — see `ARSlotLift`. Two renders per lift, not one per finger move.
     @EnvironmentObject private var slotLift: ARSlotLift
     @EnvironmentObject var drag: RigDragController
+    /// The tutorial. Observed by the shell for two things only: which page the
+    /// tour wants to be on, and whether the trash target has to be shown while
+    /// the step that explains it is up. Everything else the tour does, it draws
+    /// itself in `CoachMarkOverlay`.
+    @EnvironmentObject private var onboarding: OnboardingCoordinator
     @State private var focused: RigComponent?
     @State private var page: AppPage = .main
     /// Where the library should open when something sends the player there — the
@@ -49,6 +61,7 @@ struct MainView: View {
                 topNav
                 HStack(spacing: 0) {
                     CollectionTabView()
+                        .coachMarkTarget(.gearRail)
                     TabView(selection: $page) {
                         LibraryContentView(openAt: $libraryDestination)
                             .tag(AppPage.library)
@@ -56,6 +69,8 @@ struct MainView: View {
                             .tag(AppPage.main)
                         ARPedalSetupView()
                             .tag(AppPage.ar)
+                        ProfileView()
+                            .tag(AppPage.profile)
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
                     // A held AR pedal has to be draggable across the page it sits
@@ -71,13 +86,33 @@ struct MainView: View {
                     // outside the UIPageViewController bridge, where measurements
                     // still mean what they say (see RigDragController.appRootOrigin).
                     .overlay(alignment: .topLeading) {
-                        GearTrashTarget()
+                        GearTrashTarget(forcedVisible: onboarding.revealsTrash)
                             .padding(.leading, 10)
                             .padding(.top, 8)
                     }
+                    // The pager's own rectangle, tagged OUTSIDE the bridge. It is
+                    // both the spotlight for the four "here is a page" steps and
+                    // the fallback for any anchor that comes back out of a page
+                    // looking wrong — see CoachMarkAnchor's header.
+                    .coachMarkTarget(.pageArea)
                 }
                 ControlPanelView()
+                    .coachMarkTarget(.controlPanel)
             }
+            // THE SHELL DOES NOT MOVE FOR THE KEYBOARD, and this one line is the
+            // whole reason the profile page's name field is usable.
+            //
+            // SwiftUI's default is to inset the hierarchy above the keyboard. In
+            // PORTRAIT that is right. This app is landscape-only, where the
+            // keyboard takes ~230 of 402 points: the shell would have to fit its
+            // top nav (50pt) and control panel (77pt) into the 172 that are left,
+            // leaving the page itself about 45 points tall — every page, not just
+            // the one with the field. The keyboard now simply covers the bottom of
+            // the app, which is where the control panel is and where nothing is
+            // being typed. Pages with text fields must keep them in the top half;
+            // both that do (the library's search box, the profile's name) already
+            // sit at the top of their column.
+            .ignoresSafeArea(.keyboard, edges: .bottom)
 
             if let component = focused {
                 ComponentDetailView(component: component) {
@@ -101,6 +136,31 @@ struct MainView: View {
         // only place the answer can't be wrong (see RigDragController.appRootOrigin).
         .background(appRootOriginReader)
         .sheet(isPresented: $showCredits) { CreditsView() }
+        // THE TOUR. One reader for every tagged target in the shell, resolving
+        // the lot into THIS view's space in a single pass — which is the point
+        // of anchors over published frames (see CoachMarkAnchor).
+        .overlayPreferenceValue(CoachMarkAnchorKey.self) { anchors in
+            GeometryReader { proxy in
+                ZStack {
+                    CoachMarkOverlay(coordinator: onboarding, anchors: anchors, proxy: proxy)
+                    #if DEBUG
+                    if CoachMarkProbeOverlay.isEnabled {
+                        CoachMarkProbeOverlay(anchors: anchors, proxy: proxy)
+                    }
+                    #endif
+                }
+            }
+        }
+        // The tour ASKS for a page; the shell moves. Using the shell's own
+        // transition, deliberately — see OnboardingCoordinator's header.
+        .onChange(of: onboarding.requestedPage) { _, requested in
+            guard let requested, requested != page else { return }
+            withAnimation(.easeInOut(duration: 0.28)) { page = requested }
+        }
+        // …and reports back once it has landed, so a step that points INSIDE the
+        // pager waits for the page instead of spotlighting the outgoing one.
+        .onChange(of: page) { _, current in onboarding.currentPage = current }
+        .onAppear { onboarding.currentPage = page }
     }
 
     /// The no-amp warning's destination: the amp models, not merely the library's
@@ -147,6 +207,7 @@ struct MainView: View {
         .overlay(alignment: .bottom) { Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1) }
         .contentShape(Rectangle())   // the gaps beside the title are swipeable too
         .gesture(headerSwipe)
+        .coachMarkTarget(.header)
     }
 
     /// Opens third-party attribution. Deliberately quiet — muted, not amber — since
@@ -161,6 +222,7 @@ struct MainView: View {
                 .contentShape(Rectangle())
         }
         .accessibilityLabel("Credits and licences")
+        .coachMarkTarget(.credits)
     }
 
     /// The visible hint that the header pages, and the only place the pager's
@@ -239,7 +301,10 @@ struct DragGhostView: View {
 #Preview {
     MainView()
         .environmentObject(RigStore.preview)
+        .environmentObject(ProfileStore.preview)
         .environmentObject(RigDragController())
+        .environmentObject(ARSlotLift())
+        .environmentObject(OnboardingCoordinator())
         .preferredColorScheme(.dark)
 }
 
@@ -252,6 +317,9 @@ struct DragGhostView: View {
     }
     return MainView()
         .environmentObject(store)
+        .environmentObject(ProfileStore.preview)
         .environmentObject(drag)
+        .environmentObject(ARSlotLift())
+        .environmentObject(OnboardingCoordinator())
         .preferredColorScheme(.dark)
 }
