@@ -24,12 +24,15 @@
 //  the least readable place to put the one word the player needs while standing.
 //  So: the OBJECT is in the world, the WRITING about it is on the screen.
 //
-//  SIZE IS NORMALISED, NOT TRUSTED. A `.usdz` a designer dropped in is authored in
-//  whatever units they were working in, and the procedural stand-in is built in the
-//  rig diorama's units where a pedal is 1.1 across. Either one placed at face value
-//  is a pedal the size of a car or a grain of rice. Every model is measured and
-//  scaled to a real pedal's width instead, which is also what makes a bespoke model
-//  and the fallback sit at the same size in the same row.
+//  SIZE IS NORMALISED, NOT TRUSTED — BUT NOT FLATTENED. A `.usdz` a designer
+//  dropped in is authored in whatever units they were working in, and placed at
+//  face value it is a pedal the size of a car or a grain of rice; those are
+//  measured and scaled to a real pedal's width. The procedural models are not.
+//  They are built in the rig diorama's units, where a compact stompbox is
+//  `ProceduralPedal.referenceWidth` across and a wah is deliberately wider and
+//  twice as long, so they scale by that ONE reference and keep their real-world
+//  size ratios to each other. Measuring each of them instead would make every
+//  archetype the same width on the floor and undo the point of having them.
 //
 //  THEY STAND ON A BOARD NOW, WHICH REVERSES SOMETHING THIS FILE SAID. `update` used
 //  to insist "a pedal lies flat on the floor"; with `FeatureFlags.arPedalboard` on it
@@ -524,12 +527,27 @@ final class ARFloorPedals {
     private static func pedalNode(_ pedal: GearItem) -> SCNNode {
         // The same resolution order as everywhere else the piece is drawn: a
         // bespoke `<slug>.usdz` if the designer supplied one, else the procedural
-        // stompbox. The AR page does not get its own look for the same gear.
-        let model = GearModelLoader.modelNode(for: pedal) ?? ProceduralPedal.build(for: pedal)
+        // archetype. The AR page does not get its own look for the same gear.
+        let custom = GearModelLoader.modelNode(for: pedal)
+        let model = custom ?? ProceduralPedal.build(for: pedal)
 
         let (minBox, maxBox) = model.boundingBox
         let width = max(maxBox.x - minBox.x, 0.0001)
-        let scale = pedalWidth / Float(width)
+
+        // RELATIVE SIZE IS THE WHOLE POINT OF THE ARCHETYPES, so the procedural
+        // models are NOT measured. Normalising each one to its own bounding box
+        // — what the header describes, and what this did — makes a wah and a
+        // compact exactly as wide as each other on the floor, which is the same
+        // "every pedal is one brick" problem the archetypes exist to fix. The
+        // procedural family is authored in known units, so it scales by the ONE
+        // reference width and keeps its proportions to its neighbours.
+        //
+        // A designer's `.usdz` still gets measured: it arrives in whatever units
+        // they were working in, and a model authored in millimetres placed at
+        // face value is a pedal the size of a room.
+        let scale = custom != nil
+            ? pedalWidth / Float(width)
+            : pedalWidth / Float(ProceduralPedal.referenceWidth)
 
         // Wrapped rather than scaled in place: the model's own transform belongs to
         // whoever authored it, and the sit-on-the-floor offset below has to be

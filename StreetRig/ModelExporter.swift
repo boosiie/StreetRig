@@ -31,13 +31,30 @@ enum ModelExporter {
         written += export(name: "StreetRig_Amp", into: docs) { root in
             ProceduralAmp.build(into: root)
         }
-        // A representative stompbox (3-knob)
-        written += export(name: "StreetRig_Pedal", into: docs) { root in
-            root.addChildNode(ProceduralPedal.build(for: GearItem(name: "Ibonez Tube Screamer", category: .overdrive)))
+        // One file per ENCLOSURE ARCHETYPE, not one representative stompbox.
+        // A designer refining "the pedal" used to be handed a generic box and
+        // had to guess what the wah or the Boss compact was supposed to be; each
+        // family now bakes the shape it is actually replacing. Driven off
+        // `allCases` so a new archetype exports itself with no edit here.
+        for archetype in PedalArchetype.allCases {
+            written += export(name: archetype.exportName, into: docs) { root in
+                root.addChildNode(ProceduralPedal.build(for: archetype.representativeItem))
+            }
         }
-        // Les Paul-style guitar body (no stand)
+        // Guitar body (no stand) — the model the app ACTUALLY renders, already
+        // fitted to the diorama's envelope by `GearModelLoader.guitarNode`.
+        //
+        // This deliberately no longer bakes `ProceduralGuitar.buildGuitar`: that
+        // body is retired and exporting it would hand you an editable baseline for
+        // something the app doesn't draw. What you get instead is the real guitar
+        // at its exact in-app scale, pivot and facing — which is the useful thing
+        // to author a replacement against, since dropping your own
+        // `category-guitar.usdz` in has to land in that same box.
+        //
+        // Note this is the heaviest export of the four (the bundled Stratocaster is
+        // ~150k triangles with 2048² textures), so it is the slow one to write.
         written += export(name: "StreetRig_Guitar", into: docs) { root in
-            ProceduralGuitar.buildGuitar(into: root)
+            root.addChildNode(GearModelLoader.guitarNode(for: GearItem(name: "Guitar", category: .guitar)))
         }
         // Guitar stand on its own — bind the refined file as "guitar-stand.usdz"
         written += export(name: "StreetRig_Stand", into: docs) { root in

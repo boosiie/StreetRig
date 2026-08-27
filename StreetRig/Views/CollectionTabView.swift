@@ -82,7 +82,14 @@ struct CollectionTabView: View {
         .frame(width: 150)
         .onAppear {
             guard !railHintShown else { return }
-            demoTarget = ampsAndCabs.first?.id ?? pedals.first?.id
+            // Demo a card that can actually lift. The first amp/cab is nearly
+            // always already in the rig, and hopping a card that then refuses to
+            // move teaches the exact opposite of what this hint is for. If every
+            // card is locked, spend nothing: leave the flag unset so the hint is
+            // still owed once something frees up.
+            guard let liftable = (ampsAndCabs + pedals).first(where: { !store.isInRig($0.id) })
+            else { return }
+            demoTarget = liftable.id
             railHintShown = true
         }
         .background(RigTheme.background.opacity(0.55))
@@ -107,6 +114,12 @@ struct CollectionTabView: View {
         } isTargeted: { isDropTargeted = $0 }
     }
 
+    /// The card the coach-mark tour points at when it teaches the hold-and-drag.
+    /// The SAME card the one-shot hint hops, and for the same reason: it is the
+    /// first thing in the rail, so it is on screen without scrolling and it is
+    /// where a new player's eye already is.
+    private var tourCardID: GearItem.ID? { ampsAndCabs.first?.id ?? pedals.first?.id }
+
     @ViewBuilder
     private func section(_ title: String, items: [GearItem]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -114,7 +127,14 @@ struct CollectionTabView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .tracking(1.2)
                 .foregroundStyle(RigTheme.trim.opacity(0.9))
-            ForEach(items) { GearCardView(item: $0, held: $heldCard, demoLift: $0.id == demoTarget) }
+            // Named rather than `$0`: the tour's anchor needs the id a second
+            // time, and three `$0.id`s in a row stops reading as one card.
+            ForEach(items) { item in
+                GearCardView(item: item, held: $heldCard,
+                             demoLift: item.id == demoTarget,
+                             inRig: store.isInRig(item.id))
+                    .coachMarkTargetIf(item.id == tourCardID, .railCard)
+            }
         }
     }
 }

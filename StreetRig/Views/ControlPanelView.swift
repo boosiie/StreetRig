@@ -326,6 +326,10 @@ struct ControlPanelSurface: View {
 
             engageButton
                 .frame(height: PanelMetrics.body)
+                // Just the button, not the whole zone: the tour's step here is
+                // about pressing PROCEED, and a spotlight that also took in the
+                // status line would be pointing at two things at once.
+                .coachMarkTarget(.transportZone)
         }
         .padding(.horizontal, PanelMetrics.zonePadding)
         .frame(width: 188)
