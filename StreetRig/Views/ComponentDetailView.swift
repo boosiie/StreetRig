@@ -29,6 +29,22 @@ struct ComponentDetailView: View {
     /// used, the notification is the whole point.
     @ObservedObject private var plateRevision = PanelArtRevision.shared
 
+    /// The switch the player just flicked, named over the panel for a moment.
+    /// A toggle on a faceplate carries no caption at arm's length, so touching
+    /// one has to say what it is and which way it now points.
+    @State private var flicked: FlickedSwitch?
+
+    struct FlickedSwitch: Equatable {
+        let param: String
+        let title: String
+        let detail: String
+        let inert: Bool
+        /// Where to hang the bubble, in the panel's own space.
+        let at: CGPoint
+        /// Bumped on every flick so a re-tap restarts the dismissal.
+        let serial: Int
+    }
+
     /// Which page the lower pane is showing. Only amps with an FX section have
     /// more than one; everything else never sees the picker.
     private enum Pane: String, CaseIterable { case levels = "LEVELS", fx = "FX", channels = "CHANNELS" }
@@ -99,7 +115,13 @@ struct ComponentDetailView: View {
         return label != live
     }
 
-    private var switches: [GearParameter] { params.filter { $0.isDiscrete && $0.group == nil } }
+    /// The strip under the panel: every selector the PLATE does not place. A
+    /// switch drawn live on the faceplate is flicked there instead, so listing it
+    /// twice would be two controls for one thing.
+    private var switches: [GearParameter] {
+        let placed = placement?.layout.placedSwitches.map(\.param) ?? []
+        return params.filter { $0.isDiscrete && $0.group == nil && !placed.contains($0.name) }
+    }
 
     /// The grouped controls, in declaration order, one entry per group.
     private var fxGroups: [(name: String, controls: [GearParameter])] { KnobPanelLayout.groups(params) }
@@ -142,8 +164,18 @@ struct ComponentDetailView: View {
                         // landscape sheet used to push the sliders — the controls the
                         // player actually drags — off the bottom; the cap plus the
                         // dock's own floor means both are always reachable.
+                        //
+                        // A HAND-DRAWN PLATE SETS THE PANEL'S SHAPE, and the cap is
+                        // still the ceiling. The panel's width is the DEVICE's, so a
+                        // plate authored to one machine's proportions is scaled up and
+                        // shaved at the ends on every other; taking the plate's aspect
+                        // lands the artwork edge to edge at any width with the knobs
+                        // still on their painted wells. A panel with no plate keeps
+                        // the row-derived height exactly as before.
                         knobPanel(id: id)
-                            .frame(height: KnobPanelLayout.height(params))
+                            .modifier(PlateShapedHeight(aspect: plateAspect,
+                                                        fixed: KnobPanelLayout.height(params),
+                                                        cap: KnobPanelLayout.cap(params)))
                         if !switches.isEmpty {
                             switchPanel(id: id, compact: tight)
                         }
@@ -215,9 +247,27 @@ struct ComponentDetailView: View {
                 Text(item?.name ?? "—")
                     .font(.headline.weight(.bold))
                     .foregroundStyle(RigTheme.textPrimary)
-                Text(item?.category.displayName ?? "")
-                    .font(.caption)
-                    .foregroundStyle(RigTheme.textMuted)
+                // THE KEY TO THE MARK. A ring means nothing to someone seeing the
+                // panel for the first time, so the legend spells it out and uses
+                // the SAME ring to say it. It also gives the count, which is the
+                // question behind the question: how much of this amp works?
+                if let liveCount {
+                    HStack(spacing: 5) {
+                        LiveRingSwatch()
+                        Text("\(liveCount.live) of \(liveCount.total) controls are live")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(RigTheme.textPrimary.opacity(0.9))
+                        Text("· tap a dim one to see why")
+                            .font(.caption2)
+                            .foregroundStyle(RigTheme.textMuted)
+                    }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                } else {
+                    Text(item?.category.displayName ?? "")
+                        .font(.caption)
+                        .foregroundStyle(RigTheme.textMuted)
+                }
             }
         }
     }
@@ -244,6 +294,216 @@ struct ComponentDetailView: View {
             )
             .overlay(
                 GeometryReader { geo in
+                    // A PLATE MAY PLACE ITS OWN KNOBS. When the artwork is a real
+                    // faceplate — printed scales, a well drawn for every knob —
+                    // spreading knobs evenly across the panel puts them BESIDE
+                    // their markings instead of in them, so the plate ships the
+                    // centres and the panel obeys them (see PanelKnobLayout).
+                    if let placement {
+                        anchoredKnobs(id: id, placement: placement, in: geo.size,
+                                      light: light, labelColor: labelColor)
+                    } else {
+                        automaticRows(id: id, in: geo, light: light, labelColor: labelColor)
+                    }
+                }
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .strokeBorder(.white.opacity(0.10), lineWidth: 1)
+            )
+    }
+
+    // MARK: - Knobs placed by the plate
+
+    /// The plate's own placement, when there is one AND it accounts for every dial
+    /// the piece has. A layout that has drifted from the amp behind it — a knob
+    /// added, a control renamed — falls back to the rows rather than leaving a
+    /// control undrawn and unreachable.
+    private var placement: (layout: PanelKnobLayout, plate: CGSize)? {
+        guard let layout = PanelArtLoader.knobLayout(for: item),
+              let art = PanelArtLoader.uiImage(for: item),
+              art.size.width > 0, art.size.height > 0,
+              dials.count == layout.knobs.count,
+              dials.allSatisfy({ layout.anchor(for: $0) != nil })
+        else { return nil }
+        return (layout, art.size)
+    }
+
+    /// How much of this amp is actually wired, for the header's legend. Counts
+    /// what the PANEL shows — its dials and the switches it places — because that
+    /// is the thing the player is looking at while reading the line. `nil` when
+    /// the panel is not a faceplate, where there are no rings to explain.
+    private var liveCount: (live: Int, total: Int)? {
+        guard let placement else { return nil }
+        let placed = placement.layout.placedSwitches.compactMap { sw in
+            params.first { $0.name == sw.param }
+        }
+        let all = dials + placed
+        guard !all.isEmpty else { return nil }
+        let live = all.filter {
+            !$0.isDisabled && !paramIsInactive($0) && !rowIsOffChannel($0.rowLabel)
+        }
+        return (live.count, all.count)
+    }
+
+    /// The proportions of a plate that places its own knobs, or `nil` for every
+    /// panel that is sized by its rows.
+    private var plateAspect: CGFloat? {
+        guard let placement, placement.plate.height > 0 else { return nil }
+        return placement.plate.width / placement.plate.height
+    }
+
+    /// Knobs pinned to the marks the artwork was drawn with.
+    ///
+    /// The plate is drawn fill-and-crop, so the anchors go through EXACTLY that
+    /// transform — scale to cover, then centre. A knob is glued to its painted
+    /// well whatever shape the panel ends up: on a wider screen the art scales up
+    /// and the knobs scale and move with it.
+    private func anchoredKnobs(id: UUID, placement: (layout: PanelKnobLayout, plate: CGSize),
+                               in size: CGSize, light: Bool, labelColor: Color) -> some View {
+        let (layout, plate) = placement
+        let scale = max(size.width / plate.width, size.height / plate.height)
+        let drawn = CGSize(width: plate.width * scale, height: plate.height * scale)
+        let origin = CGPoint(x: (size.width - drawn.width) / 2, y: (size.height - drawn.height) / 2)
+        // A faceplate knob is drawn at the size the artwork says, which can be
+        // smaller than a finger. The TOUCH area is grown to 44 pt where there is
+        // room — never past the gap to the nearest neighbour, or two knobs would
+        // fight over the same drag.
+        let ceiling = layout.tightestSpacing * drawn.height * 0.92
+
+        return ZStack(alignment: .topLeading) {
+            ForEach(dials) { param in
+                if let a = layout.anchor(for: param) {
+                    let diameter = a.d * drawn.height
+                    let hit = min(max(diameter, 44), max(diameter, ceiling))
+                    // In play = modelled, on the selected channel, and not gated
+                    // off by some other switch. All three are "not right now" in
+                    // the same way, and all three cost the ring.
+                    let inPlay = !param.isDisabled && !paramIsInactive(param)
+                                 && !rowIsOffChannel(param.rowLabel)
+                    VStack(spacing: 2) {
+                        InteractiveKnob(
+                            value: store.binding(itemId: id, param: param.name),
+                            range: param.min...param.max,
+                            onLight: light,
+                            drawnDiameter: diameter
+                        )
+                        .frame(width: hit, height: hit)
+                        // THE MARK IS ON WHAT WORKS. A knob with nothing behind it
+                        // is left exactly as the artwork drew it — no shade, no
+                        // dimming — and simply goes unringed. Shading the dead ones
+                        // made a working amp look broken as soon as an amp had more
+                        // unmodelled controls than modelled ones.
+                        .overlay { if inPlay { LiveRing(diameter: diameter) } }
+                        // A gated knob loses its ring the moment the switch moves,
+                        // so flicking CHANNEL visibly hands the rings to the other
+                        // row. That is the clearest thing the switch does.
+                        .animation(.easeOut(duration: 0.18), value: inPlay)
+                        if layout.drawsCaptions {
+                            Text(param.displayName)
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(labelColor)
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
+                    }
+                    // A DEAD KNOB STILL ANSWERS. It cannot be turned, but touching
+                    // it says what it is and that nothing is behind it — otherwise
+                    // removing the shade would have left a control that looks
+                    // ordinary, does nothing, and never says why.
+                    .contentShape(Circle())
+                    .onTapGesture {
+                        guard !inPlay else { return }
+                        flicked = FlickedSwitch(
+                            param: param.name,
+                            title: param.displayName,
+                            detail: param.isDisabled ? "" : "not on this channel",
+                            inert: param.isDisabled,
+                            at: CGPoint(x: origin.x + a.x * drawn.width,
+                                        y: origin.y + a.y * drawn.height),
+                            serial: (flicked?.serial ?? 0) + 1)
+                    }
+                    .allowsHitTesting(true)
+                    .position(x: origin.x + a.x * drawn.width,
+                              y: origin.y + a.y * drawn.height)
+                }
+            }
+
+            // NOTHING IS DRAWN OVER THE FURNITURE any more. A shaded socket looks
+            // like a fault rather than like a socket, and under positive marking
+            // it needs no mark at all: it has no ring because it is not a control.
+            // The measured regions stay in the sidecar — they are what a
+            // touch-to-explain pass would hang off — but they paint nothing.
+
+            // The switches the plate draws, made live in place — see PanelToggle.
+            ForEach(layout.placedSwitches, id: \.param) { placed in
+                if let param = params.first(where: { $0.name == placed.param }),
+                   let options = param.options {
+                    let at = CGPoint(x: origin.x + placed.x * drawn.width,
+                                     y: origin.y + placed.y * drawn.height)
+                    ForEach(Array(placed.indicators.enumerated()), id: \.offset) { _, lamp in
+                        PanelLamp(color: Color(panelHex: lamp.color),
+                                  diameter: lamp.d * drawn.height,
+                                  lit: lamp.on.contains(liveIndex(id: id, param: param)))
+                            .position(x: origin.x + lamp.x * drawn.width,
+                                      y: origin.y + lamp.y * drawn.height)
+                    }
+                    let named: (Int) -> Void = { landed in
+                        flicked = FlickedSwitch(
+                            param: param.name,
+                            title: param.displayName,
+                            detail: options.indices.contains(landed) ? options[landed] : "",
+                            inert: param.isDisabled,
+                            at: at,
+                            serial: (flicked?.serial ?? 0) + 1)
+                    }
+                    let body = placed.d * drawn.height
+                    Group {
+                        if placed.isRotary {
+                            PanelSelector(value: store.binding(itemId: id, param: param.name),
+                                          options: options, diameter: body, onLight: light,
+                                          inert: param.isDisabled,
+                                          stepDegrees: placed.step ?? 45, onFlick: named)
+                        } else {
+                            PanelToggle(value: store.binding(itemId: id, param: param.name),
+                                        options: options, diameter: body,
+                                        inert: param.isDisabled, onFlick: named)
+                        }
+                    }
+                    .frame(width: min(max(body, 44), ceiling),
+                           height: min(max(body, 44), ceiling))
+                    .position(at)
+                }
+            }
+
+            // …and what the flicked switch is called. Above it where there is
+            // room, below it where there is not, so the bubble never leaves the
+            // panel it belongs to.
+            if let flicked {
+                let above = flicked.at.y > size.height * 0.5
+                PanelTooltip(title: flicked.title, detail: flicked.detail, inert: flicked.inert)
+                    .position(x: min(max(flicked.at.x, 70), size.width - 70),
+                              y: above ? max(14, flicked.at.y - 26) : min(size.height - 14, flicked.at.y + 26))
+                    .id(flicked.serial)
+                    .task(id: flicked.serial) {
+                        try? await Task.sleep(for: .seconds(2.5))
+                        withAnimation(.easeOut(duration: 0.2)) { self.flicked = nil }
+                    }
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: flicked?.serial)
+    }
+
+    /// Which position a selector is currently on.
+    private func liveIndex(id: UUID, param: GearParameter) -> Int {
+        Int((store.item(id)?.values[param.name] ?? param.defaultValue).rounded())
+    }
+
+    // MARK: - Knobs laid out in rows (every plate that doesn't place its own)
+
+    private func automaticRows(id: UUID, in geo: GeometryProxy,
+                               light: Bool, labelColor: Color) -> some View {
+        Group {
                     // THE FLOOR IS GONE. A 48 pt minimum meant nineteen knobs ran
                     // off the side of the panel rather than getting smaller; 26 pt
                     // is still a legible dial and the row always fits now. Rows are
@@ -295,12 +555,7 @@ struct ComponentDetailView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 5)
                     .frame(width: geo.size.width, height: geo.size.height)
-                }
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .strokeBorder(.white.opacity(0.10), lineWidth: 1)
-            )
+        }
     }
 
     /// The panel's surface: the piece's own faceplate PNG if one exists, else the
@@ -464,6 +719,20 @@ struct ComponentDetailView: View {
                             }
                         }
                         .opacity(off ? 0.55 : 1)
+                    }
+                    // SHADED LIKE A DEAD KNOB, for the same reason: MODE, VOICE,
+                    // PATCH, BRIGHT and the rest are real switches with nothing
+                    // behind them — the engine takes an amp's voicing from its
+                    // profile. They stay pressable; the shade only says they are
+                    // not in the signal path.
+                    .opacity(param.isDisabled ? 0.5 : 1)
+                    .overlay {
+                        if param.isDisabled {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(.black.opacity(0.28))
+                                .blendMode(.multiply)
+                                .allowsHitTesting(false)
+                        }
                     }
                     .frame(width: unit * counts[i])
                 }
@@ -797,17 +1066,52 @@ struct ComponentDetailView: View {
     }
 }
 
+/// Height for a panel whose plate is a real faceplate: the width it is given,
+/// divided by the artwork's aspect, and never past the cap. Falls back to the
+/// row-derived height when there is no such plate — which is every panel that
+/// does not ship a knob layout.
+private struct PlateShapedHeight: ViewModifier {
+    let aspect: CGFloat?
+    let fixed: CGFloat
+    let cap: CGFloat
+
+    /// Measured rather than inferred: `aspectRatio(_:contentMode:)` resolves
+    /// against a proposal, and inside a VStack the height proposal is the one
+    /// thing that isn't settled yet. The width is, so read it and do the division.
+    @State private var width: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .frame(height: height)
+            // `onGeometryChange`, not the older measure-through-a-preference
+            // recipe: that one's callback is `@Sendable` now and the state write
+            // never reached the view graph — the panel kept its fixed height and
+            // the plate kept being cropped, silently.
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+    }
+
+    private var height: CGFloat {
+        guard let aspect, aspect > 0, width > 0 else { return fixed }
+        return min(cap, width / aspect)
+    }
+}
+
 /// A rotary knob whose pointer reflects `value`; drag up/down to turn it.
 struct InteractiveKnob: View {
     @Binding var value: Double
     var range: ClosedRange<Double>
     var onLight: Bool = false
+    /// Draw at this size instead of filling the frame, so the frame can be the
+    /// TOUCH target. A faceplate places its knobs at the size the artwork says,
+    /// which is often smaller than a fingertip; separating the two lets a 23 pt
+    /// knob take a 44 pt drag without growing on screen.
+    var drawnDiameter: CGFloat? = nil
 
     @State private var startValue: Double?
 
     var body: some View {
         GeometryReader { geo in
-            let s = min(geo.size.width, geo.size.height)
+            let s = drawnDiameter ?? min(geo.size.width, geo.size.height)
             let span = range.upperBound - range.lowerBound
             let frac = span > 0 ? (value - range.lowerBound) / span : 0
             let angle = Angle(degrees: -135 + frac * 270)

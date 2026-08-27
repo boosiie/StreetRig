@@ -1,0 +1,88 @@
+{
+  "_comment": "Anchors measured from this artwork's placement marks. The panel follows the drawing: what is drawn is what the amp has.",
+  "captions": false,
+  "knobs": [
+    {
+      "param": "Gain",
+      "x": 0.09025,
+      "y": 0.56713,
+      "d": 0.34259
+    },
+    {
+      "param": "Treble",
+      "x": 0.14225,
+      "y": 0.56944,
+      "d": 0.34722
+    },
+    {
+      "param": "Mid",
+      "x": 0.19425,
+      "y": 0.56944,
+      "d": 0.34722
+    },
+    {
+      "param": "Bass",
+      "x": 0.2465,
+      "y": 0.56944,
+      "d": 0.34722
+    },
+    {
+      "param": "Gain 2",
+      "x": 0.366,
+      "y": 0.56944,
+      "d": 0.34722
+    },
+    {
+      "param": "Treble 2",
+      "x": 0.41825,
+      "y": 0.56944,
+      "d": 0.34722
+    },
+    {
+      "param": "Mid 2",
+      "x": 0.47025,
+      "y": 0.56944,
+      "d": 0.34722
+    },
+    {
+      "param": "Bass 2",
+      "x": 0.52225,
+      "y": 0.56944,
+      "d": 0.34722
+    },
+    {
+      "param": "DISTORTION",
+      "x": 0.57425,
+      "y": 0.56944,
+      "d": 0.34722
+    },
+    {
+      "param": "REVERB",
+      "x": 0.62625,
+      "y": 0.56944,
+      "d": 0.34722
+    },
+    {
+      "param": "SPEED",
+      "x": 0.70575,
+      "y": 0.56944,
+      "d": 0.34722
+    },
+    {
+      "param": "DEPTH",
+      "x": 0.75775,
+      "y": 0.56944,
+      "d": 0.34722
+    }
+  ],
+  "switches": [
+    {
+      "param": "EFFECT",
+      "style": "rotary",
+      "step": 45,
+      "x": 0.812,
+      "y": 0.56944,
+      "d": 0.34722
+    }
+  ]
+}

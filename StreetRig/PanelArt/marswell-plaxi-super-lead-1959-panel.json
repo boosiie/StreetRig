@@ -1,0 +1,50 @@
+{
+  "_comment": "Anchors measured from this artwork's placement marks. x and y are fractions of the plate's own width and height; d is a fraction of its height. Knobs match controls by GearParameter.name.",
+  "captions": false,
+  "knobs": [
+    {
+      "param": "Presence",
+      "x": 0.279,
+      "y": 0.49074,
+      "d": 0.30093
+    },
+    {
+      "param": "Bass",
+      "x": 0.3605,
+      "y": 0.49074,
+      "d": 0.30093
+    },
+    {
+      "param": "Mid",
+      "x": 0.4415,
+      "y": 0.49074,
+      "d": 0.30093
+    },
+    {
+      "param": "Treble",
+      "x": 0.523,
+      "y": 0.49074,
+      "d": 0.30093
+    },
+    {
+      "param": "Gain",
+      "x": 0.6045,
+      "y": 0.49074,
+      "d": 0.30093
+    },
+    {
+      "param": "Volume",
+      "x": 0.6855,
+      "y": 0.49074,
+      "d": 0.30093
+    }
+  ],
+  "shades": [
+    {
+      "x": 0.152,
+      "y": 0.52778,
+      "w": 0.028,
+      "h": 0.33796
+    }
+  ]
+}

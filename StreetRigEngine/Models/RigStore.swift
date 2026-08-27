@@ -534,7 +534,17 @@ public final class RigStore: ObservableObject {
     /// Two-way binding to one knob of one owned item (used by the zoom sliders).
     public func binding(itemId: UUID, param: String) -> Binding<Double> {
         Binding(
-            get: { [weak self] in self?.item(itemId)?.values[param] ?? 0 },
+            get: { [weak self] in
+                guard let item = self?.item(itemId) else { return 0 }
+                if let stored = item.values[param] { return stored }
+                // NO ENTRY MEANS THE CONTROL IS NEWER THAN THE SAVE, not that it
+                // is at zero. A rig saved before an amp gained a knob has no key
+                // for it, and answering 0 put that knob at its minimum while every
+                // other reader — the panel's own dimming, the chain compiler —
+                // used the parameter's default. The BE-100 gaining a clean channel
+                // is exactly this case.
+                return item.parameters.first { $0.name == param }?.defaultValue ?? 0
+            },
             set: { [weak self] newValue in
                 guard let self, let idx = self.collection.firstIndex(where: { $0.id == itemId }) else { return }
                 self.collection[idx].values[param] = newValue
@@ -553,6 +563,10 @@ public final class RigStore: ObservableObject {
     ///   1 — original placeholder catalog
     ///   2 — the 47 licensed-art pedals
     ///   3 — amps/cabs/combos re-badged to invented brands to match their new
+    ///   4 — six amps re-badged further off the real marks (Plexi → Plaxi,
+    ///       Rectifier → Ractifier, Bassman → Bassdude, Jazz → Jazzy,
+    ///       Rockerverb → Rockervert, Katana → Ketana). A rename retires the
+    ///       old name, and every seam — icon, plate, profile — is keyed off it.
     ///       bespoke art (Marshall JCM800 → Marswell JCM800 2203, …), Twin Reverb
     ///       and AC30 recategorised as combos, and the four art-less amps retired.
     ///       Renaming shipped gear and bumping this are ONE atomic change: the
@@ -562,7 +576,7 @@ public final class RigStore: ObservableObject {
     /// Player-driven removal does NOT bump this: the schema is unchanged (a
     /// deletion is just a shorter `collection` array), and re-seeding would hand
     /// back the very gear the player just threw away.
-    static let catalogVersion = 3
+    static let catalogVersion = 4
 
     struct PersistedState: Codable {
         var collection: [GearItem]
@@ -716,9 +730,9 @@ public final class RigStore: ObservableObject {
             // fallback beside thirteen illustrated neighbours.
 
             // Amp heads (art drawn ~2:1)
-            mk("Marswell JCM800 2203", .amp), mk("Marswell Plexi Super Lead 1959", .amp),
-            mk("Freedman BE-100", .amp), mk("Mesa Boogey Dual Rectifier", .amp),
-            mk("Tangerine Rockerverb 100", .amp),
+            mk("Marswell JCM800 2203", .amp), mk("Marswell Plaxi Super Lead 1959", .amp),
+            mk("Freedman BE-100", .amp), mk("Mesa Boogey Dual Ractifier", .amp),
+            mk("Tangerine Rockervert 100", .amp),
             // Cabinets (art drawn taller than wide, ~0.86:1)
             mk("Marswell 1960A 4x12", .cabinet), mk("Mesa Boogey Oversized 4x12", .cabinet),
             mk("Tangerine PPC412", .cabinet),
@@ -726,8 +740,8 @@ public final class RigStore: ObservableObject {
             // used to be catalogued as heads; both are combos in the real world
             // and both are drawn combo-shaped, so they live here now.
             mk("Fandor Twin Reverb", .comboAmp), mk("Volt AC30", .comboAmp),
-            mk("Marswell DSL40C", .comboAmp), mk("Rolund JC-120 Jazz Chorus", .comboAmp),
-            mk("Fandor Bassman '59", .comboAmp), mk("VOSS Katana 100", .comboAmp),
+            mk("Marswell DSL40C", .comboAmp), mk("Rolund JC-120 Jazzy Chorus", .comboAmp),
+            mk("Fandor Bassdude '59", .comboAmp), mk("VOSS Ketana 100", .comboAmp),
             // ---- Pedals ------------------------------------------------------
             // The 47 shipped models. Every one has a bespoke icon in
             // Assets.xcassets keyed off `GearIconLoader.slug(name)`, so these

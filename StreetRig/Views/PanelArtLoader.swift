@@ -77,6 +77,118 @@ enum PanelArt {
     static let extensions = ["png", "jpg", "jpeg"]
 }
 
+// MARK: - Where a plate wants its knobs
+
+/// A plate detailed enough to be a real faceplate — printed scales, printed
+/// labels, a well for every knob — has to place the knobs itself. Spacing them
+/// evenly across the panel puts them next to their markings rather than in them.
+///
+/// So a plate may ship a sidecar, `<slug>-panel.json`, naming the centre and
+/// diameter of every knob. Coordinates are fractions of THE PLATE'S OWN pixels —
+/// x of its width, y and d of its height — so the file survives the artwork being
+/// re-exported at another resolution, and the app puts each knob through exactly
+/// the transform it puts the image through.
+///
+/// Knobs are matched to controls BY NAME (`GearParameter.name`, not its printed
+/// short name), and the layout is used only when the anchors cover every dial the
+/// piece has. A plate that disagrees with the amp behind it falls back to the
+/// automatic rows rather than dropping a control nobody can then reach.
+struct PanelKnobLayout: Decodable {
+
+    struct Anchor: Decodable {
+        /// The control's `GearParameter.name` — "Mid", not "MIDDLE".
+        let param: String
+        /// Centre, as a fraction of the plate's width…
+        let x: CGFloat
+        /// …and of its height.
+        let y: CGFloat
+        /// Diameter, as a fraction of the plate's height.
+        let d: CGFloat
+    }
+
+    /// A switch the plate wants LIVE — flicked in place instead of pressed on a
+    /// row of buttons under the panel. Same coordinate rule as a knob; `d` is the
+    /// size of the toggle's body.
+    struct Switch: Decodable {
+        /// The control's `GearParameter.name`, e.g. "CHANNEL".
+        let param: String
+        let x: CGFloat
+        let y: CGFloat
+        let d: CGFloat
+        /// "toggle" (a flick switch, the default) or "rotary" — a selector the
+        /// chassis turns rather than flicks, drawn as a knob with detents.
+        private let style: String?
+        var isRotary: Bool { (style ?? "toggle") == "rotary" }
+        /// Degrees between detents on a rotary. Matches the painted markings.
+        let step: Double?
+        /// The indicators that answer the switch. A column of them is normal —
+        /// the Ketana names its amp type with six lamps, not with a caption — so
+        /// each says which positions light it.
+        private let lamps: [Lamp]?
+        var indicators: [Lamp] { lamps ?? [] }
+    }
+
+    /// A painted lamp that lights while its switch sits on one of `on`.
+    struct Lamp: Decodable {
+        let x: CGFloat
+        let y: CGFloat
+        let d: CGFloat
+        /// Option indices that light it. `[1]` = lit on the second position.
+        let on: [Int]
+        /// "#rrggbb". Defaults to the app's amber.
+        let color: String?
+    }
+
+    /// A painted control this build cannot drive at all — a power switch, a
+    /// standby, a fuse holder. Not a parameter, so there is nothing to place:
+    /// it just gets the same shade a dead knob gets, so the panel says which of
+    /// its controls are furniture instead of letting you hunt for the one that
+    /// does nothing.
+    struct Shade: Decodable {
+        let x: CGFloat
+        let y: CGFloat
+        /// Fraction of the plate's WIDTH…
+        let w: CGFloat
+        /// …and of its height. Painted switches are rarely square.
+        let h: CGFloat
+    }
+
+    let knobs: [Anchor]
+    /// Switches the plate places. Any the plate does NOT name stay in the strip
+    /// under the panel, so a partly-marked plate loses no control.
+    private let switches: [Switch]?
+    var placedSwitches: [Switch] { switches ?? [] }
+    private let shades: [Shade]?
+    /// Painted controls to shade out. Nothing is placed over them; they are dead.
+    var deadControls: [Shade] { shades ?? [] }
+
+    /// Draw the app's own knob captions over the plate. Defaults to NO: a plate
+    /// that places its knobs has the names printed on it already, and drawing
+    /// them again lands app text on top of painted text.
+    private let captions: Bool?
+    var drawsCaptions: Bool { captions ?? false }
+
+    func anchor(for param: GearParameter) -> Anchor? {
+        knobs.first { $0.param == param.name }
+    }
+
+    func placement(for param: GearParameter) -> Switch? {
+        placedSwitches.first { $0.param == param.name }
+    }
+
+    /// The closest two knobs on the plate, in plate-height units — the ceiling on
+    /// how far a touch target can be grown without stealing the neighbour's.
+    var tightestSpacing: CGFloat {
+        var closest = CGFloat.greatestFiniteMagnitude
+        for (i, a) in knobs.enumerated() {
+            for b in knobs.dropFirst(i + 1) {
+                closest = min(closest, hypot(a.x - b.x, a.y - b.y))
+            }
+        }
+        return closest == .greatestFiniteMagnitude ? 1 : closest
+    }
+}
+
 // MARK: - The plate the app draws when no PNG exists
 
 /// The ORIGINAL knob panel surface: the piece's signature colour under the
@@ -89,12 +201,31 @@ struct ProceduralPlate: View {
     let item: GearItem?
 
     var body: some View {
+        let spec = Faceplate.spec(for: item)
         Rectangle()
-            .fill(GearArtView.panelColor(for: item))
+            .fill(spec.base)
+            // The worked surface — brushed gold, silver, matte black. Flat for
+            // everything that isn't an amp, which is every plate that looked
+            // exactly like this before the table existed.
+            .overlay(FaceplateFinishView(spec: spec, seed: FaceplateFinishView.seed(for: item)))
+            .overlay(alignment: .top) { chassisBand(spec) }
+            .overlay(alignment: .bottom) { chassisBand(spec) }
             .overlay(
                 LinearGradient(stops: PanelArt.gradientStops,
                                startPoint: .top, endPoint: .bottom)
             )
+    }
+
+    /// The chassis edge the plate is bolted behind. A thin band top and bottom —
+    /// the cheapest way to tell four black-panel amps apart at a glance.
+    @ViewBuilder
+    private func chassisBand(_ spec: Faceplate.Spec) -> some View {
+        if let trim = spec.trim {
+            Rectangle()
+                .fill(LinearGradient(colors: [trim, trim.opacity(0.55)],
+                                     startPoint: .top, endPoint: .bottom))
+                .frame(height: 5)
+        }
     }
 }
 
@@ -145,11 +276,30 @@ enum PanelArtLoader {
         uiImage(for: item).map { Image(uiImage: $0) }
     }
 
+    /// The knob placement a piece's plate asks for, or `nil` for the automatic
+    /// rows. Resolved from `<slug>-panel.json` by the same three-step chain the
+    /// image uses, so a layout can be edited on the device beside the art it
+    /// belongs to.
+    static func knobLayout(for item: GearItem?) -> PanelKnobLayout? {
+        guard let item else { return nil }
+        let name = PanelArt.plateName(for: item)
+        guard !name.isEmpty else { return nil }
+
+        _ = foregroundWatch
+
+        let key = "layout|\(name)|\(item.category.rawValue)"
+        if let cached = layouts[key] { return cached }
+        let found = resolveLayout(name: name, category: PanelArt.categoryPlateName(for: item))
+        layouts[key] = found
+        return found
+    }
+
     /// Forget every resolved plate, so the next panel re-reads from disk, and tell
     /// any panel on screen to redraw. Called on foreground — you edited a plate in
     /// the Files app and came back.
     static func invalidate() {
         cache.removeAll()
+        layouts.removeAll()
         PanelArtRevision.shared.bump()
     }
 
@@ -170,6 +320,30 @@ enum PanelArtLoader {
         }
         return nil
     }
+
+    /// Documents override → bundled sidecar → bundled category sidecar → nil.
+    private static func resolveLayout(name: String, category: String) -> PanelKnobLayout? {
+        func decode(_ url: URL) -> PanelKnobLayout? {
+            guard let data = try? Data(contentsOf: url) else { return nil }
+            do {
+                return try JSONDecoder().decode(PanelKnobLayout.self, from: data)
+            } catch {
+                // Loud, because the symptom otherwise is knobs quietly reverting
+                // to rows and nothing saying why.
+                print("panel layout \(url.lastPathComponent) is unreadable: \(error)")
+                return nil
+            }
+        }
+        let override = overrideDirectory.appendingPathComponent("\(name).json")
+        if FileManager.default.fileExists(atPath: override.path), let l = decode(override) { return l }
+        for stem in [name, category] {
+            if let url = Bundle.main.url(forResource: stem, withExtension: "json"),
+               let l = decode(url) { return l }
+        }
+        return nil
+    }
+
+    private static var layouts: [String: PanelKnobLayout?] = [:]
 
     /// A plate is loaded from a FILE, so unlike `UIImage(named:)` nothing caches
     /// it for us — and the panel's body is re-evaluated on every frame of a knob
