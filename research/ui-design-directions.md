@@ -1054,3 +1054,93 @@ without discarding a single argument in `RigTheme.swift`. Its one real risk, cre
 scoped and reversible tuning problem (drop the plate to `#D6C9A8` and scrim it), whereas Direction B
 asks the owner to abandon the app's identity outright and Direction C's central bet is on shadow
 legibility that `RigSurface.swift` already documents as unreliable on this ground.
+
+---
+
+## Part 10 — The build: **Direction A′**
+
+Decided 2026-08-27 by the app's owner after reviewing all three artifacts. A′ is Direction A
+(Part 3) with two refinements and one explicit carve-out. **Where A′ and Part 3 disagree, A′ wins.**
+Everything in Part 3 not contradicted here still stands as written.
+
+Artifact (revised in place, same URL):
+<https://claude.ai/code/artifact/b74f58ab-3857-4abc-9106-93bf3b3759ad>
+
+### 10.1 Refinement one — texture differentiated by rung
+
+**The problem with A as first drawn.** The tolex weave sat at effectively one opacity on every dark
+surface: page `rgba(255,255,255,.014)` / `rgba(0,0,0,.22)` at a 4px pitch, card rung `.016` / `.25`
+at the same 4px pitch. Texture was *present* but did no work, because a surface sharing its
+neighbour's grain does not separate from it. That is what "almost there" meant.
+
+**The fix — each elevation rung gets its own surface character, not its own opacity of one surface.**
+
+| Rung | Weave | Extra | Reasoning |
+|---|---|---|---|
+| **PAGE** `#170F09` | 45°/−45° crossed, **5px** pitch, `rgba(255,255,255,.012)` / `rgba(0,0,0,.20)` | broad top-down falloff `rgba(255,255,255,.020) → transparent 22%` | Coarsest cloth, furthest from the eye. The falloff puts the 0° overhead key light on the ground itself, so every bevel above it agrees with its own backdrop. |
+| **CARD** `#1C130D` | 45°/−45° crossed, **3px** pitch, `rgba(255,255,255,.013)` / `rgba(0,0,0,.18)` | — | Tighter weave = a finer cloth pulled over ply. Lower contrast than the page despite being lighter, which is what stops the two reading as one field. |
+| **RAISED** `#2A1C14` | **none** | top sheen `rgba(255,255,255,.055) → transparent 34%` | The important one. Vinyl stretched over a lifted edge *catches light*; it does not show grain. Removing texture here is what makes the rung read as a separate layer. |
+
+Net: **less** texture per surface than A shipped with, and more perceived layering. If a surface
+needs to feel higher, it gets *less* grain and *more* specular, never more grain.
+
+### 10.2 Refinement two — pedals wear their artwork under a clear coat
+
+**Scope, stated as a boundary.** Every established icon and model is **kept**: the amp and cabinet
+models, the guitar, `GearArtView`'s hand-drawn vector art, and every custom icon resolved through
+`GearIconLoader`. **Pedals on the 3D stage are the single exception**, and only there.
+
+**Why they are the exception.** `AmpModel3DView.swift:192` already maps a piece's PNG onto the
+cabinet front, and `GearArt.swift:55` already prefers the PNG in 2D. `PedalArchetypes3D.swift` does
+not: by its own header it builds a correct silhouette per enclosure family carrying "no logo,
+script, badge or graphic", and `PedalFinish` paints it one flat colour. So the hero screen shows a
+branded amp standing over anonymous coloured bricks. That inconsistency is the gap.
+
+**The change, in three moves.**
+
+1. **Keep the geometry.** Enclosure family, chamfer and footprint are unchanged. The wah treadle,
+   the round Fuzz Face and the Boss tread plate were the point of that file and they stay.
+2. **Map the artwork** onto the enclosure's **top face**: `GearIconLoader.uiImage(for:)` as
+   `diffuse.contents` — the same asset, resolved by the same slug, that already dresses the cards.
+3. **Clear coat** over it: `.physicallyBased`, roughness **0.18**, metalness **0.0**,
+   clearCoat **0.85**, clearCoatRoughness **0.06**, lit by the same 0° overhead key as every other
+   bevel in the app. Flat vector art becomes painted enamel under a stage light.
+
+**THE TRAP — the artwork already draws the controls.** Every catalogue PNG is a top-down
+illustration that *includes* its own knobs, LED and tread plate (verified: `ibonez-tube-screamer.png`
+is 228×330 with Drive/Tone/Level knobs, a red LED and a tread plate drawn in). Mapping it onto an
+archetype that still builds procedural knobs yields two sets, one floating over the other. So move 2
+must **also suppress the archetype's top-face detail geometry** — knob cylinders, switch plate, LED
+dome — keeping only enclosure, chamfer and footprint. Make it conditional on whether a slug
+resolves, so a piece with no artwork still gets the procedural treatment it has today.
+
+**One exception to the suppression, and it is not optional.** The engaged **LED stays real, emissive
+geometry**, registered over the LED the artwork paints. A painted LED cannot light, and the lit LED
+is how a player reads which pedals are on — the footswitch latch semantics in §3.4 depend on it.
+Off = emission 0; on = `amber #E0661E` emission plus the radius-22 body glow.
+
+**2D is already done.** Cards, rail and library need no change — `GearArt.swift:55` prefers the PNG
+already. The clear coat is a SceneKit material and does not apply to flat icon rendering.
+
+### 10.3 Correction to §3.4 — haptics inside the framework
+
+§3.4 lists `UIImpactFeedbackGenerator` styles. **In `StreetRigEngine/` that is wrong.**
+`TapSlider.swift:19-21` documents that those files ship inside the AUv3, where a UIKit haptic engine
+is unavailable. Anything in the framework — which includes the whole control kit — must use
+SwiftUI's `.sensoryFeedback`. Mapping: `.medium` → `.impact(weight: .medium)`, `.light` →
+`.impact(weight: .light)`, `.rigid` → `.impact(flexibility: .rigid)`, `.soft` →
+`.impact(flexibility: .soft)`, `.selection` → `.selection`, `.success`/`.warning` → `.success` /
+`.warning`. Note haptics are **inert in the Simulator**, so this is code-review-verified, not
+screenshot-verified.
+
+### 10.4 Still open — the owner's call, do not decide it silently
+
+`RigStageView.swift:321` paints the stage backdrop `#1D96C5`, a bright sky blue and the one surface
+in the app outside Burnt Tan. A′ inherits A's position — **keep it**, read as a photographed sky
+behind a real amp. Flagged here because it is the one colour decision that was never argued for in
+`RigTheme.swift`, and it is worth a second look on a real device before ship.
+
+### 10.5 Cost
+
+~46 hours: the ~40 from Part 3 plus ~6 for the pedal treatment. The pedal work is the
+highest-visibility-per-hour item in the whole plan, because it lands on the hero screen.
