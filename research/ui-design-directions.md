@@ -1378,3 +1378,71 @@ tile grid with columns: thumbnail (20pt, the existing artwork), **name**, **cate
 **controls**, and whether it is in the rig. Eight rows fit in the height four tiles occupied, sorting
 becomes possible, and comparing two overdrives stops depending on memory. The row for an owned piece
 keeps the amber edge.
+
+---
+
+## Part 13 — The panel stops being cream (2026-08-27)
+
+### 13.1 Why cream and brown fought — it was chroma, not taste
+
+| | Hue | G/R | Saturation |
+|---|---|---|---|
+| `panel` cream `#EADFC4` | 43° | 0.95 | ~46% |
+| tolex browns | 19–27° | 0.67 | ~30–40% |
+
+Two **chromatic warm** fields about **20° apart**. That is the worst gap available: too far to read as
+one family, too close to read as deliberate contrast, so they compete for the same job.
+`RigTheme.swift` already documents the symptom from the other side — cream thinned over brown
+dragging composites toward olive.
+
+**The fix is chroma, not hue.** The panel drops to a near-neutral brushed nickel at **S 5%**. A
+low-chroma neutral sits beside any hue without competing, which is why real gear pairs steel and
+anodised panels with dark tolex and nobody notices a clash. It also promotes **brass to the only warm
+metal in the interface**, instead of one of two fighting for that role.
+
+| Token | Hex | Role |
+|---|---|---|
+| `plate` | `#E6E3DC` | light neutral — the lit tone, and UI text on dark grounds |
+| `steelSpec` | `#EFEDE7` | the specular band — where the panel sees the lamp |
+| `steelHi` | `#CFCBC2` | — |
+| `steelMid` | `#9A958C` | hue 39°, **S 5%** — where it reflects the dark room |
+| `steelLo` | `#7A756D` | — |
+| `steelEdge` | `#55514B` | the lip, top and bottom |
+| `inkPlate` | `#23211D` | near-black **neutral**; brown ink on steel read as a stain |
+
+`panel`/`panelShade` as cream are **retired**. Note `panel` was doing double duty as a light text
+colour on dark grounds (6 call sites in the mockup alone) — keep a light neutral for that and do not
+point text at a mid-grey surface token.
+
+### 13.2 A gradient on metal is a reflection, not a fade
+
+The previous plate was a smooth top-to-bottom light→dark ramp. That is what **matte** material does —
+paper, powder coat, plastic. Metal is a mirror: its tone map is a picture of the room in front of it.
+So the profile is deliberately **non-monotonic**, and its bright band is **narrow**:
+
+```
+LinearGradient(stops:
+  steelEdge   0%     the lip, turned away from the key — an edge is the DARKEST
+  #B9B5AC     3%     immediately catches the key below the lip
+  steelSpec   9%     the specular band. NARROW — 9% of the height, not half
+  #DAD6CD    15%
+  #A8A399    30%     fast falloff
+  steelMid   52%     the dark room it reflects
+  #9E998F    74%     secondary LIFT — light bouncing off the surface below
+  #858078    90%
+  #5E5A54   100%     bottom edge
+, startPoint: .top, endPoint: .bottom)
+```
+
+Then the 2pt **horizontal** brushed grain over it (that is the axis a control plate is linished on,
+and it is what says *brushed* rather than *polished*), then the 3pt brass piping on the lit edge.
+
+**The stop positions are the whole trick.** Three properties make it read as metal, and losing any
+one of them collapses it back to plastic:
+
+1. **Non-monotonic** — it gets brighter again at 74% after being darkest at 52%.
+2. **A narrow specular** — 9% of the height. A broad bright half reads as a fade.
+3. **Fast transitions** — 3% → 9% → 15%. Evenly-spaced stops read as plastic at any colour.
+
+Apply the same principle to any other metal in the app (the brass piping, the fader cap, knob
+skirts): light on metal is a reflection of an environment, so give it an environment to reflect.
