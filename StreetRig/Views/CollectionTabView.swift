@@ -82,7 +82,14 @@ struct CollectionTabView: View {
         .frame(width: 150)
         .onAppear {
             guard !railHintShown else { return }
-            demoTarget = ampsAndCabs.first?.id ?? pedals.first?.id
+            // Demo a card that can actually lift. The first amp/cab is nearly
+            // always already in the rig, and hopping a card that then refuses to
+            // move teaches the exact opposite of what this hint is for. If every
+            // card is locked, spend nothing: leave the flag unset so the hint is
+            // still owed once something frees up.
+            guard let liftable = (ampsAndCabs + pedals).first(where: { !store.isInRig($0.id) })
+            else { return }
+            demoTarget = liftable.id
             railHintShown = true
         }
         .background(RigTheme.background.opacity(0.55))
@@ -120,8 +127,12 @@ struct CollectionTabView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .tracking(1.2)
                 .foregroundStyle(RigTheme.trim.opacity(0.9))
+            // Named rather than `$0`: the tour's anchor needs the id a second
+            // time, and three `$0.id`s in a row stops reading as one card.
             ForEach(items) { item in
-                GearCardView(item: item, held: $heldCard, demoLift: item.id == demoTarget)
+                GearCardView(item: item, held: $heldCard,
+                             demoLift: item.id == demoTarget,
+                             inRig: store.isInRig(item.id))
                     .coachMarkTargetIf(item.id == tourCardID, .railCard)
             }
         }

@@ -32,6 +32,13 @@ struct LibraryContentView: View {
     /// player answers Remove.
     @State private var pendingRemoval: PendingGearRemoval?
 
+    /// The pedal categories worth showing: those with at least one model still
+    /// in the library. Withholding every model in a category (tuner, looper)
+    /// would otherwise leave a "0 models" card that drills into an empty list.
+    private var stockedPedalOrder: [GearCategory] {
+        pedalOrder.filter { category in RigStore.catalog.contains { $0.category == category } }
+    }
+
     private let pedalOrder: [GearCategory] = [
         .tuner, .wah, .compressor, .overdrive, .eq, .noiseGate,
         .modulation, .pitch, .delay, .reverb, .volume, .looper
@@ -73,7 +80,7 @@ struct LibraryContentView: View {
                             .padding(.top, 15)
                             .padding(.bottom, 20)
                     } else {
-                        modelGrid(section == .amp ? [.amp, .cabinet, .comboAmp] : pedalOrder,
+                        modelGrid(section == .amp ? [.amp, .cabinet, .comboAmp] : stockedPedalOrder,
                                   showHeaders: true)
                             .padding(.horizontal, 20)
                             .padding(.top, 15)
@@ -149,7 +156,7 @@ struct LibraryContentView: View {
             }
         case .pedal:
             LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
-                ForEach(pedalOrder, id: \.self) { pedalCategoryCard($0) }
+                ForEach(stockedPedalOrder, id: \.self) { pedalCategoryCard($0) }
             }
         }
     }
