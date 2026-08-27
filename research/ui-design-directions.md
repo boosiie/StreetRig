@@ -1144,3 +1144,44 @@ behind a real amp. Flagged here because it is the one colour decision that was n
 
 ~46 hours: the ~40 from Part 3 plus ~6 for the pedal treatment. The pedal work is the
 highest-visibility-per-hour item in the whole plan, because it lands on the hero screen.
+
+### 10.6 The mark is fixed — adopt it, do not redesign it
+
+`origin/main` commit `0946968` ("replace the amp-cabinet mark with three Metal-shaded tone knobs",
+merged as `956c2ce` via PR #29) replaced the app's logo. **A′ adopts it unchanged.** It is not a
+proposal and it is not in scope for this redesign.
+
+What it is: three amp tone knobs in an apex-up triangle, shaded by
+`StreetRig/Shaders/KnobMark.metal` (`knobFace` — knurling, anisotropic brushed metal, bevel rim,
+pointer bloom; `knobGroundContact` — cast shadow, crevice occlusion). Deliberately **no backing
+plate**: a rectangle behind the knobs is what turns a sharp mark mushy at icon sizes, so the knobs
+are the mark and the page shows through between them.
+
+Numbers worth not breaking, all from `AmpLogoView.swift`:
+
+| | Value | Why it is that value |
+|---|---|---|
+| Knob radius | `0.195 · size` | puts the mark's box at 0.92 of its frame, against the old cabinet's 0.74 |
+| Half-span | `0.265` | leaves a `0.10·size` skirt gap; at `0.24` the circles touch and fuse into a trefoil blob at 24pt (measured) |
+| Row separation | `halfSpan · 2 · sin 60°` | derived, so moving half-span cannot leave the triangle lopsided |
+| Optical lift | `0.030 · size` | an apex-up triangle carries two thirds of its mass low, so box-centred it reads as slumped. Centre of mass wants ~0.043 and that overshoots |
+| Key light | `−128.25°` | **must** equal `kKeyLightXY` `(-0.6189, -0.7855)` in `KnobMark.metal`, or the shaded and unshaded marks light from different directions and the icon stops matching the splash |
+| Sheen | `trim.mix(emberSoft, 0.25)` ≈ `#D09A49` | highlights lerp toward this, never white. An earlier cut lerped toward brass at hue 41° and measured `#B38D4F`, G/R 0.79 — the khaki band `RigTheme.swift` documents |
+| Knurl count | `40 · (r / 22.6)^0.35`, clamped 28…96 | texture reads against the object, not the frame; a constant count draws a convincing grip at 45pt and a visible cog at 343pt |
+
+**Consequences for this build:**
+
+1. **`LoadingView.swift` is in scope for the redesign and draws this mark.** Restyle the splash
+   around it — background, status line, progress bar, wordmark treatment — but do not touch
+   `AmpLogoView`, `AppIconMark`, `KnobMark.metal` or `AppIconExporter`. The splash hangs the
+   STREETRIG wordmark off the mark's **bottom** edge (gap `logoSize · 0.10`, SF rounded semibold at
+   `logoSize · 0.185`, tracking `pointSize · 0.30`), via an `.overlay` with an `alignmentGuide` —
+   because neither `.background` nor `.overlay` can grow the icon's frame, and `AmpLogoView`'s frame
+   contract is that it is exactly `size × size`. A view that reports a larger frame silently pushes
+   the wordmark down and knocks the whole splash off centre.
+2. **A change to `AmpLogoView` is a change to the app icon.** The icon is baked from the same view.
+   If it is ever edited, re-run the exporter.
+3. **The branch must have `origin/main` merged before implementation starts** — the mark, the
+   shader and the icon assets all live there and the redesign branch predates them.
+4. **Building requires Xcode 26's on-demand Metal Toolchain**
+   (`xcodebuild -downloadComponent MetalToolchain`, ~688 MB) once the shader is in the tree.
