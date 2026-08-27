@@ -144,6 +144,22 @@ final class OnboardingCoordinator: ObservableObject {
         phase == .tour && step?.target == .trash
     }
 
+    /// The MY GEAR rail retracts into a tab, and the player may well have left it
+    /// that way — so the same problem, with the same answer: the shell reads this
+    /// and holds the drawer open for the two steps that are ABOUT the rail. Both
+    /// of them, not just the first: the card the second one points at lives inside
+    /// the rail, so a closed drawer would leave that spotlight resolving to the
+    /// whole page area instead of one 12pt-radius card.
+    ///
+    /// The shell must have it open BEFORE the step's rect is read — anchors are
+    /// resolved after layout, so forcing it here (rather than animating it open
+    /// when the step appears) is what stops the first rail step from lighting a
+    /// 22pt sliver of tab.
+    var revealsGearRail: Bool {
+        guard phase == .tour, let target = step?.target else { return false }
+        return target == .gearRail || target == .railCard
+    }
+
     // MARK: Entry points
 
     /// First launch, called once the splash has finished. Does nothing at all if
