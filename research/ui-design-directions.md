@@ -1293,3 +1293,88 @@ turned the key light's shadows on, and `StageEnvironment.swift:229` explicitly m
    answer is to tune the key light's `shadowColor` alpha upward — **not** to reinstate the blob.
 
 Cost: well under an hour, and it is the highest-value change identified in this whole exercise.
+
+---
+
+## Part 12 — Pro-audio discipline (2026-08-27)
+
+Reference supplied by the owner: **IK Multimedia ToneX**. Three corrections, all of them the same
+correction — the design was too *soft*. These supersede §3.2 and §3.4 where they conflict.
+
+**Be honest about what this does to A′.** A was chosen partly for being the warmest and loosest of
+the three, with "maximum chrome" and the largest radii. This revision takes the density and
+restraint of **Direction B** and applies it to A's warm identity. The tolex, cream and brass survive;
+the softness does not. If the result feels like it has drifted, that is why — and it is the right
+drift, because the reference is a tool and A was drawn like a product page.
+
+### 12.1 Radii collapse to `0 · 2 · 3 · 4 · 6`
+
+Was `4 · 8 · 12 · 16 · 20`. Buttons go **r16 → r3**, cards **r16 → r3**, modals **r4**, chips and
+capsules **r2** (nothing is capsule-shaped any more), full-bleed bars and list rows **r0**.
+
+Why: a rounded corner is a piece of visual softness applied uniformly to things that are not
+uniformly soft. Pro audio software is square because its controls are machined, not moulded. At
+`r16` a 52pt button reads as a web CTA. The single exception is the **phone bezel**, which is a real
+radius on a real object.
+
+| | Old | New |
+|---|---|---|
+| Primary button | 52pt, r16 | 44pt, **r3** |
+| Secondary / icon | 44pt, r12 | 40pt, **r3** |
+| Footswitch latch | 64×64, r16 | 60×60, **r4** |
+| Segmented | r12 outer / r8 inner | **r3 / r2** |
+| Chip | capsule | **r2** |
+| Card / row | r14–16 | **r3** |
+| Modal / sheet | r20 | **r4** |
+| Text field | r8 | **r2** |
+
+### 12.2 The accent splits in two
+
+One colour was doing two incompatible jobs, which is why it read as loud everywhere and special
+nowhere.
+
+| Token | Hex | Hue / S | Used for |
+|---|---|---|---|
+| `amber` **(matured)** | `#C26A2C` | 25° / 61% | **UI chrome only** — primary action, engaged state, selection, focus rings |
+| `emberHot` **(new)** | `#E0661E` | 22° / 79% | **Emissive only** — footswitch LEDs, meter segments, the tube glow, the pedal-engaged dot |
+
+Supporting stops mature with the chrome accent: `amberLit #D4823F`, `amberDeep #95511F`.
+**`amberSkirt` is retired** — it existed to paint the 2pt wall under a resting primary, and there are
+no walls now (see 12.3).
+
+The reasoning is physical, which is why it holds: a control is a **painted surface**, and paint at
+79% saturation is a toy. An LED is **light**, and light *is* saturated. Keeping the hot ember for
+things that emit means the eye reads "that is lit" instantly, because nothing else in the interface
+is allowed to be that colour.
+
+### 12.3 Shadows appear in exactly three places
+
+A shadow is a claim that one surface floats above another in space. Almost nothing in a control
+panel does: the rail, the cards, the chips and the buttons are all **in** the panel, not on top of
+it. The old spec put a drop shadow on every one of them, and a screen where everything floats is a
+screen where nothing does.
+
+**Permitted:**
+1. A **modal or sheet** over the app — `black .80, r 44, y 18`
+2. The **drag ghost** — a piece genuinely in the air, same values
+3. **Real gear** on the stage — a tight `drop-shadow`, because it is a physical object in a lit room
+
+**Everywhere else: none.** Depth is the three-rung tone ladder plus a **1px hairline**, exactly as
+the reference does it.
+
+This supersedes the earlier claim that a gradient stroke on `RigSurface.swift` was the
+highest-leverage change. With drop shadows gone, `rigCard`/`rigRaised` become **fill + 1px hairline**
+and the gradient bevel is reserved for controls that genuinely need to read as pressable — buttons,
+the footswitch, the fader cap. A hairline that is one flat colour is correct for a card, because a
+card is not a bevelled object.
+
+**Consequence for press states:** with no drop shadow to collapse, the `+2pt` translate is dropped.
+Press becomes a **fill + inner-shadow** change. A control that sits flush in a panel cannot sink.
+
+### 12.4 The catalogue is a list, not a grid
+
+47 pedals and 14 amps are a catalogue, and a catalogue is read as a **list**. Replace `LibraryView`'s
+tile grid with columns: thumbnail (20pt, the existing artwork), **name**, **category**, **character**,
+**controls**, and whether it is in the rig. Eight rows fit in the height four tiles occupied, sorting
+becomes possible, and comparing two overdrives stops depending on memory. The row for an owned piece
+keeps the amber edge.
