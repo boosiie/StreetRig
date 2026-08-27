@@ -1551,3 +1551,37 @@ the specification from the description the way a spec sheet does.
 **Character strings are new copy** and need writing for all 47 pedals and 14 amps. Keep them to ~4
 words and make them *discriminating* rather than descriptive: "transparent boost" and "hard clip,
 filter sweep" tell a player which to reach for; "great overdrive tone" tells them nothing.
+
+---
+
+## Part 16 — Brass is a hairline (2026-08-27)
+
+**Every brass outline in the app is 1pt.** It was 3pt on the panel edges and 2pt on rings, and at
+that weight it stopped being trim and became a stripe — the loudest thing on a screen whose whole
+point is restraint.
+
+| Where | Was | Now |
+|---|---|---|
+| Panel piping — top nav, control panel, section bands | **3pt** `border-top` | **1pt** |
+| Component-detail knob strip | 2pt | **1pt** |
+| Knob ring | 2pt @ 0.50 | **1pt @ 0.55** |
+| Empty-slot outline | 2pt @ 0.22 | **1pt @ 0.30** |
+
+Where a ring got thinner it got slightly more opaque, so it holds its edge without holding weight.
+
+**Why 1pt still reads.** The piping is not only the border: `brassLit` runs as a 1px inset line
+directly above it, so the lit edge is a two-tone hairline — a bright line over a brass one. That is
+how piping works on real gear, and it is *thinner* than the eye expects, which is exactly why it
+reads as expensive rather than applied.
+
+This lands the same way as Part 14's amplitude lesson, and the pair are worth reading together:
+**structure carries the material, weight only carries emphasis.** The panel needed a 39-level swing
+rather than 150; the brass needs 1pt rather than 3. Both were fixed by taking away, not adding.
+
+### 16.1 Copy corrections that came with the black panel
+
+Two descriptions were still describing the cream build and have been corrected: the thesis paragraph
+("a cream control plate running the full width" → an anodised plate with a brass hairline), and the
+component-detail lede (legends "engraved-looking in `#2A1C14`" → screen-printed in light `#DAD8D4`).
+Worth noting because they were *wrong*, not merely stale — a spec that describes the wrong colour is
+worse than one that omits it.
