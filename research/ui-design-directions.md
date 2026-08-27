@@ -1185,3 +1185,47 @@ Numbers worth not breaking, all from `AmpLogoView.swift`:
    shader and the icon assets all live there and the redesign branch predates them.
 4. **Building requires Xcode 26's on-demand Metal Toolchain**
    (`xcodebuild -downloadComponent MetalToolchain`, ~688 MB) once the shader is in the tree.
+
+### 10.7 Four revisions after the second review (2026-08-27)
+
+**1. No gloss on the pedals.** The clear coat in §10.2 move 3 is **cut**. The top-face material is
+matte: `.physicallyBased`, roughness **0.55**, metalness **0.0**, **clearCoat 0.0**. Reason: a
+specular streak across a top-down enclosure fights the artwork it is sitting on — the PNGs are flat
+vector illustrations with their own painted highlights, and a second, physical highlight crossing
+them reads as glare, not as paint. Across a board of three it is worse, because the streaks do not
+agree. The enclosure still catches the shared key light through its own chamfer; only the top face
+stops glossing. §10.2 moves 1 and 2 (keep the geometry, map the artwork, suppress the duplicated
+top-face detail) are unchanged, and so is the non-negotiable emissive LED.
+
+**2. Amps keep their icons and their 3D models — confirmed, and out of scope.** No change is
+required and none should be made. `GearArt.swift:55` already prefers the catalogue PNG for 2D, and
+`AmpModel3DView.swift:192` already maps that same PNG onto the cabinet front in 3D. Both paths are
+correct today. The pedal work in §10.2 is additive — it brings pedals up to what amps already do —
+and must not touch the amp path on the way past. Verify at the end that `git diff` shows no change
+to `AmpModel3DView.swift` or `GearArt.swift`'s icon-resolution branch.
+
+**3. The cream faceplate becomes anodised metal.** Same hue, different finish — `panel #EADFC4` is
+not re-graded, it gains a metal treatment. Two new tokens and a three-layer stack:
+
+| Token | Hex | Role |
+|---|---|---|
+| `plateLit` | `#FBF5E6` | top stop and the specular band |
+| `plateDeep` | `#BFB08C` | bottom stop — what makes it read as metal rather than card |
+
+Bottom up: `LinearGradient(plateLit 0% → panel 26% → panelShade 68% → plateDeep 100%)`, then a
+specular band (`white 0.55 → clear` over 0…17%), then a 2pt **horizontal brushed grain**
+(`white 0.05` / warm shadow `0.045`). The grain runs **across** the panel, the way a real anodised
+control plate is linished; vertical grain would fight the 0° overhead key light. Applies everywhere
+the cream appears: top nav, control panel, the component-detail knob strip, and the section bands.
+
+Precedent worth noting: the app's own `marswell-jcm800-2203` artwork already draws a gold-anodised
+control plate. This brings the chrome into agreement with the gear it frames.
+
+**4. The slider thumb is a knurled fader cap, not a circle.** A circle carries no orientation, so it
+cannot show where in its travel the value sits — it floats on the groove and looks identical at
+every setting. Replace with a **15×26pt** cap (master fader **13×22**), radius 4:
+vertical machined flutes for grip (`white .16` / `black .20` at a 3pt pitch), a body gradient
+`#FBF5E6 → #E8E0D2 42% → #C0B296 78% → #9A8C74`, a 1pt inner bevel lit from 0° overhead, and a
+**1.5×13pt amber index line** down the centre that is the readout. The long axis is the point: it
+gives the pressed state a bevel to invert visibly, which a 22pt bead never had. Applies to
+`TapSlider`'s thumb and the control panel's master fader.
