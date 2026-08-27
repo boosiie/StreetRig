@@ -161,6 +161,28 @@ struct LibraryContentView: View {
         }
     }
 
+    /// The piece a category card puts in its window: the first one in the
+    /// catalog that has real art, falling back to the first of its kind.
+    ///
+    /// WHY THIS EXISTS. The two amp cards used to be drawn from
+    /// `GearItem(name: "", category: .amp)` — a NAMELESS piece, which is
+    /// precisely the one input `GearIconLoader` can never resolve, since it
+    /// matches a piece to its asset by slugging the display NAME. So those two
+    /// always fell through to the generic hand-drawn outline, and the front page
+    /// of the library — a shop window — was the one screen showing diagrams
+    /// while every card one tap behind it showed the real thing.
+    ///
+    /// Asking the catalog rather than naming a slug here keeps this honest
+    /// through a re-badge: the models have been renamed once already (Marshall →
+    /// Marswell, Orange → Tangerine), and a hardcoded "marswell-jcm800-2203"
+    /// would have rotted silently into the generic outline it replaced. The
+    /// `image(for:)` check is what stops it picking a piece whose art has not
+    /// been drawn yet and quietly regressing to the same diagram.
+    private static func representative(_ category: GearCategory) -> GearItem? {
+        let ofKind = RigStore.catalog.filter { $0.category == category }
+        return ofKind.first { GearIconLoader.image(for: $0) != nil } ?? ofKind.first
+    }
+
     private func ampCard(_ target: Drill, title: String, stack: Bool) -> some View {
         Button {
             withAnimation(.easeInOut(duration: 0.2)) { drill = target }
@@ -169,11 +191,11 @@ struct LibraryContentView: View {
                 Group {
                     if stack {
                         VStack(spacing: 4) {
-                            GearArtView(item: GearItem(name: "", category: .amp)).frame(width: 88, height: 32)
-                            GearArtView(item: GearItem(name: "", category: .cabinet)).frame(width: 102, height: 62)
+                            GearArtView(item: Self.representative(.amp)).frame(width: 88, height: 32)
+                            GearArtView(item: Self.representative(.cabinet)).frame(width: 102, height: 62)
                         }
                     } else {
-                        GearArtView(item: GearItem(name: "", category: .comboAmp)).frame(width: 112, height: 90)
+                        GearArtView(item: Self.representative(.comboAmp)).frame(width: 112, height: 90)
                     }
                 }
                 .frame(height: 104)

@@ -114,6 +114,16 @@ private struct GearRemovalConfirmation: ViewModifier {
 /// It owns what a drop on it MEANS (`handleTrash`), because it is now the only
 /// view that knows a drop happened at all.
 struct GearTrashTarget: View {
+    /// Shows the bin when nothing is being dragged. The coach-mark tour's ONE
+    /// use: its step about the bin would otherwise spotlight an empty corner,
+    /// since this only appears mid-drag and the tour blocks dragging.
+    ///
+    /// A parameter rather than an `@EnvironmentObject` read of the coordinator,
+    /// because a required environment object is a crash for every `#Preview` and
+    /// every future caller that does not know to inject it — and this view is
+    /// two lines from being reusable anywhere.
+    var forcedVisible = false
+
     @EnvironmentObject private var store: RigStore
     @EnvironmentObject private var drag: RigDragController
 
@@ -134,7 +144,7 @@ struct GearTrashTarget: View {
 
     var body: some View {
         // Stays up a beat past the drag when a rejection needs explaining.
-        let visible = drag.isDragging || rejection != nil
+        let visible = drag.isDragging || rejection != nil || forcedVisible
         let hot = drag.isOverTrash
 
         VStack(spacing: 5) {
@@ -149,6 +159,10 @@ struct GearTrashTarget: View {
                     .foregroundStyle(hot ? .white : RigTheme.clip)
             }
             .frame(width: diameter, height: diameter)
+            // The CIRCLE is the coach-mark target, not the VStack around it: the
+            // caption below ("DELETE" / "OFF RIG") is 104pt wide and would drag a
+            // round spotlight into a lopsided rounded rectangle.
+            .coachMarkTarget(.trash)
             .scaleEffect(hot ? 1.18 : 1)
             .shadow(color: .black.opacity(0.55), radius: 9, y: 4)
             .background(frameReader)

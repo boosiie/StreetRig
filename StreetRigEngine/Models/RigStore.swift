@@ -560,10 +560,18 @@ public final class RigStore: ObservableObject {
                                   catalogVersion: Self.catalogVersion), to: saveURL)
     }
 
-    private static func stateURL() -> URL {
-        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+    /// The one folder this framework persists into. Factored out of `stateURL()`
+    /// and made internal so `ProfileStore` can write `profile.json` BESIDE
+    /// `rig_state.json` instead of choosing a second home — two locations would
+    /// mean two answers to "where is my stuff", and any future reset would clear
+    /// one of them and quietly miss the other.
+    static func stateDirectory() -> URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        return dir.appendingPathComponent("rig_state.json")
+    }
+
+    private static func stateURL() -> URL {
+        stateDirectory().appendingPathComponent("rig_state.json")
     }
 
     private static func load(from url: URL) -> PersistedState? {
