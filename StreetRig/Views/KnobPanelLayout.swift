@@ -88,6 +88,12 @@ enum KnobPanelLayout {
     /// lower. Every other amp keeps the original proportions exactly.
     static func isDense(_ params: [GearParameter]) -> Bool { !groups(params).isEmpty }
 
+    /// More dials than the dock can show at once, so the dock has to be worth
+    /// scrolling. Such an amp gets the same trimmed furniture an FX amp gets —
+    /// see `cap(_:)` for why the height comes off the faceplate rather than the
+    /// controls.
+    static func isDialHeavy(_ params: [GearParameter]) -> Bool { dials(params).count > 8 }
+
     /// What the panel WANTS: 56 pt a knob row, plus every labelled row's caption,
     /// plus the gaps between them.
     ///
@@ -102,15 +108,32 @@ enum KnobPanelLayout {
         return CGFloat(count) * 56 + CGFloat(labels) * 13 + CGFloat(spacing) + 12
     }
 
-    /// The most height a panel may take, whatever it wants — it can never crowd
-    /// out the slider dock. A tall panel on a ~400 pt landscape sheet used to push
-    /// the sliders — the controls the player actually drags — off the bottom.
-    static func cap(_ params: [GearParameter]) -> CGFloat {
-        isDense(params) ? 132 : 178
-    }
-
     /// What the panel actually GETS: what it wants, capped.
     static func height(_ params: [GearParameter]) -> CGFloat {
         min(naturalHeight(params), cap(params))
+    }
+
+    /// THE CAP, and why it is not one number.
+    ///
+    /// An amp with an FX section is short of height for a layout reason: it has a
+    /// whole extra pane to fit. A DIAL-HEAVY amp is short of it for a different
+    /// one — every dial it owns has to be REACHABLE in the dock below, and the
+    /// dock is a scrolling window, so the window has to be big enough to be worth
+    /// scrolling. At the old flat 178 the Friedman's fifteen dials and the
+    /// Rockerverb's ten were left a ~26 pt dock: not a cramped dock, no dock at
+    /// all — two sliders visible and the rest off the bottom of the screen with
+    /// nothing to scroll, because the sheet had overflowed rather than fitted.
+    ///
+    /// The faceplate is what gives, and it gives cheaply: `knobPanel` sizes its
+    /// dials from the height it is handed (down to a 20 pt floor), so a shorter
+    /// panel is a panel with smaller knobs, not a clipped one. The dock is where
+    /// the player actually works.
+    static func cap(_ params: [GearParameter]) -> CGFloat {
+        if isDense(params) { return 132 }
+        switch dials(params).count {
+        case 13...:  return 120     // Friedman BE-100 — fifteen
+        case 9...12: return 140     // Rockerverb, DSL, Twin
+        default:     return 178     // the six-knob amps, exactly as before
+        }
     }
 }

@@ -38,6 +38,10 @@ struct RigStageView: View {
     /// The stage's registration with the drag controller — its frame plus the
     /// hooks whichever stage layout is on screen wires into it.
     @State private var stageArea = RigDropArea()
+    /// See `use3DStage`. `@AppStorage` rather than a read of `AppPreferences` so
+    /// flipping the switch on the profile page re-renders this page immediately,
+    /// rather than at the next launch.
+    @AppStorage(AppPreferences.stage3D) private var stage3DPreference = true
 
     private let maxAngle: CGFloat = 20
 
@@ -45,7 +49,13 @@ struct RigStageView: View {
     /// the flat vector layout, which meant picking a combo dropped the WHOLE
     /// stage — pedalboard and guitar included — out of 3D. The combo is now just
     /// a one-box amp in the same scene, so only the amp's shape changes.
-    private var use3DStage: Bool { FeatureFlags.amp3D }
+    ///
+    /// Two gates, and they mean different things. `FeatureFlags.amp3D` is the
+    /// developer's — "is the 3D stage built in at all". `stage3DPreference` is the
+    /// player's, set on the profile page: a phone that runs hot or a player who
+    /// prefers the flat drawing turns it off and gets the vector rig back. The
+    /// preference cannot switch on what the flag has switched off.
+    private var use3DStage: Bool { FeatureFlags.amp3D && stage3DPreference }
 
     var body: some View {
         ZStack {
@@ -101,6 +111,12 @@ struct RigStageView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
+        // IN-PAGE COACH-MARK TARGET, and one of only two in the app. It reports
+        // from inside the `TabView`'s UIPageViewController bridge, so the tour
+        // validates it before believing it and falls back to the pager's own
+        // rectangle if it comes back looking like the page next door — see
+        // `CoachMarkResolution`.
+        .coachMarkTarget(.rigStage)
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(RigTheme.amber, lineWidth: 2)

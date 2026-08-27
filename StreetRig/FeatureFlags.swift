@@ -35,4 +35,21 @@ enum FeatureFlags {
     /// back when ARKit is genuinely unavailable (the Simulator) is the page's own
     /// no-camera path: gradient, placeholder, tap-to-toggle.
     static let arPlacement = true
+
+    /// Stand the anchored AR floor pedals on a real board: a tiered, raked,
+    /// open-slat chassis on the floor plane, with the pedals mounted on its deck and
+    /// tilted by its rake instead of lying flat on the carpet. See
+    /// ARFloorPedalboard.swift for why the board's width is derived from the slot
+    /// spacing rather than from a catalogue dimension.
+    ///
+    /// Off = today's behaviour, exactly: no board node is built, every slot centre
+    /// stays at floor level, pedals get yaw and nothing else, and the SwiftUI chrome
+    /// and the stomp binner project the same untouched offsets they always did. The
+    /// gate is read in ONE place — `ARFloorPedalboard.mountLift` / `.mountRake` /
+    /// `.ringLift` — so there is no second path that could drift out of step with it.
+    ///
+    /// `nonisolated` because that one place is reached from `slotOffsets`, which runs
+    /// off the main actor on the way to the ARSession's delegate queue. The value is
+    /// an immutable `Bool`; there is nothing here for a thread to race over.
+    nonisolated static let arPedalboard = true
 }

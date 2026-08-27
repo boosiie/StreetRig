@@ -201,7 +201,45 @@ enum Studio3D {
         return -deg * .pi / 180
     }
 
-    // MARK: - Geometry helper
+    // MARK: - Treadle angle (0–10 → heel-down…toe-down, ~20° of travel)
+
+    /// A rocker pedal's treadle angle for a 0–10 `Position`, in radians about x.
+    ///
+    /// Inverted on purpose, and the sibling of `knobAngle` above: 0 is heel-down,
+    /// which is the treadle at its STEEPEST, and 10 is toe-down, which is flat.
+    /// That is what the value means to the player — a closed wah is the one
+    /// standing up — and it is what the DSP already does with `Position`.
+    ///
+    /// The sign assumes a treadle hanging toward −z from a pivot at its heel,
+    /// which is how the rocker archetypes build it (see `PedalArchetypes3D`); a
+    /// positive x-rotation then lifts the toe. Change one and you must change
+    /// the other. 20° is a real wah's usable sweep — enough to read across the
+    /// stage, not so much that the pedal looks broken open.
+    static func treadleAngle(forValue v: Double) -> Float {
+        let frac = Float(max(0, min(10, v)) / 10)
+        return (1 - frac) * 20 * .pi / 180
+    }
+
+    // MARK: - Geometry helpers
+
+    /// The ribbed tread on a rocker's treadle, as thin raised bars running across
+    /// `node` and spaced along its length.
+    ///
+    /// Real geometry rather than a texture: the stage is lit by one low key light,
+    /// and a normal map on a plate this small at this distance disappears — a 1mm
+    /// physical step still catches an edge highlight and still shows in silhouette.
+    static func addGripRidges(count: Int, width: CGFloat, spacing: CGFloat, atY y: Float,
+                              mat: SCNMaterial, to node: SCNNode) {
+        guard count > 0 else { return }
+        let start = -spacing * CGFloat(count - 1) / 2
+        for i in 0..<count {
+            let ridge = SCNBox(width: width, height: 0.04, length: 0.09, chamferRadius: 0.015)
+            ridge.materials = [mat]
+            let bar = SCNNode(geometry: ridge)
+            bar.position = SCNVector3(0, y, Float(start + spacing * CGFloat(i)))
+            node.addChildNode(bar)
+        }
+    }
 
     /// Add a chamfered box with one material at a position. Returns the node so
     /// callers can parent detail to it.

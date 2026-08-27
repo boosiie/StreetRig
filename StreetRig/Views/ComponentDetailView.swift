@@ -147,45 +147,67 @@ struct ComponentDetailView: View {
             // lower pane has room to be usable; every other amp keeps the
             // original proportions exactly.
             let dense = !fxGroups.isEmpty
-            VStack(spacing: dense ? 10 : 14) {
-                header
+            // A DIAL-HEAVY amp gets the trimmed furniture an FX amp gets, and for
+            // the same reason: the dock underneath has more to show than fits, so
+            // every point spent on chrome is a point it cannot scroll through.
+            let tight = dense || KnobPanelLayout.isDialHeavy(params)
+            // PINNED TO THE SCREEN. Everything below depends on this: the stack
+            // used to be unbounded, so on a ~400 pt landscape sheet it simply grew
+            // past the bottom edge and the dock was clipped off it.
+            GeometryReader { proxy in
+                VStack(spacing: tight ? 10 : 14) {
+                    header
 
-                if let id = item?.id, !params.isEmpty {
-                    // THE PANEL TAKES WHAT IT NEEDS AND NO MORE, and is capped so
-                    // it can never crowd out the dock. A tall panel on a ~400 pt
-                    // landscape sheet used to push the sliders — the controls the
-                    // player actually drags — off the bottom; the cap plus the
-                    // dock's own floor means both are always reachable.
-                    // A HAND-DRAWN PLATE SETS THE PANEL'S SHAPE, not the other way
-                    // round. The panel's width is the DEVICE's — 772 pt here, more
-                    // on an iPad — so a plate authored to one machine's proportions
-                    // is scaled up and shaved at the ends on every other. Letting
-                    // the panel take the plate's aspect (never past the cap) means
-                    // artwork lands edge to edge, uncropped, at any width, and the
-                    // knobs stay on their painted wells. Every other panel keeps
-                    // the fixed row height exactly as before.
-                    knobPanel(id: id)
-                        .modifier(PlateShapedHeight(aspect: plateAspect,
-                                                    fixed: KnobPanelLayout.height(params),
-                                                    cap: KnobPanelLayout.cap(params)))
-                    if !switches.isEmpty {
-                        switchPanel(id: id, compact: dense)
+                    if let id = item?.id, !params.isEmpty {
+                        // THE PANEL TAKES WHAT IT NEEDS AND NO MORE, and is capped so
+                        // it can never crowd out the dock. A tall panel on a ~400 pt
+                        // landscape sheet used to push the sliders — the controls the
+                        // player actually drags — off the bottom; the cap plus the
+                        // dock's own floor means both are always reachable.
+                        //
+                        // A HAND-DRAWN PLATE SETS THE PANEL'S SHAPE, and the cap is
+                        // still the ceiling. The panel's width is the DEVICE's, so a
+                        // plate authored to one machine's proportions is scaled up and
+                        // shaved at the ends on every other; taking the plate's aspect
+                        // lands the artwork edge to edge at any width with the knobs
+                        // still on their painted wells. A panel with no plate keeps
+                        // the row-derived height exactly as before.
+                        knobPanel(id: id)
+                            .modifier(PlateShapedHeight(aspect: plateAspect,
+                                                        fixed: KnobPanelLayout.height(params),
+                                                        cap: KnobPanelLayout.cap(params)))
+                        if !switches.isEmpty {
+                            switchPanel(id: id, compact: tight)
+                        }
+                        // THE DOCK IS THE FLEXIBLE ONE. It used to declare
+                        // `minHeight: 132` inside that unbounded stack, which is how
+                        // the bug worked: the dock demanded height the sheet did not
+                        // have, the stack overflowed, and the dock went off the
+                        // bottom. Worse than merely cut off — the ScrollView inside
+                        // had been handed a viewport as tall as its own content, so
+                        // it had nothing to scroll, and every dial below the fold was
+                        // UNREACHABLE rather than just out of sight. The Friedman
+                        // showed two of its fifteen that way; the Rockerverb three of
+                        // its ten. Taking the floor off and pinning the stack gives
+                        // the dock a real viewport, and a real viewport is what makes
+                        // a ScrollView scroll.
+                        sliderDock(id: id)
+                            .frame(maxHeight: .infinity)
+                    } else {
+                        VStack(spacing: 12) {
+                            GearArtView(item: item)
+                                .frame(width: 220, height: 190)
+                            Text("No adjustable controls")
+                                .font(.footnote)
+                                .foregroundStyle(RigTheme.textMuted)
+                        }
+                        .frame(maxHeight: .infinity)
                     }
-                    sliderDock(id: id)
-                        .frame(minHeight: 132, maxHeight: .infinity)
-                } else {
-                    VStack(spacing: 12) {
-                        GearArtView(item: item)
-                            .frame(width: 220, height: 190)
-                        Text("No adjustable controls")
-                            .font(.footnote)
-                            .foregroundStyle(RigTheme.textMuted)
-                    }
-                    .frame(maxHeight: .infinity)
                 }
+                .padding(.horizontal, tight ? 20 : 28)
+                .padding(.vertical, tight ? 10 : 16)
+                .frame(width: proxy.size.width, height: proxy.size.height)
             }
-            .padding(.horizontal, dense ? 20 : 28)
-            .padding(.vertical, dense ? 10 : 16)
 
             // Tap a number → this keypad slides in to set it exactly.
             if let edit = editing {
@@ -742,7 +764,7 @@ struct ComponentDetailView: View {
             switch (fxGroups.isEmpty || !panes.contains(pane) ? .levels : pane) {
             case .levels:
                 ScrollView {
-                    VStack(spacing: 14) {
+                    VStack(spacing: KnobPanelLayout.isDialHeavy(params) ? 10 : 14) {
                         ForEach(dials) { param in
                             dialRow(id: id, param: param, labelWidth: 92)
                         }
@@ -798,12 +820,36 @@ struct ComponentDetailView: View {
 
     /// One "label — slider — number" row, shared by the main dock and the FX
     /// blocks so a block's Level behaves exactly like Gain does.
+    ///
+    /// THE ROW SAYS WHICH CHANNEL IT IS. An amp with two channels stores six
+    /// controls twice, and their labels are deliberately identical because that
+    /// is what is screen-printed on the chassis — on the faceplate the channel
+    /// name sits above the row and settles it. The dock has no rows, so without
+    /// the prefix the Friedman's dock is two GAINs, two VOLUMEs and two MASTERs
+    /// with nothing to choose between them.
+    ///
+    /// The two shades are the faceplate's, and mean the same things there: a
+    /// DISABLED control has nothing behind it and is dead to the touch, while an
+    /// OFF-CHANNEL one is merely not what you are hearing and stays draggable —
+    /// setting up the other channel before switching to it is the point.
     private func dialRow(id: UUID, param: GearParameter, labelWidth: CGFloat) -> some View {
-        HStack(spacing: 12) {
-            Text(param.displayName)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(RigTheme.textPrimary)
-                .frame(width: labelWidth, alignment: .leading)
+        let off = rowIsOffChannel(param.rowLabel) || paramIsInactive(param)
+        return HStack(spacing: 12) {
+            Group {
+                if let row = param.rowLabel {
+                    Text(row + " ").font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(RigTheme.textMuted)
+                    + Text(param.displayName).font(.subheadline.weight(.medium))
+                        .foregroundStyle(RigTheme.textPrimary)
+                } else {
+                    Text(param.displayName)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(RigTheme.textPrimary)
+                }
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .frame(width: labelWidth, alignment: .leading)
             TapSlider(value: store.binding(itemId: id, param: param.name),
                       in: param.min...param.max)
             // Tap the number to type an exact value on the keypad.
@@ -824,6 +870,8 @@ struct ComponentDetailView: View {
             }
             .buttonStyle(.plain)
         }
+        .opacity(param.isDisabled ? 0.45 : (off ? 0.62 : 1))
+        .allowsHitTesting(!param.isDisabled)
     }
 
     // MARK: - The amp's FX section (one card per block)

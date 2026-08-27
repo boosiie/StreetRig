@@ -174,13 +174,17 @@ struct RigStage3DView: UIViewRepresentable {
         coord.stagePedals = pedals
         coord.stageGuitar = guitar
         coord.stageAmp = amp
-        coord.setAddSlot(visible: pedalInFlight)
+        // Only offer the next slot when there is one. A marker on a full board
+        // invites a drop that `RigStore.apply` will refuse, which reads as the
+        // drag having missed rather than the board being full.
+        coord.setAddSlot(visible: pedalInFlight && pedals.count < RigStore.maxPedalsOnBoard)
 
         let sig = RigDiorama.signature(amp: amp, cabinet: cabinet, pedals: pedals, guitar: guitar)
         if coord.signature != sig {
             rebuild(view, context: context)          // gear set changed → rebuild
         } else {
             coord.applyAmp(values: amp?.values ?? [:])   // just knob values
+            coord.applyPedals(pedals)                   // …and rocker treadles
         }
 
         // Overlay dismissed (focus → nil) → fly the camera back to the diorama.
@@ -269,6 +273,16 @@ struct RigStage3DView: UIViewRepresentable {
             for (name, node) in knobs {
                 node.eulerAngles.z = Studio3D.knobAngle(forValue: values[name] ?? 5)
             }
+        }
+
+        /// The pedalboard's version of the same thing: a wah's treadle tracks its
+        /// `Position` the way an amp knob tracks its value. Looked up by node name
+        /// each pass rather than cached, because unlike the amp's fixed faceplate
+        /// the board's contents change under it — and a stale cached node would
+        /// keep turning a pedal that is no longer on the stage.
+        func applyPedals(_ pedals: [GearItem]) {
+            guard let root = view?.scene?.rootNode else { return }
+            PedalboardScene.applyTreadles(pedals, in: root)
         }
 
         // MARK: Tap → stage 1
@@ -1117,7 +1131,10 @@ enum RigDiorama {
         let bScale: Float = 0.54
         let addSlot = PedalboardScene.addSlotNode()
         addSlot.scale = SCNVector3(bScale, bScale, bScale)
-        addSlot.position = SCNVector3(-0.1 + bScale * PedalboardScene.nextSlotX(pedalCount: pedals.count),
+        // Asked of the SAME layout the board used, so the marker keeps sitting one
+        // slot past the last pedal even when that pedal is a wah twice the width
+        // of a compact — a count-based stride would land it inside the row.
+        addSlot.position = SCNVector3(-0.1 + bScale * PedalboardScene.layout(for: pedals).nextSlotX,
                                       0.955 * bScale, 0.4)
         addSlot.isHidden = true
         world.addChildNode(addSlot)
