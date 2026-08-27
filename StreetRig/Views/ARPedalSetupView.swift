@@ -83,6 +83,21 @@ struct ARPedalContentView: View {
     /// so the node graph survives the camera view being handed over on every
     /// SwiftUI update pass — see `ARFloorPedals.attach(to:)`.
     @State private var floorPedals = ARFloorPedals()
+    /// Running total of the calibration drag, so each change applies only the NEW
+    /// movement. `DragGesture` reports translation from the START of the gesture, and
+    /// feeding that straight in would re-apply the whole drag on every callback.
+    @State private var lastCalibrationTranslation: CGFloat = 0
+    /// The live placement angle while a calibration drag is in progress, for the
+    /// readout.
+    /// The board moves as you drag, which is the real feedback — but a number tells
+    /// you when you have hit the end of the range, which a board that has simply
+    /// stopped moving does not.
+    @State private var calibrationHeight: Float?
+
+    /// The wah's one control, and the span of its dial. Both named here rather than
+    /// inlined so the mapping from "foot height" to "knob value" is one readable line.
+    private static let wahParameter = "Position"
+    private static let wahRange: Double = 10        // GearParameter's default 0–10 dial
 
     /// Room the banner needs at the top, so an anchored slot can never be clamped up
     /// underneath it.
@@ -134,11 +149,63 @@ struct ARPedalContentView: View {
 
                 // The pedals themselves are SceneKit nodes on the floor (see
                 // ARFloorPedals); what is drawn here is only the writing about them.
-                FloorPedalsDriver(layout: detector.layout, pedals: floorPedals)
+                FloorPedalsDriver(layout: detector.layout,
+                                  pedals: floorPedals,
+                                  hovered: detector.hoveredSlot)
                 if anchored {
                     FloorSlotChrome(layout: detector.layout,
                                     viewport: geo.size,
                                     onAssign: { picking = SlotIndex(id: $0) })
+                }
+
+                // Where the last placement tap went, and whether it took. Keyed by
+                // the mark's id so a second tap in the same spot replays rather than
+                // sitting there already-finished — see `ARTapMark`.
+                if let tap = detector.lastTap {
+                    ARTapRipple(mark: tap).id(tap.id)
+                }
+
+                // The prop-height readout, only while a calibration drag is running.
+                if let height = calibrationHeight {
+                    VStack(spacing: 3) {
+                        Text("BOARD POSITION")
+                            .font(.system(size: 9, weight: .bold))
+                            .tracking(1.0)
+                            .foregroundStyle(RigTheme.textMuted)
+                        Text(String(format: "%.0f°", height * 180 / .pi))
+                            .font(.system(size: 22, weight: .semibold, design: .rounded))
+                            .foregroundStyle(RigTheme.textPrimary)
+                            .monospacedDigit()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(.black.opacity(0.6)))
+                    .allowsHitTesting(false)
+                }
+
+                // The camera flip. It NAMES the mode rather than just showing an
+                // icon, because the two modes behave differently enough that "which
+                // one am I in" is a real question: front places itself and has no
+                // detected floor, rear wants a tap and does. An unlabelled flip icon
+                // would leave the player guessing why tapping did or did not work.
+                if detector.state.isCameraLive {
+                    Button { detector.flipCamera() } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.triangle.2.circlepath.camera")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text(detector.facing == .front ? "FRONT" : "REAR")
+                                .font(.system(size: 10, weight: .bold))
+                                .tracking(0.6)
+                        }
+                        .foregroundStyle(RigTheme.textMuted)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(Capsule().fill(.black.opacity(0.45)))
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 1))
+                    }
+                    .padding(.trailing, 14)
+                    .padding(.top, 10)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 }
             }
         }
@@ -147,8 +214,28 @@ struct ARPedalContentView: View {
                 .environmentObject(store)
         }
         .onAppear {
+            // THE WAH TREADLE. The detector reports a foot's height over a slot; what
+            // that MEANS is decided here, because this is the layer that knows what
+            // kind of pedal is in the slot. On a wah it is the rocker position; on
+            // anything else a foot riding high over a pedal means nothing at all, and
+            // silently driving some other pedal's first knob with it would be a
+            // genuinely baffling bug to chase.
+            //
+            // Gated on the pedal being ON, exactly as the hardware is: a bypassed wah
+            // does not sweep, and a player resting a foot on a pedal they have not
+            // switched on should not be changing its tone.
+            detector.onTreadle = { slot, position in
+                guard let pedal = store.arPedal(slot), pedal.category == .wah,
+                      store.arSlots[slot].isOn else { return }
+                store.setARSlotParameter(slot, Self.wahParameter, position * Self.wahRange)
+            }
             detector.onStomp = { slot in
                 withAnimation(.easeInOut(duration: 0.15)) { store.toggleARSlot(slot) }
+                // AFTER the toggle, so the burst shows the state the pedal ended up
+                // in rather than the one it was leaving. Fired here rather than from
+                // the detector because what is worth confirming is the pedal
+                // CHANGING — a stamp the store declined must light nothing up.
+                floorPedals.burst(slot: slot, engaged: store.arSlots[slot].isOn)
             }
             detector.start()
         }
@@ -159,6 +246,39 @@ struct ARPedalContentView: View {
             // scene the next host will reuse.
             floorPedals.detach()
         }
+    }
+
+    /// Only front mode has a guess to correct, and only while it is actually showing
+    /// a board — dragging at a grey searching screen would silently change a number
+    /// with nothing on screen to show for it.
+    private var calibrationEnabled: Bool {
+        detector.facing.placesAutomatically && detector.state == .locked
+    }
+
+    /// How much placement angle one point of vertical drag is worth. The useful range
+    /// is 4°–30° across a ~370-point viewport, so this spends a full-height drag on
+    /// roughly the whole range and leaves room to be precise in the middle. Dragging
+    /// DOWN increases the angle, which moves the board DOWN the frame — the gesture
+    /// follows the thing rather than the number behind it.
+    private static let calibrationRadiansPerPoint: Float = 0.0009
+
+    private var calibrationDrag: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard calibrationEnabled else { return }
+                // Vertical drags only. A mostly-sideways drag on this page is somebody
+                // trying to page away, and stealing it would trap them here.
+                guard abs(value.translation.height) > abs(value.translation.width) else { return }
+                let delta = Float(value.translation.height - lastCalibrationTranslation)
+                lastCalibrationTranslation = value.translation.height
+                calibrationHeight = ARFloorCalibration.adjust(by: delta * Self.calibrationRadiansPerPoint)
+            }
+            .onEnded { _ in
+                lastCalibrationTranslation = 0
+                calibrationHeight = nil
+                ARDiagnostics.log("calib set height="
+                                + "\(ARDiagnostics.f(ARFloorCalibration.placementDegrees, 1))° — remembered")
+            }
     }
 
     @ViewBuilder
@@ -180,6 +300,17 @@ struct ARPedalContentView: View {
                 // toggles that slot instead — tap-to-toggle stays available in every
                 // state, including this one, and the two gestures never both fire.
                 .onTapGesture { detector.place(at: $0) }
+                // DRAG UP AND DOWN TO SIT THE BOARD ON THE FLOOR.
+                //
+                // Front mode's one guess is how high the phone is propped, and this is
+                // where the player corrects it. Vertical only, and only in front mode:
+                // the pager owns horizontal drags on this page, and rear mode has a
+                // measured plane and nothing to correct.
+                //
+                // The correction persists (`ARFloorCalibration`), so this is a
+                // once-per-setup gesture rather than something to redo every session —
+                // which is the closest thing this mode has to remembering a placement.
+                .highPriorityGesture(calibrationDrag, including: calibrationEnabled ? .all : .subviews)
         } else {
             LinearGradient(colors: [Color(white: 0.12), Color(white: 0.04)],
                            startPoint: .top, endPoint: .bottom)
@@ -247,18 +378,29 @@ struct ARPedalContentView: View {
         .animation(.easeInOut(duration: 0.2), value: bannerText)
     }
 
+    /// FRONT MODE NEVER SAYS "TAP", because in front mode there is nothing to tap and
+    /// nobody within reach to tap it. The instruction that replaces it is the one the
+    /// player can actually follow from where they are standing: prop it and wait.
+    /// Rear mode keeps every word it had.
     private var bannerText: String {
+        let auto = detector.facing.placesAutomatically
         switch detector.state {
-        case .searching(.lookingForFloor): return "Looking for the floor — aim at your feet"
+        case .searching(.lookingForFloor):
+            return auto ? "Getting its bearings — hold the phone steady"
+                        : "Looking for the floor — aim at your feet"
         case .searching(.holdStill):       return "Hold still"
         case .searching(.aimLower):        return "Aim lower, toward your feet"
-        case .ready:                       return "Tap the floor to place your pedals"
+        case .ready:
+            return auto ? "Placing your pedals…" : "Tap the floor to place your pedals"
         case .locked:                      return "Locked in · stomp a slot to toggle"
-        case .lost:                        return "Phone moved — tap the floor to re-place"
+        case .lost:
+            return auto ? "Phone moved — set it down and it will re-place"
+                        : "Phone moved — tap the floor to re-place"
         default:
             // .idle / .unsupported / .denied / .running: nothing is being placed, so
             // the banner goes back to being the page's instructions.
-            return "Prop your phone facing your feet · tap or drag to fill a slot · stomp to toggle"
+            return auto ? "Prop your phone facing your feet · stomp to toggle"
+                        : "Prop your phone facing your feet · tap or drag to fill a slot · stomp to toggle"
         }
     }
 
@@ -292,19 +434,54 @@ private struct FloorPedalsDriver: View {
     @EnvironmentObject var store: RigStore
     @ObservedObject var layout: ARSlotLayout
     let pedals: ARFloorPedals
+    /// Which slot the foot is over. Passed in rather than observed here so this view
+    /// keeps re-rendering only on the three things it already watched.
+    let hovered: Int?
 
     var body: some View {
         Color.clear
             .allowsHitTesting(false)
             .onChange(of: layout.floor) { _, _ in push() }
             .onChange(of: store.arSlots) { _, _ in push() }
+            .onChange(of: hovered) { _, _ in push() }
             .onAppear { push() }
     }
 
     private func push() {
         pedals.update(floor: layout.floor,
                       pedals: (0..<3).map { store.arPedal($0) },
-                      engaged: (0..<3).map { store.arSlots[$0].isOn })
+                      engaged: (0..<3).map { store.arSlots[$0].isOn },
+                      hovered: hovered)
+    }
+}
+
+/// The mark a placement tap leaves: a ring that expands and fades from the point the
+/// finger actually landed.
+///
+/// COLOUR CARRIES THE OUTCOME, and it borrows the page's existing vocabulary rather
+/// than inventing one. Green is already the page's single promise that a spot works,
+/// so a tap that placed the board is green. A tap that did NOT — no plane under that
+/// pixel, or the page was not `.ready` — is `clip` red, which this page uses for
+/// nothing else and so cannot be confused with the amber that means a pedal is on.
+///
+/// Non-interactive on purpose: it is drawn over a camera feed whose whole surface is
+/// the placement target, and a ring that swallowed the next tap would make a missed
+/// tap harder to correct at exactly the moment the player is trying to correct it.
+private struct ARTapRipple: View {
+    let mark: ARTapMark
+    @State private var expanded = false
+
+    var body: some View {
+        Circle()
+            .strokeBorder(mark.landed ? RigTheme.ready : RigTheme.clip, lineWidth: 2.5)
+            .frame(width: 30, height: 30)
+            .scaleEffect(expanded ? 2.4 : 0.5)
+            .opacity(expanded ? 0 : 0.95)
+            .position(mark.point)
+            .allowsHitTesting(false)
+            .onAppear {
+                withAnimation(.easeOut(duration: 0.5)) { expanded = true }
+            }
     }
 }
 
@@ -363,45 +540,66 @@ private struct ARFloorSlotView: View {
         let pedal = store.arPedal(index)
         let on = store.arSlots[index].isOn && pedal != nil
 
-        VStack(spacing: 5) {
+        VStack(spacing: 8) {
             if let pedal {
-                HStack(spacing: 5) {
+                // THE STATE INDICATOR, AND IT IS THE BIGGEST THING ON THE PAGE.
+                //
+                // It was an 8-POINT DOT beside a caption. That is a control-panel
+                // size, and this is not a control panel — it is read from standing
+                // height, several feet back, mid-song, by someone whose eyes are on
+                // their hands. At that distance an 8pt dot is not small, it is absent.
+                // The one question this page has to answer at a glance for three
+                // pedals at once is "which of these are on", so that answer gets the
+                // largest, brightest object here and everything else arranges itself
+                // around it.
+                ZStack {
                     Circle()
-                        .fill(on ? RigTheme.amber : Color(white: 0.3))
-                        .frame(width: 8, height: 8)
-                        .shadow(color: on ? RigTheme.amber : .clear, radius: 4)
-                    Text(pedal.name)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(RigTheme.textPrimary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                        .fill(on ? RigTheme.amber : Color(white: 0.16))
+                        .overlay(
+                            Circle().strokeBorder(on ? RigTheme.amber.opacity(0.9)
+                                                     : Color(white: 0.42),
+                                                  lineWidth: 3)
+                        )
+                        // A real glow when lit, so it reads as EMITTING rather than as
+                        // a painted orange disc — the difference carries at distance
+                        // where the fill colour alone starts to wash out.
+                        .shadow(color: on ? RigTheme.amber.opacity(0.85) : .clear, radius: 14)
+                        .shadow(color: on ? RigTheme.amber.opacity(0.5) : .clear, radius: 26)
+                    Text(on ? "ON" : "OFF")
+                        .font(.system(size: on ? 20 : 17, weight: .heavy, design: .rounded))
+                        .foregroundStyle(on ? Color.black.opacity(0.82) : Color(white: 0.62))
                 }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
-                .background(Capsule().fill(.black.opacity(0.6)))
-                .overlay(Capsule().strokeBorder(targeted ? RigTheme.amber : .clear, lineWidth: 2))
+                .frame(width: 62, height: 62)
+                .animation(.easeOut(duration: 0.14), value: on)
 
-                Text(on ? "ON" : "OFF")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(on ? RigTheme.amber : RigTheme.textMuted)
+                Text(pedal.name)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(RigTheme.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                     .shadow(color: .black, radius: 3)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(.black.opacity(0.68)))
+                    .overlay(Capsule().strokeBorder(targeted ? RigTheme.amber : .clear, lineWidth: 2))
             } else {
                 // An empty switch has a ring on the floor but nothing above it, so
-                // the invitation has to be here.
+                // the invitation has to be here — and at the same scale as the rest,
+                // or an empty slot reads as a broken one from across the room.
                 Label("Add pedal", systemImage: "plus.circle")
-                    .font(.caption2.weight(.medium))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(targeted ? RigTheme.amber : RigTheme.textMuted)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background(Capsule().fill(.black.opacity(0.6)))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(.black.opacity(0.68)))
                     .overlay(Capsule().strokeBorder(targeted ? RigTheme.amber : .clear, lineWidth: 2))
             }
         }
         .opacity(held ? 0 : 1)
-        .frame(width: 132)
+        .frame(width: 190)
         .contentShape(Rectangle())
-        .arSlotInteraction(index: index, pedal: pedal, cornerRadius: 17,
-                           ringInsets: EdgeInsets(top: -5, leading: 5, bottom: 12, trailing: 5),
+        .arSlotInteraction(index: index, pedal: pedal, cornerRadius: 22,
+                           ringInsets: EdgeInsets(top: -8, leading: 8, bottom: 16, trailing: 8),
                            held: $held, targeted: $targeted, onAssign: onAssign)
     }
 }

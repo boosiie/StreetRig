@@ -63,12 +63,104 @@ final class ARSlotLayout: ObservableObject {
 
 // MARK: - The detector
 
+/// A tap the player just made, and whether it turned into a board.
+///
+/// EXISTS BECAUSE A TAP ON A CAMERA FEED IS INVISIBLE. Every other control on this
+/// page is a thing you can see and press; placement is a tap on a picture of a
+/// carpet, and until the board appears there is nothing at all to say the app
+/// noticed. A tap that MISSED — no plane under that pixel — was worse still: it
+/// looked exactly like a tap that worked but drew slowly, so the player's next move
+/// was to tap again somewhere just as wrong. Marking the spot answers both halves at
+/// once: where the app thinks the finger went, and whether it took.
+///
+/// `id` is what drives the animation: a new tap in the same place is a NEW mark, and
+/// SwiftUI has to be told that or the ripple plays once and never again.
+nonisolated struct ARTapMark: Identifiable, Equatable {
+    let id: Int
+    var point: CGPoint
+    var landed: Bool
+}
+
 @MainActor
 final class CameraStompDetector: ObservableObject {
 
     /// ONE detector for the whole app — see the file header on why two sessions
     /// cannot coexist.
     static let shared = CameraStompDetector()
+
+    /// The last placement tap, for the page to draw. Low-frequency by nature — one
+    /// per attempt — so unlike the 30 Hz slot points it costs nothing to publish
+    /// from the detector itself rather than from its own object.
+    @Published var lastTap: ARTapMark?
+    private var tapCounter = 0
+
+    /// Which camera the page is looking through. Front by default — see
+    /// `ARCameraFacing` for why that is the ergonomic answer and what it costs.
+    @Published private(set) var facing: ARCameraFacing = .default
+
+    /// Which slot the player's foot is hovering over, or nil.
+    ///
+    /// Published on CHANGE only (the coordinator dedupes), so this is a handful of
+    /// updates in a song rather than 18 a second — cheap enough to live on the
+    /// detector rather than needing its own object like the slot points do.
+    @Published private(set) var hoveredSlot: Int?
+
+    /// Turn the phone around: swap the camera and start the placement over.
+    ///
+    /// A full reset rather than a reconfigure, because the two modes do not share a
+    /// world. Front-mode boards are planted against an assumed floor; rear-mode ones
+    /// against a detected plane anchor that the front session cannot see. Carrying
+    /// either across the switch would leave a board hanging in a coordinate space
+    /// nothing is tracking any more.
+    func flipCamera() {
+        facing = Self.resolvedFacing(facing == .front ? .rear : .front)
+        ARDiagnostics.log("camera FLIP -> \(facing.diagName)")
+        reposition()
+        guard running, clients > 0 else { return }
+        guard let configuration = Self.makeConfiguration(facing: facing) else {
+            state = .unsupported
+            return
+        }
+        let initial: ARPlacementState = FeatureFlags.arPlacement ? .searching(.lookingForFloor) : .running
+        state = initial
+        let coordinator = self.coordinator!
+        let newFacing = facing
+        sessionQueue.async {
+            coordinator.setFacing(newFacing)
+            coordinator.reset(to: initial)
+        }
+        session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+    }
+
+    /// The camera this device can actually give you when you ask for `requested`.
+    ///
+    /// FRONT IS A DEFAULT, NOT A REQUIREMENT. It needs a TrueDepth camera and, for
+    /// `supportsWorldTracking`, an A12 or later. A phone with neither is not broken —
+    /// it is a phone that has to use the rear camera, and it should get the full
+    /// plane-detecting page rather than "no camera here" on a camera that works.
+    ///
+    /// Resolved BEFORE `facing` is stored rather than inside `makeConfiguration`, so
+    /// that the stored mode and the running session can never disagree. They must
+    /// not: `facing` is what decides whether the readiness gate looks for planes and
+    /// whether the board places itself, and a front-mode gate on a rear-mode session
+    /// would wait for an aim check while ignoring the planes it was being handed.
+    private static func resolvedFacing(_ requested: ARCameraFacing) -> ARCameraFacing {
+        guard requested == .front, FeatureFlags.arPlacement else { return requested }
+        guard ARFaceTrackingConfiguration.isSupported,
+              ARFaceTrackingConfiguration.supportsWorldTracking else {
+            ARDiagnostics.log("front camera unavailable (isSupported="
+                            + "\(ARFaceTrackingConfiguration.isSupported) worldTracking="
+                            + "\(ARFaceTrackingConfiguration.supportsWorldTracking)) — falling back to rear")
+            return .rear
+        }
+        return .front
+    }
+
+    /// Record where a placement tap went and whether it landed.
+    private func markTap(_ point: CGPoint, landed: Bool) {
+        tapCounter += 1
+        lastTap = ARTapMark(id: tapCounter, point: point, landed: landed)
+    }
 
     /// The single source of truth for every piece of AR-page UI.
     @Published private(set) var state: ARPlacementState = .idle
@@ -79,6 +171,13 @@ final class CameraStompDetector: ObservableObject {
 
     /// Fired on the main thread when a stomp lands over a slot zone (0, 1, 2).
     var onStomp: ((Int) -> Void)?
+
+    /// Fired on the main thread with (slot, 0…1) as the working foot rides up and
+    /// down over a slot. A CLOSURE rather than a `@Published`, deliberately: this
+    /// changes continuously while a foot is moving, and publishing it would re-render
+    /// every observer of the detector at that rate to deliver a number only one of
+    /// them wants. Same reasoning as `ARSlotLayout` existing at all.
+    var onTreadle: ((Int, Double) -> Void)?
 
     let session = ARSession()
 
@@ -128,6 +227,14 @@ final class CameraStompDetector: ObservableObject {
             },
             onStomp: { [weak self] slot, x in
                 DispatchQueue.main.async { MainActor.assumeIsolated { self?.dispatchStomp(slot, at: x) } }
+            },
+            onHover: { [weak self] slot in
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.hoveredSlot = slot } }
+            },
+            onTreadle: { [weak self] slot, value in
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated { self?.onTreadle?(slot, value) }
+                }
             })
         session.delegate = coordinator
         session.delegateQueue = sessionQueue
@@ -172,13 +279,24 @@ final class CameraStompDetector: ObservableObject {
     }
 
     private func run() {
-        guard let configuration = Self.makeConfiguration() else { state = .unsupported; return }
+        // Resolved here, before anything reads it: this is the first moment the
+        // device's real capabilities are knowable, and `facing` must describe the
+        // session that is about to start rather than the one that was asked for.
+        facing = Self.resolvedFacing(facing)
+        // The remembered prop height, into the atomic the frame path reads, BEFORE
+        // the first frame can arrive and derive a floor from the default.
+        ARFloorCalibration.restore()
+        guard let configuration = Self.makeConfiguration(facing: facing) else { state = .unsupported; return }
         let initial: ARPlacementState = FeatureFlags.arPlacement ? .searching(.lookingForFloor) : .running
         state = initial
         layout.slots = nil
         placedAnchor = nil
         let coordinator = self.coordinator!
-        sessionQueue.async { coordinator.reset(to: initial) }
+        let currentFacing = facing
+        sessionQueue.async {
+            coordinator.setFacing(currentFacing)
+            coordinator.reset(to: initial)
+        }
         // No reset options, so resuming after the player paged away CONTINUES the map
         // ARKit already built and the outline goes green again in a second or two
         // instead of starting from nothing.
@@ -202,11 +320,35 @@ final class CameraStompDetector: ObservableObject {
     /// would only ever show up on a device, in the one configuration hardest to test.
     /// Idempotent and rare, so paying for it beats reasoning about it.
     func cameraViewDetached() {
-        guard running, clients > 0, let configuration = Self.makeConfiguration() else { return }
+        guard running, clients > 0, let configuration = Self.makeConfiguration(facing: facing) else { return }
         session.run(configuration, options: [])
     }
 
-    private static func makeConfiguration() -> ARConfiguration? {
+    private static func makeConfiguration(facing: ARCameraFacing) -> ARConfiguration? {
+        // FRONT: the default, and the one with no planes in it. See ARCameraFacing.
+        //
+        // World tracking is switched on explicitly. Without it a face-tracking
+        // session gives no gravity-aligned world at all, and `ARAssumedFloor` — which
+        // relies on world +Y being up and on the camera having a world transform
+        // worth reading — would be planting boards against a coordinate space that
+        // rotates with the phone.
+        if facing == .front, FeatureFlags.arPlacement {
+            // Callers resolve support BEFORE getting here (`resolvedFacing`), so this
+            // is the belt to that braces: reaching it means the two disagreed.
+            guard ARFaceTrackingConfiguration.isSupported,
+                  ARFaceTrackingConfiguration.supportsWorldTracking else { return nil }
+            let configuration = ARFaceTrackingConfiguration()
+            configuration.isWorldTrackingEnabled = true
+            // One face is one too many for this page: it is watching FEET. Tracking
+            // none of them is not an option the API offers, so it takes the minimum
+            // and ignores the anchors.
+            configuration.maximumNumberOfTrackedFaces = 1
+            configuration.isLightEstimationEnabled = true
+            // Same reasoning as the rear path: ARKit must not reconfigure the audio
+            // session that is currently carrying the player's live guitar.
+            configuration.providesAudioData = false
+            return configuration
+        }
         guard FeatureFlags.arPlacement else {
             // Gated off: ARKit is still the camera (there is no second capture stack),
             // but 3-DOF orientation tracking costs a fraction of world tracking and
@@ -269,12 +411,24 @@ final class CameraStompDetector: ObservableObject {
             // registered, so say which it was.
             ARDiagnostics.log("tap IGNORED state=\(state.diagName) feedView=\(feedView != nil) "
                             + "geometry=\(geometry != nil) frame=\(session.currentFrame != nil)")
+            markTap(viewPoint, landed: false)
+            return
+        }
+
+        // FRONT MODE HAS NOTHING TO RAYCAST AGAINST, so a tap there is not a location
+        // — it is a request to re-place at wherever the phone is now pointed. Kept
+        // working rather than disabled: if the player CAN reach the phone, "tap to
+        // try again" is the obvious thing to attempt, and refusing it silently would
+        // read as the page being broken.
+        guard facing.detectsPlanes else {
+            markTap(viewPoint, landed: autoPlace())
             return
         }
 
         guard let result = raycast(from: viewPoint, in: feedView) else {
             ARDiagnostics.log("tap MISSED — no raycast hit at "
                             + "(\(ARDiagnostics.f(viewPoint.x, 0)), \(ARDiagnostics.f(viewPoint.y, 0)))")
+            markTap(viewPoint, landed: false)
             return
         }
 
@@ -283,9 +437,53 @@ final class CameraStompDetector: ObservableObject {
         // ARFrame starves the session — ARKit stops delivering new ones until it is
         // released — and a frame captured by an async closure is retained for as long
         // as that closure lives.
-        let camera = frame.camera
+        commit(worldTransform: result.worldTransform, camera: frame.camera, geometry: geometry)
+        markTap(viewPoint, landed: true)
+    }
+
+    /// Place the board where the phone is currently aimed, with no tap and no plane.
+    ///
+    /// FRONT MODE'S ENTIRE PLACEMENT GESTURE, and it is not a gesture at all — it is
+    /// what happens when the view settles. Called from `apply` the moment the page
+    /// reaches `.ready`, and again from a tap if the player is close enough to make
+    /// one. Returns whether a board actually went down, so a reachable tap can be
+    /// marked landed or missed like any other.
+    @discardableResult
+    func autoPlace() -> Bool {
+        guard let geometry, let frame = session.currentFrame else {
+            ARDiagnostics.log("autoplace IGNORED geometry=\(geometry != nil) frame=\(session.currentFrame != nil)")
+            return false
+        }
+        guard let worldTransform = ARAssumedFloor.anchorTransform(camera: frame.camera) else {
+            // The only way front mode can refuse: the phone is level or looking up,
+            // so there is no plausible floor in front of it. See `isUsableAim`.
+            ARDiagnostics.log("autoplace REFUSED — aim not below level")
+            return false
+        }
+        let origin = worldTransform.columns.3.xyz
+        ARDiagnostics.log("AUTOPLACE at world(\(ARDiagnostics.f(origin.x)), \(ARDiagnostics.f(origin.y)), "
+                        + "\(ARDiagnostics.f(origin.z))) "
+                        + "camY=\(ARDiagnostics.f(frame.camera.transform.columns.3.y)) "
+                        + "drop=\(ARDiagnostics.f(frame.camera.transform.columns.3.y - origin.y))m "
+                        + "pitch=\(ARDiagnostics.f(ARFloorCalibration.placementDegrees, 1))° "
+                        + "distance=\(ARDiagnostics.f(ARAssumedFloor.distance))m ASSUMED")
+        commit(worldTransform: worldTransform, camera: frame.camera, geometry: geometry)
+        return true
+    }
+
+    /// Pin the row to `worldTransform` and tell everyone. The half of placement that
+    /// is identical whether the spot was raycast against a real plane or assumed from
+    /// the camera's aim — kept in one place so the two modes cannot drift into
+    /// different ideas of what "placed" means.
+    private func commit(worldTransform: simd_float4x4,
+                        camera: ARCamera,
+                        geometry: ARPlacementCoordinator.ViewGeometry) {
+        // Everything needed is copied out of the frame's camera HERE, as values, so
+        // that the frame dies with the caller and never escapes into the hop below. A
+        // retained ARFrame starves the session — ARKit stops delivering new ones until
+        // it is released — and a frame captured by an async closure is retained for as
+        // long as that closure lives.
         let cameraTransform = camera.transform
-        let worldTransform = result.worldTransform
         let offsets = ARPlacementCoordinator.slotOffsets(anchorTransform: worldTransform,
                                                         camera: camera,
                                                         geometry: geometry)
@@ -340,11 +538,27 @@ final class CameraStompDetector: ObservableObject {
         }
         // A floor that is sparsely mapped (plain carpet, low light) may have a plane
         // ARKit is confident about without geometry under the exact pixel tapped.
-        // Refusing the tap there would strand the player in `.ready` forever.
-        guard let estimated = view.raycastQuery(from: viewPoint, allowing: .estimatedPlane, alignment: .horizontal) else {
+        // Refusing the tap there would strand the player in `.ready` forever — so the
+        // plane is extended past its mapped edge instead.
+        //
+        // `.existingPlaneInfinite` AND NOT `.estimatedPlane`, WHICH THIS USED TO USE.
+        // The difference is the whole of "it places on a flat surface": an infinite
+        // plane is a real detected one carried on past where geometry has been filled
+        // in, so it is flat by construction and level with the floor ARKit actually
+        // found. An ESTIMATED plane is a guess made from feature points under the
+        // tapped pixel, and it will happily hand back a tilted shelf of a surface in
+        // the middle of a rug, a shadow, or a pile of cable — which is a board built
+        // on a slope, discovered only once it is standing there crooked.
+        //
+        // Nothing is lost by the swap: `.ready` already REQUIRES a real horizontal
+        // plane (`ingest` only ever records `plane.alignment == .horizontal`), so by
+        // the time a tap is accepted at all there is a genuine plane to extend.
+        guard let infinite = view.raycastQuery(from: viewPoint, allowing: .existingPlaneInfinite, alignment: .horizontal),
+              let hit = session.raycast(infinite).first else {
             return nil
         }
-        return session.raycast(estimated).first
+        ARDiagnostics.log("raycast fell back to existingPlaneInfinite")
+        return hit
     }
 
     // MARK: - Reacting to the coordinator
@@ -362,6 +576,11 @@ final class CameraStompDetector: ObservableObject {
             // is immediate. A late haptic on a phone the player is not looking at is
             // worse than none: they have already stopped waiting for it.
             haptics.prepare()
+            // FRONT MODE PLACES ITSELF HERE, and this line is the whole of "you never
+            // touch the phone". `.ready` already means the view has settled and held;
+            // in rear mode that merely PERMITS a tap, which is a gesture nobody a
+            // metre away can make. Here the same condition performs the placement.
+            if facing.placesAutomatically { autoPlace() }
         }
         if new == .lost {
             haptics.notificationOccurred(.warning)

@@ -53,20 +53,33 @@ struct MainView: View {
     @State private var libraryDestination: LibraryContentView.Drill?
     @State private var showCredits = false
 
+    /// Whether the current page runs edge to edge with the app chrome hidden.
+    ///
+    /// Only the AR page does. It is the one page whose content is a real floor seen
+    /// through a lens: the nav bar, the gear rail and the control panel between them
+    /// were taking about two thirds of the screen, which on a propped phone is two
+    /// thirds of the floor the player is trying to aim at. Everywhere else the chrome
+    /// IS the app and stays put.
+    private var immersive: Bool { page == .ar }
+
     var body: some View {
         ZStack {
             RigTheme.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                topNav
+                if !immersive { topNav }
                 HStack(spacing: 0) {
-                    // THE RAIL STANDS DOWN ON THE PROFILE PAGE. Everywhere else it
-                    // is the thing under your thumb — gear you drag onto the rig —
-                    // but there is nothing on PROFILE to drag it to, so all it does
-                    // there is take 150 pt off a page that wants the width for a
-                    // name field and a settings list. It is the one page whose
-                    // subject is not gear.
-                    if page != .profile {
+                    // THE RAIL STANDS DOWN ON TWO PAGES NOW, for two different
+                    // reasons that happen to want the same thing.
+                    //
+                    // On PROFILE, because there is nothing there to drag gear onto,
+                    // so all the rail does is take 150 pt off a page that wants the
+                    // width for a name field and a settings list.
+                    //
+                    // On AR, because that page is a real floor seen through a lens
+                    // and every point of chrome is a point of floor a propped phone
+                    // cannot show the player.
+                    if !immersive, page != .profile {
                         CollectionTabView()
                             .coachMarkTarget(.gearRail)
                             .transition(.move(edge: .leading).combined(with: .opacity))
@@ -95,9 +108,14 @@ struct MainView: View {
                     // outside the UIPageViewController bridge, where measurements
                     // still mean what they say (see RigDragController.appRootOrigin).
                     .overlay(alignment: .topLeading) {
-                        GearTrashTarget(forcedVisible: onboarding.revealsTrash)
-                            .padding(.leading, 10)
-                            .padding(.top, 8)
+                        // Hidden on the AR page for the same reason the rail is —
+                        // but it keeps the tour's forced reveal, so the step that
+                        // explains the trash still works everywhere it can be shown.
+                        if !immersive {
+                            GearTrashTarget(forcedVisible: onboarding.revealsTrash)
+                                .padding(.leading, 10)
+                                .padding(.top, 8)
+                        }
                     }
                     // The pager's own rectangle, tagged OUTSIDE the bridge. It is
                     // both the spotlight for the four "here is a page" steps and
@@ -105,9 +123,25 @@ struct MainView: View {
                     // looking wrong — see CoachMarkAnchor's header.
                     .coachMarkTarget(.pageArea)
                 }
-                ControlPanelView()
-                    .coachMarkTarget(.controlPanel)
+                // Same reasoning as the rail: on the AR page the control panel is
+                // 77 pt of floor the player cannot see. It keeps its coach-mark
+                // target for every page that still shows it.
+                if !immersive {
+                    ControlPanelView()
+                        .coachMarkTarget(.controlPanel)
+                }
             }
+            // The AR page is aimed at a floor from ankle height and read from
+            // standing. Every point the chrome keeps is a point of floor the player
+            // cannot see, so on that page it gets the glass.
+            //
+            // ON THE VSTACK, NOT ON THE TABVIEW INSIDE IT, and that move is the
+            // difference between nearly full-screen and full-screen. A child cannot
+            // grow past a parent that has already been inset: with this a level lower
+            // the page measured 750×293 on a device whose screen is larger in both
+            // directions — the safe-area inset had been taken by the stack before the
+            // page ever saw it.
+            .ignoresSafeArea(edges: immersive ? .all : [])
             // THE SHELL DOES NOT MOVE FOR THE KEYBOARD, and this one line is the
             // whole reason the profile page's name field is usable.
             //
@@ -122,6 +156,29 @@ struct MainView: View {
             // both that do (the library's search box, the profile's name) already
             // sit at the top of their column.
             .ignoresSafeArea(.keyboard, edges: .bottom)
+
+            // Hiding `topNav` took the only VISIBLE way off this page with it. The
+            // pager still swipes, but a full-screen camera feed gives no hint that it
+            // does, and "I could not get out of the AR page" is a worse bug than a
+            // cramped one. Deliberately small and low-contrast: it is an exit, not a
+            // control the player needs mid-song.
+            if immersive {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { page = .main }
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(RigTheme.textMuted)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(.black.opacity(0.45)))
+                        .overlay(Circle().strokeBorder(.white.opacity(0.14), lineWidth: 1))
+                }
+                .padding(.leading, 14)
+                .padding(.top, 10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .zIndex(3)
+            }
+
 
             if let component = focused {
                 ComponentDetailView(component: component) {

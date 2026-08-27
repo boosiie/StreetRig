@@ -513,6 +513,24 @@ public final class RigStore: ObservableObject {
         arSlots[index].isOn.toggle()
     }
 
+    /// Set one parameter on the pedal footswitched to an AR slot.
+    ///
+    /// EXISTS FOR THE WAH TREADLE, which is the first control on this rig driven by
+    /// something OTHER than a finger: a foot riding up and down over a pedal, sampled
+    /// at 18 Hz. It takes the slot rather than an item id because that is what the
+    /// foot knows about — "the pedal I am standing over" — and it no-ops on an empty
+    /// slot rather than guessing.
+    ///
+    /// Writes nothing when the value is unchanged. A continuous control would
+    /// otherwise republish the whole collection on every frame a foot is moving, and
+    /// everything observing this store would re-render at that rate.
+    public func setARSlotParameter(_ index: Int, _ param: String, _ value: Double) {
+        guard arSlots.indices.contains(index), let id = arSlots[index].pedalId,
+              let idx = collection.firstIndex(where: { $0.id == id }) else { return }
+        guard collection[idx].values[param] != value else { return }
+        collection[idx].values[param] = value
+    }
+
     /// Two-way binding to one knob of one owned item (used by the zoom sliders).
     public func binding(itemId: UUID, param: String) -> Binding<Double> {
         Binding(
