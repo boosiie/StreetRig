@@ -121,8 +121,11 @@ struct PanelKnobLayout: Decodable {
         var isRotary: Bool { (style ?? "toggle") == "rotary" }
         /// Degrees between detents on a rotary. Matches the painted markings.
         let step: Double?
-        /// The indicator that answers the switch, if the artwork has one.
-        let lamp: Lamp?
+        /// The indicators that answer the switch. A column of them is normal —
+        /// the Ketana names its amp type with six lamps, not with a caption — so
+        /// each says which positions light it.
+        private let lamps: [Lamp]?
+        var indicators: [Lamp] { lamps ?? [] }
     }
 
     /// A painted lamp that lights while its switch sits on one of `on`.

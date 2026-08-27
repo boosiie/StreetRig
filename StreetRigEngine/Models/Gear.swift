@@ -647,16 +647,23 @@ enum PedalSpec {
             }
             if n.contains("katana") || n.contains("ketana") {
                 var p: [GearParameter] = [
-                    // NO PRESENCE. Reported from the hardware; the panel is
-                    // Gain / Volume / Bass / Middle / Treble / Master plus the
-                    // character and FX sections, and a presence knob was carried
-                    // over from the shared six by mistake.
+                    // PRESENCE IS BACK. It was taken off as a knob carried over
+                    // from the shared six by mistake — but the faceplate prints
+                    // one, between MASTER and the effects, and the amp has it. It
+                    // drives the engine's presence role like any other.
                     GearParameter("Gain"), GearParameter("Bass"), GearParameter("Mid"),
                     GearParameter("Treble"),
-                    GearParameter("Volume"), GearParameter("Master"),
+                    GearParameter("Volume"), GearParameter("Presence"), GearParameter("Master"),
                     GearParameter("Character", options: ["Acoustic", "Clean", "Crunch", "Lead", "Brown"],
                                   defaultIndex: 2),
-                    GearParameter("Variation", options: ["A", "B"], defaultIndex: 0)]
+                    GearParameter("Variation", options: ["A", "B"], defaultIndex: 0),
+                    // The wattage selector the chassis has and the power amp does
+                    // not: one output stage, pinned to full (see RigGraphCompiler,
+                    // which reads power from the profile and deliberately ignores
+                    // any stored key). Drawn because it is on the amp, unringed
+                    // because nothing is behind it.
+                    GearParameter("POWER CONTROL", options: ["STANDBY", "0.5W", "HALF", "MAX"],
+                                  defaultIndex: 3, isDisabled: true)]
                 // THE FX SECTION. Five blocks, each a named group: a type
                 // selector (index 0 = Off, and the only STRUCTURAL control here,
                 // because it decides whether the block occupies a chain slot at

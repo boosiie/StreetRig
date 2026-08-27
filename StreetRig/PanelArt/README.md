@@ -111,8 +111,10 @@ segmented buttons under the panel drops it — you flick the switch on the amp i
   Jazzy Chorus picks VIB / OFF / CHOR with a knob, and a bat toggle in a painted knob
   well reads as the wrong part. Add `"step"` for the degrees between detents (45 default),
   to match the markings painted around it.
-- **`lamp`** is optional: a jewel that lights while the switch sits on one of the `on`
-  positions. `color` is `#rrggbb`, defaulting to the app's amber.
+- **`lamps`** is optional: jewels that light while the switch sits on one of their `on`
+  positions. A column of them is normal — the Ketana names its amp type with a stack of
+  six LEDs rather than a caption, so each lamp lists the one index it answers to.
+  `color` is `#rrggbb`, defaulting to the app's amber.
 - A switch the sidecar does NOT name stays in the strip below, so a partly-marked plate
   never loses a control.
 - **Live controls are RINGED; dead ones are left alone.** A knob or switch that reaches

@@ -419,7 +419,7 @@ struct ComponentDetailView: View {
                    let options = param.options {
                     let at = CGPoint(x: origin.x + placed.x * drawn.width,
                                      y: origin.y + placed.y * drawn.height)
-                    if let lamp = placed.lamp {
+                    ForEach(Array(placed.indicators.enumerated()), id: \.offset) { _, lamp in
                         PanelLamp(color: Color(panelHex: lamp.color),
                                   diameter: lamp.d * drawn.height,
                                   lit: lamp.on.contains(liveIndex(id: id, param: param)))
