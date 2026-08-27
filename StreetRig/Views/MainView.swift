@@ -130,15 +130,6 @@ struct MainView: View {
                             .coachMarkTarget(.gearRail)
                             .transition(.move(edge: .leading).combined(with: .opacity))
                     }
-                    // A SIBLING IN THE STACK, NOT AN OVERLAY ON IT. As an overlay
-                    // the tab would float over whatever the page happens to put at
-                    // its left edge and swallow taps meant for it; in the stack it
-                    // owns its own 22 points on every page and the centre area
-                    // simply starts after it. It is also why `.gearRail` stays on
-                    // `CollectionTabView` alone: the tour's spotlight is for the
-                    // rail, and a handle stuck to the outside of that rect would
-                    // widen the hole by a tab for no reason.
-                    gearDrawerTab
                     TabView(selection: $page) {
                         LibraryContentView(openAt: $libraryDestination)
                             .tag(AppPage.library)
@@ -154,6 +145,27 @@ struct MainView: View {
                     // on, and the pager would otherwise take that movement as a
                     // swipe. Same switch the rail throws for the same reason.
                     .scrollDisabled(slotLift.armed)
+                    // AN OVERLAY ON THE PAGER, NOT A SIBLING BESIDE IT — and that
+                    // is a correction, made on a device with the app in hand.
+                    //
+                    // As a sibling the tab owned a column in the stack, and a column
+                    // is full height: 22 points wide from the nav bar to the control
+                    // panel, of which the handle covered 56. Every other point of it
+                    // showed the shell's background through, so what read on screen
+                    // was not a handle on the rail but a BLACK STRIP down the side of
+                    // the page with a chevron halfway along it.
+                    //
+                    // Floating costs the page nothing and leaves only the handle. The
+                    // objection to it was that a floating tab covers whatever the page
+                    // puts at its leading edge and takes taps meant for that — true,
+                    // but it is 44×56 points at the vertical centre of one edge, which
+                    // is the same region it was covering as a sibling anyway. A strip
+                    // the height of the screen was the larger of the two costs.
+                    //
+                    // `.gearRail` still stays on `CollectionTabView` alone: the tour's
+                    // spotlight is for the rail, and a handle stuck to the outside of
+                    // that rect would widen the hole by a tab for no reason.
+                    .overlay(alignment: .leading) { gearDrawerTab }
                     // The trash lives HERE — top-left of the centre area, just
                     // past the MY GEAR rail — so it is somewhere you drag TO,
                     // equally reachable from the rail and from the rig stage.
@@ -351,8 +363,8 @@ struct MainView: View {
                 )
                 // A 22pt-wide target is not a legal one. Pad the touchable area out
                 // to 44 and take the shape at THAT size — the extra 22 points hang
-                // over the page, invisible, and are handed back to the layout by the
-                // negative pad on the far side of the drop destination below.
+                // over the page, invisible. Nothing has to be handed back: this
+                // floats, and an overlay reserves no width to begin with.
                 .padding(.trailing, Self.drawerTabHitWidth - Self.drawerTabWidth)
                 .contentShape(Rectangle())
         }
@@ -378,10 +390,6 @@ struct MainView: View {
             guard targeted, !drawerOpen else { return }
             moveGearDrawer(to: true, animated: true)
         }
-        // …AND THE 22 POINTS BACK. Negative padding does not clip, so the widened
-        // tap shape and the drop destination above both keep their 44 points while
-        // the layout — and therefore the page beside it — sees only the handle.
-        .padding(.trailing, Self.drawerTabWidth - Self.drawerTabHitWidth)
     }
 
     private static let drawerTabWidth: CGFloat = 22
