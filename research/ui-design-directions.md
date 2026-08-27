@@ -1446,3 +1446,72 @@ one of them collapses it back to plastic:
 
 Apply the same principle to any other metal in the app (the brass piping, the fader cap, knob
 skirts): light on metal is a reflection of an environment, so give it an environment to reflect.
+
+---
+
+## Part 14 — The panel is near-black (2026-08-27)
+
+Third attempt at this surface, and the two failures are worth keeping because they failed for
+different reasons.
+
+1. **Cream `#EADFC4`** — fought the brown on *hue*: 43° / G-R 0.95 against 19–27° / G-R 0.67. Two
+   chromatic warm fields ~20° apart. (Part 13.1.)
+2. **Brushed nickel, S 5%** — settled the hue argument and started a tonal one. A mid-grey needs a
+   large tonal swing to read as metal, and the 150-level ramp across a 50pt bar read as **dirty**.
+   The panel looked *shadowed* rather than *lit*.
+3. **Near-black anodised** — solves both, because a dark surface needs almost no swing to read as
+   metal. On a dark panel a reflection genuinely *is* narrow and faint, which is why anodised gear
+   looks expensive and flat at the same time.
+
+### 14.1 Structure says metal; amplitude only says how polished
+
+The stop **positions** are unchanged from Part 13.2. Only the range moved — from ~150 levels to
+**39**. That is the transferable lesson: keep the structure, scale the amplitude to the ground.
+
+| Token | Hex | Role |
+|---|---|---|
+| `panelLip` | `#141518` | top and bottom edge, turned away from the key |
+| `panelCatch` | `#3E4249` | the chamfer catch at **2.5%** — thin, and the brightest thing on the panel |
+| `panelSheen` | `#31353A` | narrow sheen at 7% |
+| `panelBody` | `#24272C` | the flat field — most of the panel, and it stays flat |
+| `panelLow` | `#262A2F` | faint bounce at 76% |
+| `inkPlate` | `#DAD8D4` | the printed legend — **light now**, 10.5:1 on the panel |
+| panel labels | `#8E8C88` | muted legend, 4.5:1 |
+
+```
+LinearGradient(stops:
+  panelLip    0%      panelCatch 2.5%    panelSheen 7%     #2A2E33 17%
+  panelBody  52%      panelLow   76%     #1E2023   93%     #16171A 100%)
+```
+
+Then the 2pt horizontal brushed grain, then the 3pt brass piping on the lit edge.
+
+### 14.2 The measured trap — hue alone will not separate two near-blacks
+
+The first cut of this panel sat at **`#191A1D`**, chosen for being convincingly close to black. It
+measures **1.09:1** against the page — and `RigTheme.swift` records *that exact number* as the bug
+that made `backgroundLift` "close enough to invisible". The panel would have relied entirely on a
+3pt brass pipe and a hue difference to separate it from the cabinet, and hue at equal luminance is a
+weak cue on a cheap screen in daylight.
+
+`#24272C` measures **1.26:1**, matching the CARD rung's documented-working 1.25:1. So the panel now
+has *three* separating cues rather than one: a real luminance step, a cool cast (B−R = +8) against
+the warm near-black tolex, and the brass piping.
+
+**Not pure `#000`.** A true black has no surface, takes no light, and would swallow the piping.
+
+### 14.3 Everything printed on the panel inverts
+
+`inkPlate` flips from near-black `#23211D` to light `#DAD8D4`, and every dark-on-panel value goes
+with it — page title, page dots, the info glyph, the disabled nav arrow, zone captions, knob legends
+and values, the latency badge. Two exceptions, because they are **cut into** the panel rather than
+printed on it, and a groove on a dark surface gets *darker*, not lighter: the master fader's track
+and the unlit meter segments, both now `black .45`.
+
+### 14.4 The risk has changed
+
+The old risk was **glare** — a near-white band across 33% of a landscape screen aimed at a
+dark-adapted player. That is retired; there is no near-white on the screen any more. The new risk is
+**separation**: a cool near-black panel on a warm near-black cabinet, held apart by 1.26:1, a hue
+difference and a 3pt pipe. On a good screen in a dark room that is elegant. On a cheap screen in
+daylight it wants checking before anyone commits — measure it on a real device.
