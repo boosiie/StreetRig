@@ -54,16 +54,36 @@ import simd
 /// need no projection at all — SceneKit renders them through the same AR camera
 /// that draws the feed, which is the entire reason they look like they are on the
 /// floor rather than pasted over it.
+///
+/// THE ONE PLACE DECK HEIGHT IS DECIDED. Three things read slot position — the
+/// SceneKit pedal node, the point `FloorSlotChrome` draws its label at, and
+/// `slotCentersX`, which decides which slot a detected foot toggles. Once the pedals
+/// stand on a board those three have to move UP together or a label sits over empty
+/// carpet and a stomp lands on the wrong pedal. So the lift is applied exactly once,
+/// here, into `offsets` — the projections downstream are untouched and follow for
+/// free — and the amount is carried alongside so anything needing the floor again
+/// can subtract the number that was actually used rather than re-derive one.
 struct ARFloorPose: Equatable {
     var anchor: simd_float4x4
+    /// Slot centres in the anchor's own space. WITH the deck lift already in them
+    /// when there is a board: these are mount points, not floor points.
     var offsets: [simd_float4]
     /// Yaw, in radians about the anchor's up axis, that turns a pedal to face where
     /// the camera was standing when the player tapped. Fixed at lock time rather
     /// than tracked: pedals on a floor do not swivel to follow you around the room.
     var facing: Float
+    /// How much of each offset's height is board rather than floor. Zero when
+    /// `FeatureFlags.arPedalboard` is off, which is what makes that path identical
+    /// to the flat row this replaced.
+    var deckLift: Float
+    /// The pitch that deck is raked at, for whatever is standing on it. Carried
+    /// rather than looked up so the geometry a frame renders can never be a
+    /// different shape from the one its offsets were computed for.
+    var deckRake: Float
 
     static func == (a: Self, b: Self) -> Bool {
         a.anchor == b.anchor && a.offsets == b.offsets && a.facing == b.facing
+            && a.deckLift == b.deckLift && a.deckRake == b.deckRake
     }
 }
 
@@ -181,13 +201,32 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
     private static let lostDwell: TimeInterval = 1.2
     /// Sideways spacing between the three slots on the real floor. Pedal centres on
     /// a board sit closer than this; feet do not.
-    private static let slotSpacing: Float = 0.30                    // metres
+    ///
+    /// Not private, because `ARFloorPedalboard` sizes the board from it: the board
+    /// has to be as wide as THIS row, not as wide as a board you could buy. Read the
+    /// note there before changing this number — it is the width of the thing the
+    /// player stands over, in both directions at once.
+    nonisolated static let slotSpacing: Float = 0.30                // metres
     /// Ceiling on how often projected slot positions are published to SwiftUI.
     /// ARKit delivers 60 Hz; re-laying out three slots that often would burn main
     /// thread the amp sim needs, for motion no one can see.
     private static let slotPublishInterval: TimeInterval = 1.0 / 30.0
     /// Below this, a "move" is ARKit refining its estimate, not the phone moving.
     private static let slotPublishDeadband: CGFloat = 0.5           // points
+
+    /// How far above and below a pedal the treadle's full travel spans, as a fraction
+    /// of the viewport. A rocking foot moves the ANKLE only a little — the toe does
+    /// most of the travelling, and the toe is not a joint this API reports — so the
+    /// band is deliberately narrow. NEEDS ON-DEVICE TUNING.
+    private static let treadleBand: CGFloat = 0.075
+    /// One-pole smoothing on the treadle. This ends up on a filter sweep, where raw
+    /// 18 Hz jitter is an audible warble rather than a merely visual one.
+    private static let treadleSmoothing: Double = 0.30
+    /// Below this the value has not really moved; not worth a hop to the main thread.
+    private static let treadleStep: Double = 0.012
+    /// The same idea in metres, for the front mode's re-derived floor: below this the
+    /// board would be jittering in place rather than following anything.
+    private static let floorPublishDeadband: Float = 0.002          // metres
 
     // MARK: Outputs
     //
@@ -203,11 +242,33 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
     private let emitFloor: @Sendable (ARFloorPose?) -> Void
     /// (slot index, normalized x of the foot across the viewport).
     private let emitStomp: @Sendable (Int, CGFloat) -> Void
+    /// Which slot the player's foot is currently over, or nil. Emitted only when the
+    /// answer CHANGES — see the call site.
+    private let emitHover: @Sendable (Int?) -> Void
+    /// Where the working foot sits vertically against the slot it is over, 0…1.
+    ///
+    /// 0 is heel-down (the foot low on screen, below the pedal), 1 is toe-down (high).
+    /// Emitted as a POSITION, not as "a wah value": this layer is a sensor and has no
+    /// idea what kind of pedal is in the slot. Whoever knows that decides what a
+    /// treadle position means — see `ARPedalContentView`.
+    private let emitTreadle: @Sendable (Int, Double) -> Void
 
     /// Whether the readiness/anchoring layer runs at all. Fixed for the lifetime of
     /// the coordinator; flipping `FeatureFlags.arPlacement` needs a relaunch, which
     /// is what a compile-time gate means.
     private let placementEnabled: Bool
+
+    /// Which camera the session is running, and therefore whether there are planes to
+    /// gate on at all. Session-queue only, like every other stored property here —
+    /// set through `setFacing` rather than written directly.
+    ///
+    /// `cameraFacing`, not `facing`: this type already has a `facing`, and it means
+    /// something entirely different (the row's yaw toward where the player stood).
+    /// Two things called the same thing in one file is how the wrong one gets read.
+    private var cameraFacing: ARCameraFacing = .default
+
+    /// Tell the coordinator the camera changed. Hop to the session queue to call it.
+    func setFacing(_ new: ARCameraFacing) { cameraFacing = new }
 
     private let pose = StompPoseTracker()
 
@@ -215,12 +276,16 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
          onState: @escaping @Sendable (ARPlacementState) -> Void,
          onSlots: @escaping @Sendable ([CGPoint]?) -> Void,
          onFloor: @escaping @Sendable (ARFloorPose?) -> Void,
-         onStomp: @escaping @Sendable (Int, CGFloat) -> Void) {
+         onStomp: @escaping @Sendable (Int, CGFloat) -> Void,
+         onHover: @escaping @Sendable (Int?) -> Void,
+         onTreadle: @escaping @Sendable (Int, Double) -> Void) {
         self.placementEnabled = placementEnabled
         self.emitState = onState
         self.emitSlots = onSlots
         self.emitFloor = onFloor
         self.emitStomp = onStomp
+        self.emitHover = onHover
+        self.emitTreadle = onTreadle
         super.init()
     }
 
@@ -249,9 +314,25 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
     /// rotation has been committed (an orientation notification races the change it
     /// is reacting to).
     func setViewGeometry(orientation: UIInterfaceOrientation, size: CGSize) {
-        orientationRaw.store(orientation.rawValue, ordering: .relaxed)
+        // CHANGES ONLY, and only because a flapping answer here is invisible in every
+        // other way. The orientation feeds `projectPoint`, which decides where content
+        // is drawn; the feed behind it is drawn from `displayTransform`. If this value
+        // alternates — the view leaving and re-entering a window, two sources
+        // disagreeing — the content rotates while the picture does not, which reads on
+        // screen as flashing and sideways rather than as anything to do with geometry.
+        let previous = orientationRaw.exchange(orientation.rawValue, ordering: .relaxed)
+        if previous != orientation.rawValue {
+            ARDiagnostics.log("geometry orientation \(previous) -> \(orientation.rawValue) "
+                            + "size=\(ARDiagnostics.f(size.width, 0))x\(ARDiagnostics.f(size.height, 0))")
+        }
         let packed = UInt64(Float(size.width).bitPattern) << 32 | UInt64(Float(size.height).bitPattern)
-        viewportPacked.store(packed, ordering: .relaxed)
+        let previousPacked = viewportPacked.exchange(packed, ordering: .relaxed)
+        if previousPacked != packed, previousPacked != 0 {
+            let oldW = Float(bitPattern: UInt32(previousPacked >> 32))
+            let oldH = Float(bitPattern: UInt32(previousPacked & 0xFFFF_FFFF))
+            ARDiagnostics.log("geometry size \(ARDiagnostics.f(oldW, 0))x\(ARDiagnostics.f(oldH, 0)) -> "
+                            + "\(ARDiagnostics.f(size.width, 0))x\(ARDiagnostics.f(size.height, 0))")
+        }
     }
 
     private func currentGeometry() -> ViewGeometry? {
@@ -307,6 +388,20 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
     private var slotCentersX: (CGFloat, CGFloat, CGFloat)?
     private var lastPublishedSlots: (CGPoint, CGPoint, CGPoint)?
     private var lastSlotPublish: TimeInterval = 0
+    /// Last hover published, so an unchanged answer is not re-sent 18×/second.
+    private var lastHover: Int?
+    /// View-space y of the three slot centres, alongside `slotCentersX`.
+    private var slotCentersY: (CGFloat, CGFloat, CGFloat)?
+    /// Last treadle value emitted, so a foot holding still does not push an unchanged
+    /// number onto the main thread 18 times a second.
+    private var lastTreadle: Double?
+    private var lastTreadleLog: TimeInterval = 0
+    /// The placement angle the frozen front-mode board was planted at. Compared each
+    /// frame so a calibration drag can move it and nothing else can.
+    private var placedPitch: Float = .nan
+    /// Throttle state for the front mode's re-derived floor — see `publishFloorIfMoved`.
+    private var lastFloorPublish: TimeInterval = 0
+    private var lastPublishedFloorOrigin: simd_float3?
 
     /// Diagnostics throttle. The readiness gates are evaluated 60 times a second and
     /// the interesting thing about them is the trend, not the frame — at 60 Hz the
@@ -353,6 +448,20 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
         ARDiagnostics.log("LOCK at world(\(ARDiagnostics.f(origin.x)), \(ARDiagnostics.f(origin.y)), "
                         + "\(ARDiagnostics.f(origin.z))) camY=\(ARDiagnostics.f(cameraTransform.columns.3.y)) "
                         + "drop=\(ARDiagnostics.f(cameraTransform.columns.3.y - origin.y))m")
+        // The board, once, here. On-device is the only place it can be SEEN, and a
+        // board that came out the wrong size has to be diagnosable from a line of
+        // console rather than from squinting at a photograph of a carpet.
+        if FeatureFlags.arPedalboard {
+            ARDiagnostics.log("BOARD \(ARDiagnostics.f(ARFloorPedalboard.width, 3))×"
+                            + "\(ARDiagnostics.f(ARFloorPedalboard.depth, 3))m "
+                            + "rake=\(ARDiagnostics.f(ARFloorPedalboard.rake * 180 / .pi, 1))° "
+                            + "deck=\(ARDiagnostics.f(ARFloorPedalboard.deckHeight, 3))m "
+                            + "tier=+\(ARDiagnostics.f(ARFloorPedalboard.tierStep, 3))m "
+                            + "derived from spacing=\(ARDiagnostics.f(Self.slotSpacing)) "
+                            + "pedal=\(ARDiagnostics.f(ARFloorPedals.pedalWidth, 3)) "
+                            + "margin=\(ARDiagnostics.f(ARFloorPedalboard.frameMargin, 3))")
+        }
+        placedPitch = ARFloorCalibration.placementPitch
         set(.locked)
     }
 
@@ -373,20 +482,52 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
     }
 
     private func clearLock() {
+        // A stale glow over a board that is no longer there is worse than no glow.
+        if lastHover != nil { lastHover = nil; emitHover(nil) }
         anchorID = nil
         anchorTransform = nil
         slotOffsets = nil
         lockPose = nil
         slotCentersX = nil
+        slotCentersY = nil
+        lastTreadle = nil
+        lastPublishedFloorOrigin = nil
+        placedPitch = .nan
         lastPublishedSlots = nil
         facing = 0
         emitFloor(nil)
     }
 
+    /// Publish a re-derived front-mode floor, but not 60 times a second.
+    ///
+    /// The rear path emits a pose only on lock and on anchor refinement — rare events
+    /// — so it never needed throttling. Front mode re-derives on EVERY frame, and
+    /// every emission crosses to the main thread and re-renders the SceneKit driver
+    /// next to a live neural amp. Same ceiling and the same reasoning as the slot
+    /// points, plus a deadband so a stationary propped phone whose estimate is
+    /// wobbling by a millimetre publishes nothing at all.
+    private func publishFloorIfMoved(_ transform: simd_float4x4, now: TimeInterval) {
+        guard now - lastFloorPublish >= Self.slotPublishInterval else { return }
+        if let last = lastPublishedFloorOrigin {
+            let moved = simd_distance(transform.columns.3.xyz, last)
+            if moved < Self.floorPublishDeadband { return }
+        }
+        lastFloorPublish = now
+        lastPublishedFloorOrigin = transform.columns.3.xyz
+        publishFloor()
+    }
+
     /// Hand the current floor pose out, if there is one to hand out.
     private func publishFloor() {
         guard let anchorTransform, let slotOffsets else { return emitFloor(nil) }
-        emitFloor(ARFloorPose(anchor: anchorTransform, offsets: slotOffsets, facing: facing))
+        // `slotOffsets` already carry the lift — see `ARFloorPose`. What is added
+        // here is only the description of it, so the renderer never has to ask a
+        // second time how high the deck was when these numbers were made.
+        emitFloor(ARFloorPose(anchor: anchorTransform,
+                              offsets: slotOffsets,
+                              facing: facing,
+                              deckLift: ARFloorPedalboard.mountLift,
+                              deckRake: ARFloorPedalboard.mountRake))
     }
 
     // MARK: - ARSessionDelegate
@@ -413,10 +554,52 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
         // arrive in the same space via `projectPoint` above.
         let displayTransform = frame.displayTransform(for: geometry.orientation,
                                                       viewportSize: geometry.size)
-        if let stomp = pose.process(pixelBuffer: frame.capturedImage,
-                                    geometry: geometry,
-                                    displayTransform: displayTransform,
-                                    slotCentersX: slotCentersX) {
+        guard let reading = pose.process(pixelBuffer: frame.capturedImage,
+                                         geometry: geometry,
+                                         displayTransform: displayTransform,
+                                         slotCentersX: slotCentersX) else { return }
+
+        // ON CHANGE ONLY. The hover is recomputed ~18×/second and is the same answer
+        // almost every time; publishing all of them would re-render the page at that
+        // rate to say nothing. Which pedal a foot is over changes a handful of times
+        // in a song.
+        if reading.hoverSlot != lastHover {
+            lastHover = reading.hoverSlot
+            ARDiagnostics.log("hover slot=\(reading.hoverSlot.map(String.init) ?? "none")")
+            emitHover(reading.hoverSlot)
+        }
+        // THE TREADLE. How high the working foot is riding against the pedal it is
+        // over — the continuous half of what a foot can say, next to the discrete
+        // "it stamped". Only meaningful while a foot is actually over a slot.
+        if let slot = reading.hoverSlot, let foot = reading.footPoint,
+           let centres = slotCentersY {
+            let ys = [centres.0, centres.1, centres.2]
+            if ys.indices.contains(slot) {
+                // Measured DOWNWARD from the slot: view space grows down the screen, so
+                // a foot above the pedal has the smaller y and should read as the high
+                // end. Half a band either side, clamped.
+                let band = geometry.size.height * Self.treadleBand
+                let raw = 0.5 - Double((foot.y - ys[slot]) / max(band * 2, 1))
+                let clamped = min(1, max(0, raw))
+                // Smoothed, because this drives a filter sweep in the audio path and
+                // 18 Hz of Vision jitter would be audible as a warble on a held note.
+                let smoothed = lastTreadle.map { $0 + (clamped - $0) * Self.treadleSmoothing } ?? clamped
+                if abs(smoothed - (lastTreadle ?? -1)) > Self.treadleStep {
+                    lastTreadle = smoothed
+                    emitTreadle(slot, smoothed)
+                    if ARDiagnostics.enabled, now - lastTreadleLog >= Self.gateLogInterval {
+                        lastTreadleLog = now
+                        ARDiagnostics.log("treadle slot=\(slot) pos=\(ARDiagnostics.f(CGFloat(smoothed), 2)) "
+                                        + "footY=\(ARDiagnostics.f(foot.y, 0)) slotY=\(ARDiagnostics.f(ys[slot], 0)) "
+                                        + "band=\(ARDiagnostics.f(band, 0))px")
+                    }
+                } else {
+                    lastTreadle = smoothed
+                }
+            }
+        }
+
+        if let stomp = reading.stomp {
             emitStomp(stomp.slot, stomp.normalizedX)
         }
     }
@@ -487,6 +670,63 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
 
         let trackingNormal: Bool
         if case .normal = camera.trackingState { trackingNormal = true } else { trackingNormal = false }
+
+        // FRONT MODE HAS NO PLANES TO GATE ON, so it gates on the only two things it
+        // can know: that ARKit is tracking properly, and that the phone is aimed
+        // somewhere a floor could be. Everything below this branch — plane extents,
+        // height above the lens, whether a plane is in shot — is asking questions
+        // about detected geometry that does not exist here.
+        //
+        // Note what `.ready` MEANS in this mode, because it is not what it means
+        // below: not "there is a floor here" but "the view has settled and the aim is
+        // plausible". That is a weaker promise, and it is the honest one — which is
+        // exactly why front mode goes on to PLACE on it rather than inviting a tap.
+        if !cameraFacing.detectsPlanes {
+            // WOULD THE BOARD ACTUALLY BE ON SCREEN? Front mode has no plane to gate
+            // on, so this is the only thing standing between it and planting a board
+            // behind the player — which it did: a real session turned the phone and
+            // placed a row that projected to x = −1185 on an 844-wide viewport, with
+            // its three slots 4 points apart. Off screen AND collapsed to a point,
+            // which is what "sideways and flashing" actually was.
+            //
+            // Rear mode has always had this check (`inView` on the candidate plane);
+            // front mode was allowed to skip it because there was no candidate to
+            // check. There is one — the pose it is ABOUT to derive — so it checks that.
+            let prospective = ARAssumedFloor.anchorTransform(camera: camera)
+            let onScreen = prospective.map {
+                inView($0.columns.3.xyz, camera: camera, geometry: geometry,
+                       margin: state == .ready ? 0.25 : 0)
+            } ?? false
+            let aimOK = ARAssumedFloor.isUsableAim(camera: camera) && onScreen
+            if ARDiagnostics.enabled, now - lastGateLog >= Self.gateLogInterval {
+                lastGateLog = now
+                let held = readySince.map { now - $0 } ?? 0
+                ARDiagnostics.log("""
+                    gate[front] track=\(camera.trackingState.diagName) aim=\(aimOK) \
+                    onScreen=\(onScreen) \
+                    held=\(ARDiagnostics.f(CGFloat(held)))s/\(Self.readyDebounce)s \
+                    camY=\(ARDiagnostics.f(camera.transform.columns.3.y))
+                    """)
+            }
+            if aimOK && trackingNormal {
+                notReadySince = nil
+                if readySince == nil { readySince = now }
+                if now - (readySince ?? now) >= Self.readyDebounce {
+                    set(.ready)
+                } else if state != .ready {
+                    set(.searching(.holdStill))
+                }
+            } else {
+                readySince = nil
+                if notReadySince == nil { notReadySince = now }
+                if state == .ready, now - (notReadySince ?? now) < Self.dropDebounce { return }
+                // `aimLower` is the honest hint when tracking is fine but the phone is
+                // pointing level or up: that is the one thing the player can act on.
+                set(.searching(trackingNormal ? .aimLower
+                                              : hint(for: camera.trackingState, sawSurface: false)))
+            }
+            return
+        }
 
         let cameraY = camera.transform.columns.3.y
         // Leaving is more forgiving than entering: while already green a plane may
@@ -615,6 +855,64 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
             }
         }
 
+        // FRONT MODE FOLLOWS THE PHONE INSTEAD OF BEING BROKEN BY IT.
+        //
+        // There is no real anchor here — the "floor" is an assumption re-derivable
+        // from any camera pose (see `ARAssumedFloor`), so pinning it bought nothing
+        // and cost everything: nudge the phone and the board either drifted off the
+        // spot it was standing on or tripped the drift check and vanished. Re-deriving
+        // it each frame means adjusting the phone SWINGS THE BOARD AROUND to stay in
+        // front, which is what a propped-phone setup actually needs.
+        //
+        // The slot offsets are deliberately NOT recomputed. They live in the anchor's
+        // own space, and the assumed anchor is built with its +X already along the row
+        // and its +Z already pointing back at the camera — so when the heading turns,
+        // the anchor's axes turn with it and the same three offsets stay correct. That
+        // also keeps `facing` pinned at 0 by construction, which is why the board keeps
+        // facing the player without re-running a layout pass 60 times a second.
+        //
+        // Everything below — the floor-behind check, the projection, the stomp
+        // centres — still runs. What is skipped is only the drift unlock, which in
+        // this mode would be firing on the one gesture the mode is designed around.
+        // FRONT MODE FREEZES ONCE IT IS DOWN.
+        //
+        // An earlier version re-derived the pose from the camera on every frame so the
+        // board followed the phone around. That is the right behaviour for a phone
+        // being AIMED and the wrong one for a phone that has been SET DOWN — which is
+        // the whole of how this page is used. The player props it, waits for the board,
+        // and then walks away; from that moment the board belongs to the room, not to
+        // the lens. Following meant it never settled, and a board that re-places itself
+        // every few seconds is the flashing the player actually sees.
+        //
+        // So nothing is recomputed here. The anchor stays exactly where it was planted
+        // and `evaluateLockTail` simply re-projects it, which is ordinary AR behaviour:
+        // nudge the phone and the board holds its spot on the floor.
+        //
+        // The drift unlock stays skipped for the same reason it always was — a propped
+        // phone that gets bumped should keep its board, not lose it.
+        if !cameraFacing.detectsPlanes {
+            // …EXCEPT while the player is actively adjusting where it sits.
+            //
+            // Freezing turned the calibration drag into a dead control: the angle
+            // changed, the board did not, and the only visible result was the board
+            // vanishing — because touching a propped phone moves it, and a FROZEN
+            // anchor does not move with it, so it ended up behind the lens and tripped
+            // the unlock 0.1 s after the drag landed.
+            //
+            // Re-deriving on a changed angle and ONLY on a changed angle keeps both
+            // halves: the board follows the drag while a hand is on the phone, and the
+            // instant the hand comes off it is frozen again, wherever it was left.
+            let pitch = ARFloorCalibration.placementPitch
+            if pitch != placedPitch {
+                placedPitch = pitch
+                if let refreshed = ARAssumedFloor.anchorTransform(camera: camera) {
+                    self.anchorTransform = refreshed
+                    publishFloorIfMoved(refreshed, now: now)
+                }
+            }
+            return evaluateLockTail(camera: camera, now: now, geometry: geometry)
+        }
+
         // Did the phone move? Asked in the ANCHOR's frame — see `lockPose`.
         if let lockPose {
             let cameraInAnchor = simd_mul(simd_inverse(anchorTransform), camera.transform)
@@ -625,6 +923,17 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
                               detail: "moved=\(ARDiagnostics.f(moved))m/\(Self.maxLockDrift) "
                                     + "turned=\(ARDiagnostics.f(turned * 180 / .pi, 1))°/15")
             }
+        }
+
+        evaluateLockTail(camera: camera, now: now, geometry: geometry)
+    }
+
+    /// The half of `evaluateLock` that both modes share: sanity-check where the row
+    /// has ended up, project it, and hand the results on. Split out so the front path
+    /// can skip the drift unlock above it without also skipping any of this.
+    private func evaluateLockTail(camera: ARCamera, now: TimeInterval, geometry: ViewGeometry) {
+        guard let anchorTransform, let slotOffsets, slotOffsets.count == 3 else {
+            return unlock(now: now, reason: .anchorMissing)
         }
 
         let worldCentre = simd_mul(anchorTransform, slotOffsets[1]).xyz
@@ -641,6 +950,10 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
 
         // Binning reads this on the frame path; publishing to SwiftUI is throttled.
         slotCentersX = (p0.x, p1.x, p2.x)
+        // The vertical half, for the treadle. Same three projections, no extra work —
+        // and taken from the SAME points as the x's, so "the pedal the foot is over"
+        // and "how high the foot is above it" can never come from different places.
+        slotCentersY = (p0.y, p1.y, p2.y)
         publishSlotsIfMoved((p0, p1, p2), now: now)
     }
 
@@ -717,24 +1030,36 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
     nonisolated static func slotOffsets(anchorTransform: simd_float4x4,
                                         camera: ARCamera,
                                         geometry: ViewGeometry) -> [simd_float4] {
-        let theta = Float(CameraOrientation.previewRotationAngle(for: geometry.orientation)) * .pi / 180
-        let cameraRight = camera.transform.columns.0.xyz
-        let cameraUp = camera.transform.columns.1.xyz
-        var lateral = cos(theta) * cameraRight + sin(theta) * cameraUp
-        lateral.y = 0                                    // keep the row flat on the floor
+        let origin = anchorTransform.columns.3.xyz
 
-        if simd_length(lateral) < 1e-4 {
-            // Screen-right is pointing almost straight up or down — the phone is
-            // rolled onto its edge. Fall back to a sideways axis derived from where
-            // it is looking, which is always defined.
+        // THE ROW RUNS ACROSS THE PLAYER'S LINE OF SIGHT, AND THIS REVERSES HOW IT
+        // USED TO BE DERIVED. It was the camera's SCREEN-RIGHT, rotated by the
+        // preview angle — which is a different axis from "across the player" the
+        // moment the tap lands anywhere but the middle of the frame. The row and the
+        // board then sat at an angle to each other, and the fix for that was pedals
+        // individually swivelled to face the phone: a board with its pedals mounted
+        // crooked on it.
+        //
+        // Taking the row from the player's own direction instead makes the two the
+        // same axis BY CONSTRUCTION. The board's rails end up square across the line
+        // of sight, the pedals sit square on the rails, and `ARDeckFrame` — which
+        // reads its heading off this row — turns the whole board to face the player
+        // rather than turning three pedals to face them individually.
+        var toPlayer = camera.transform.columns.3.xyz - origin
+        toPlayer.y = 0                                   // keep the row flat on the floor
+
+        if simd_length(toPlayer) < 1e-4 {
+            // The camera is directly above the spot it just placed — there is no
+            // horizontal direction to the player at all. Fall back to where the phone
+            // is LOOKING, which is defined for every pose but one.
             var forward = -camera.transform.columns.2.xyz
             forward.y = 0
             if simd_length(forward) < 1e-4 { forward = simd_float3(0, 0, -1) }
-            lateral = simd_cross(simd_normalize(forward), simd_float3(0, 1, 0))
+            toPlayer = forward
         }
-        lateral = simd_normalize(lateral)
-
-        let origin = anchorTransform.columns.3.xyz
+        // Horizontal, perpendicular to the player's direction: the axis the three
+        // slots — and the board's rails — lie along.
+        var lateral = simd_normalize(simd_cross(simd_float3(0, 1, 0), simd_normalize(toPlayer)))
         // The safety net, and the reason this is worth six extra lines: ask the
         // projector where these two would actually DRAW. The screen is what the
         // player aims at, so if the world layout and the screen disagree about which
@@ -750,14 +1075,25 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
         // `lateral` disagrees with what the projector draws — which is precisely the
         // "every stomp toggles the wrong end of the board" bug, caught on the ground
         // instead of on stage.
-        ARDiagnostics.log("layout orientation=\(geometry.orientation.rawValue) theta=\(Int(theta * 180 / .pi))° "
+        ARDiagnostics.log("layout orientation=\(geometry.orientation.rawValue) "
+                        + "toPlayer=(\(ARDiagnostics.f(toPlayer.x)), \(ARDiagnostics.f(toPlayer.z))) "
                         + "leftX=\(ARDiagnostics.f(left.x, 0)) rightX=\(ARDiagnostics.f(right.x, 0)) "
                         + "flip=\(flipped) viewport=\(ARDiagnostics.f(geometry.size.width, 0))x"
                         + "\(ARDiagnostics.f(geometry.size.height, 0))")
 
         let inverse = simd_inverse(anchorTransform)
+        // THE LIFT, APPLIED ONCE. Everything that cares where a slot is — the pedal
+        // node, the label's projected point, the stomp binner's `slotCentersX` —
+        // reads these three values or a projection of them, so raising them here is
+        // the whole of "the chrome follows the pedals onto the board". Adding it in
+        // the anchor's own frame, after the inverse, keeps it exactly reversible:
+        // the anchor's +y IS its plane normal, so subtracting `deckLift` gets the
+        // floor point back with no rotation involved. Zero when the board is off.
+        let lift = ARFloorPedalboard.mountLift
         return [-Self.slotSpacing, 0, Self.slotSpacing].map { distance in
-            simd_mul(inverse, simd_float4(origin + lateral * distance, 1))
+            var offset = simd_mul(inverse, simd_float4(origin + lateral * distance, 1))
+            offset.y += lift
+            return offset
         }
     }
 }

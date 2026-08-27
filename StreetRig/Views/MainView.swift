@@ -40,14 +40,23 @@ struct MainView: View {
     /// no-amp warning, so far. Consumed by LibraryContentView.
     @State private var libraryDestination: LibraryContentView.Drill?
 
+    /// Whether the current page runs edge to edge with the app chrome hidden.
+    ///
+    /// Only the AR page does. It is the one page whose content is a real floor seen
+    /// through a lens: the nav bar, the gear rail and the control panel between them
+    /// were taking about two thirds of the screen, which on a propped phone is two
+    /// thirds of the floor the player is trying to aim at. Everywhere else the chrome
+    /// IS the app and stays put.
+    private var immersive: Bool { page == .ar }
+
     var body: some View {
         ZStack {
             RigTheme.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                topNav
+                if !immersive { topNav }
                 HStack(spacing: 0) {
-                    CollectionTabView()
+                    if !immersive { CollectionTabView() }
                     TabView(selection: $page) {
                         LibraryContentView(openAt: $libraryDestination)
                             .tag(AppPage.library)
@@ -70,12 +79,47 @@ struct MainView: View {
                     // outside the UIPageViewController bridge, where measurements
                     // still mean what they say (see RigDragController.appRootOrigin).
                     .overlay(alignment: .topLeading) {
-                        GearTrashTarget()
-                            .padding(.leading, 10)
-                            .padding(.top, 8)
+                        if !immersive {
+                            GearTrashTarget()
+                                .padding(.leading, 10)
+                                .padding(.top, 8)
+                        }
                     }
                 }
-                ControlPanelView()
+                if !immersive { ControlPanelView() }
+            }
+            // The AR page is aimed at a floor from ankle height and read from
+            // standing. Every point the chrome keeps is a point of floor the player
+            // cannot see, so on that page it gets the glass.
+            //
+            // ON THE VSTACK, NOT ON THE TABVIEW INSIDE IT, and that move is the
+            // difference between nearly full-screen and full-screen. A child cannot
+            // grow past a parent that has already been inset: with this a level lower
+            // the page measured 750×293 on a device whose screen is larger in both
+            // directions — the safe-area inset had been taken by the stack before the
+            // page ever saw it.
+            .ignoresSafeArea(edges: immersive ? .all : [])
+
+            // Hiding `topNav` took the only VISIBLE way off this page with it. The
+            // pager still swipes, but a full-screen camera feed gives no hint that it
+            // does, and "I could not get out of the AR page" is a worse bug than a
+            // cramped one. Deliberately small and low-contrast: it is an exit, not a
+            // control the player needs mid-song.
+            if immersive {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { page = .main }
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(RigTheme.textMuted)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(.black.opacity(0.45)))
+                        .overlay(Circle().strokeBorder(.white.opacity(0.14), lineWidth: 1))
+                }
+                .padding(.leading, 14)
+                .padding(.top, 10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .zIndex(3)
             }
 
             if let component = focused {
