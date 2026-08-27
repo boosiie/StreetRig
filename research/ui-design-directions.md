@@ -1229,3 +1229,67 @@ vertical machined flutes for grip (`white .16` / `black .20` at a 3pt pitch), a 
 **1.5×13pt amber index line** down the centre that is the readout. The long axis is the point: it
 gives the pressed state a bevel to invert visibly, which a 22pt bead never had. Applies to
 `TapSlider`'s thumb and the control panel's master fader.
+
+---
+
+## Part 11 — Scope pulled back, and the real finding (2026-08-27)
+
+### 11.1 RETRACTED: §10.2 and §10.7 item 1, in full
+
+**The pedal-artwork change is cancelled.** Do not map catalogue PNGs onto pedal enclosures, do not
+suppress archetype geometry, do not change any pedal material. `PedalArchetypes3D.swift` and
+`PedalFinish.swift` are **out of scope**, exactly like the amps. §10.2 and §10.7 item 1 are dead
+letters; they are kept above only so the reasoning trail is not lost.
+
+**Hands off, stated plainly.** The following are established, shipping work and this redesign does
+not touch any of them:
+
+- Every gear **icon** — `GearArt.swift`, `GearIconLoader.swift`, and everything in `Assets.xcassets`
+- Every **3D model** — `AmpModel3DView`, `PedalModel3DView`, `PedalArchetypes3D`, `PedalFinish`,
+  `GuitarModel3DView`, `GearModelLoader`, `RigStage3DView`, `StageEnvironment`, `Studio3D`
+- The **custom knob panels** — `PanelArtLoader.swift`, `KnobPanelLayout.swift`, `PanelArtExporter`,
+  and the baked panel plates
+
+The redesign is the **SwiftUI chrome around them**: the control kit, the shell, cards, lists,
+sheets, typography, spacing, and the loading/onboarding surfaces. Nothing that draws gear.
+
+### 11.2 The real finding — every piece casts TWO shadows
+
+Diagnosed from the shipping code on `origin/main`, not proposed. This is why the diorama reads as
+cartoony, and the fix is a deletion rather than a design.
+
+**Two independent shadow systems are running at once.**
+
+| | Fake — `Studio3D.addContactShadow` | Real — the key light |
+|---|---|---|
+| What it is | flat `SCNPlane` + radial-gradient texture | `key.castsShadow = true`, 2048 map, `shadowMode .forward`, PCF radius 8, 16 samples |
+| Shape | symmetric **ellipse**, matching no silhouette | the object's actual silhouette |
+| Position | **centred** directly under the piece | offset along the light (key at `eulerAngles(-0.9, 0.5, 0)`, upper front-left) |
+| Density | core **0.88 alpha**, ramp 0.88 → 0.48 → 0 | **0.30 alpha** |
+| Lighting | `lightingModel = .constant` — no light touches it | responds to the rig |
+
+They disagree on all three cues a shadow is read by — **shape, direction and density** — and the
+fake one is nearly **three times darker**, so the dominant dark shape under every piece is the one
+carrying no information about the light. That is the "cartoony" read, and the user identified it
+from the screenshots alone.
+
+**It is vestigial.** `addContactShadow`'s own doc comment says it grounds a model "without a
+shadow-casting light setup". It was written when nothing cast shadows. `Studio3D.swift:63` later
+turned the key light's shadows on, and `StageEnvironment.swift:229` explicitly makes the stage
+*receive* them — "that contact is most of why gear now looks planted". Nobody removed the blob.
+
+**The fix.**
+
+1. **Delete** the three `Studio3D.addContactShadow(...)` calls in `RigStage3DView.swift`
+   (lines 1184, 1188, 1193). The stage has a real floor receiving a real shadow; the blob is pure
+   duplication. This alone is the change.
+2. **Keep** the blob in the isolated detail views — `AmpModel3DView.swift:164`,
+   `PedalModel3DView.swift:271`, `GuitarModel3DView.swift:86`. Those scenes have a `floorY`
+   coordinate but no floor geometry, so a real shadow has nothing to land on and the blob is the
+   only grounding. Soften its core there from **0.88 → ~0.45** in `radialShadowImage()`; at 0.88 it
+   reads as a hole rather than a shadow. Note `radialShadowImage()` is shared, so if the stage calls
+   are deleted this change affects only the detail views anyway.
+3. Verify on the stage that gear still reads as planted after the deletion. If it does not, the
+   answer is to tune the key light's `shadowColor` alpha upward — **not** to reinstate the blob.
+
+Cost: well under an hour, and it is the highest-value change identified in this whole exercise.
