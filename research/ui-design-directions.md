@@ -1371,13 +1371,9 @@ card is not a bevelled object.
 **Consequence for press states:** with no drop shadow to collapse, the `+2pt` translate is dropped.
 Press becomes a **fill + inner-shadow** change. A control that sits flush in a panel cannot sink.
 
-### 12.4 The catalogue is a list, not a grid
+### 12.4 ~~The catalogue is a list, not a grid~~ — SUPERSEDED by Part 15
 
-47 pedals and 14 amps are a catalogue, and a catalogue is read as a **list**. Replace `LibraryView`'s
-tile grid with columns: thumbnail (20pt, the existing artwork), **name**, **category**, **character**,
-**controls**, and whether it is in the rig. Eight rows fit in the height four tiles occupied, sorting
-becomes possible, and comparing two overdrives stops depending on memory. The row for an owned piece
-keeps the amber edge.
+The list was tried and rejected: the *formality* was right, the layout was not. See Part 15.
 
 ---
 
@@ -1515,3 +1511,43 @@ dark-adapted player. That is retired; there is no near-white on the screen any m
 **separation**: a cool near-black panel on a warm near-black cabinet, held apart by 1.26:1, a hue
 difference and a 3pt pipe. On a good screen in a dark room that is elegant. On a cheap screen in
 daylight it wants checking before anyone commits — measure it on a real device.
+
+---
+
+## Part 15 — Keep the grid; put the list's information inside the card (2026-08-27)
+
+**Supersedes §12.4.** The list experiment took the right lesson from ToneX and applied it in the
+wrong place. What the reference actually demonstrates is *formality* — every row accounting for
+itself with real metadata — not that a catalogue must be a table.
+
+**Why the grid is right here.** A catalogue of gear is a catalogue of **objects**. Every piece has
+bespoke artwork already resolving through `GearIconLoader`, and the eye lands on a picture faster
+than it reads a name — a player looking for their Big Muff recognises it before they parse the word.
+A table throws that away and makes the artwork a 20pt afterthought.
+
+**What was actually wrong with the old tile.** It carried a picture, a name and a category, and then
+stopped. So choosing between four overdrives meant opening all four, and the grid's speed advantage
+was spent on a second navigation step.
+
+**The card now carries what a list column would have:**
+
+| Element | Content | Type |
+|---|---|---|
+| Artwork | 26×36, existing asset | — |
+| Name | up to 2 lines, clamped | 9.5 / 600 |
+| Category | `OVERDRIVE` / `FUZZ` / `DISTORTION` | 7 / 700, +0.12em, brass |
+| **Character** | *"Warm mid hump, cleans up"* — **new** | 8 / 400, muted, 2-line clamp |
+| **Controls** | `DRIVE · TONE · LEVEL` — **new**, ruled off at the foot | 7 / mono, faint |
+| State | `+` / `−`, r2, top-right | 11 / 800 |
+
+The control set earns its place because that is what the choice is actually made on: a three-knob
+overdrive and a two-knob fuzz are different instruments, and the player knows it. It comes free from
+`PedalSpec.parameters` — no new data model.
+
+Card: `var(--surface)`, **r3**, `inset 0 0 0 1px` hairline, **no drop shadow**, 103pt tall, 4 across.
+An owned piece keeps the amber inset ring. The foot rule is a 1px hairline, not a gap — it separates
+the specification from the description the way a spec sheet does.
+
+**Character strings are new copy** and need writing for all 47 pedals and 14 amps. Keep them to ~4
+words and make them *discriminating* rather than descriptive: "transparent boost" and "hard clip,
+filter sweep" tell a player which to reach for; "great overdrive tone" tells them nothing.
