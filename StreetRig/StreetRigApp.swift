@@ -38,6 +38,14 @@ struct StreetRigApp: App {
         if let mode = ProcessInfo.processInfo.environment["STREETRIG_EXPORT_PANELS"] {
             _ = MainActor.assumeIsolated { PanelArtExporter.exportAll(force: mode == "force") }
         }
+        // And the app icon: the three 1024² appearance variants iOS 26 wants, baked
+        // from the same `AmpLogoView` the splash draws (see AppIconExporter). `=1`
+        // for the catalog sizes, `=2`/`=3` for marketing renders, `=probe` to also
+        // write the render-route comparison. The bake itself is deferred to a later
+        // main-queue turn — there is no window scene yet at this point.
+        if let mode = ProcessInfo.processInfo.environment["STREETRIG_EXPORT_ICON"] {
+            MainActor.assumeIsolated { AppIconExporter.runFromLaunchEnvironment(mode) }
+        }
         #endif
     }
 
