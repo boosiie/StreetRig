@@ -256,54 +256,46 @@ struct SetupGuidePage {
         }
     }
 
+    /// COPY RULE, AFTER THE FIRST PASS RAN LONG: one idea per page, one short
+    /// paragraph to carry it, one measured fact under it. The first cut had two
+    /// paragraphs and a three-line note on every page — around ninety words a
+    /// screen — which is a lot to ask of somebody who has not heard a note yet
+    /// and is holding a guitar. Everything cut here is still true; it is just
+    /// not what the player needs in the ninety seconds before they play.
     static let all: [SetupGuidePage] = [
         SetupGuidePage(
             kicker: "1 · GET SIGNAL IN",
             title: "Plug the guitar in",
             paragraphs: [
-                "StreetRig wants the pickup, not the room. A guitar interface — an "
-                + "iRig or anything like it — goes into the phone and hands the "
-                + "string straight to the amp.",
-                "No headphone jack? The adapter works. Expect to raise the input: "
-                + "the panel sets the hardware preamp for you, but it starts from "
-                + "a long way down."
+                "Guitar, then an interface — an iRig or anything like it — then the "
+                + "phone. StreetRig wants the pickup, not the room."
             ],
-            measuredNote: "Measured on device: a guitar arriving through the "
-                        + "headphone-jack adapter came in 42 dB down — quiet enough "
-                        + "that the rig has to invent the difference, and it invents "
-                        + "hiss along with it.",
+            measuredNote: "No headphone jack? The adapter works, but a guitar comes "
+                        + "through it 42 dB down. Expect to raise the input.",
             illustrationKind: .plugIn
         ),
         SetupGuidePage(
             kicker: "2 · THE ONE THAT MATTERS",
             title: "Don't play through Bluetooth",
             paragraphs: [
-                "This is what makes people think an amp sim is broken. It isn't. "
-                + "A2DP buffers by protocol design: the delay is in the route, not "
-                + "in the rig, and no amount of DSP work touches it. AirPlay is worse.",
-                "You hear yourself late, blame the app, and delete it. That is the "
-                + "whole reason this screen exists."
+                "You hear yourself late, blame the app, and delete it. A2DP buffers "
+                + "by design — the delay is in the route, not the rig, and no amount "
+                + "of DSP touches it."
             ],
-            measuredNote: "Measured on an iPhone 17e: a 172 ms round trip, of which "
-                        + "the output port alone was 163 — against 1.54 ms of input. "
-                        + "A healthy wired rig lands near 25.",
+            measuredNote: "Measured on an iPhone 17e: a 172 ms round trip, 163 of it "
+                        + "the output port alone. Wired lands near 25.",
             illustrationKind: .wireless
         ),
         SetupGuidePage(
             kicker: "3 · WHAT TO USE INSTEAD",
             title: "Wired, or the phone itself",
             paragraphs: [
-                "Wired headphones, a wired interface, or the phone's own speaker. "
-                + "All three are fine. The speaker is what this app was built "
-                + "around: phone on the floor, no headphones.",
-                "Bluetooth stays switched on deliberately — monitoring wirelessly "
-                + "while you noodle is legitimate, and being unable to is worse "
-                + "than being late. It just isn't for playing."
+                "Wired headphones, a wired interface, or the phone's own speaker — "
+                + "all three are fine. The speaker is what this was built around: "
+                + "phone on the floor, no headphones."
             ],
-            measuredNote: "On the built-in speaker the engine switches on a "
-                        + "compensation stage: a 10 mm driver makes almost nothing "
-                        + "below a few hundred Hz, so the sub-bass comes out of the "
-                        + "limiter's way and the band it is good at comes up.",
+            measuredNote: "Bluetooth stays switched on deliberately. Listening back "
+                        + "over it is legitimate; playing through it is not.",
             illustrationKind: .outputs
         ),
         SetupGuidePage(
@@ -311,14 +303,11 @@ struct SetupGuidePage {
             title: "Set it, then press PROCEED",
             paragraphs: [
                 "INPUT picks the port the guitar arrives on. MASTER is how loud. "
-                + "PROCEED starts the engine and drops you on the play page with "
-                + "your pedals under your feet.",
-                "You will find all of it along the bottom of every page. Nothing "
-                + "here is buried."
+                + "PROCEED starts the engine. All of it sits along the bottom of "
+                + "every page."
             ],
-            measuredNote: "OUTPUT carries the round-trip figure, live — so what this "
-                        + "guide just warned you about is on screen the whole time, "
-                        + "with the word \"wireless\" beside it when it applies.",
+            measuredNote: "OUTPUT carries your round-trip latency live — with the "
+                        + "word \"wireless\" beside it when it applies.",
             illustrationKind: .levels
         )
     ]

@@ -2,8 +2,13 @@
 //  PreferencesView.swift
 //  StreetRig
 //
-//  The settings half of the profile page — and the app's FIRST settings surface,
-//  which is the point of it.
+//  THE SETTINGS PAGE — and the app's FIRST settings surface, which is the point
+//  of it.
+//
+//  It began as the right-hand half of the profile page and is now a page of its
+//  own, reached from a button there. Sharing that page made it two unrelated
+//  screens either side of a divider — who you are on the left, every switch in
+//  the app on the right — and neither got the width it wanted.
 //
 //  WHY IT EXISTS AT ALL. Two real preferences already shipped, and until now the
 //  only way to set either was a checkbox inside `DeviceOfferPrompt` — a card that
@@ -27,10 +32,12 @@
 //  it is a decision about audio-engine lifetime, and it is worth reading before
 //  changing anything here.
 //
-//  LANDSCAPE. Rows are as short as a 31pt system switch allows and the panel
-//  scrolls, because the page is barely 250pt tall on a phone. The switches are
-//  NOT shrunk to buy rows back — they are the touch targets, and a settings page
-//  you have to aim at is worse than one you have to scroll.
+//  LANDSCAPE. Rows are as short as a 31pt system switch allows and the page
+//  scrolls, because it is barely 300pt tall on a phone. The switches are NOT
+//  shrunk to buy rows back — they are the touch targets, and a settings page you
+//  have to aim at is worse than one you have to scroll. Row text is capped at
+//  `textMeasure` for the opposite reason: the page is 854pt WIDE, and a line
+//  allowed to fill that is a line nobody scans.
 //
 
 import SwiftUI
@@ -62,18 +69,70 @@ struct PreferencesView: View {
     /// and re-reads the flag. See `onboardingWillReplay`.
     @State private var onboardingResetAt: Date?
 
+    /// Back to the profile page. Settings is its own page now, so it owns a
+    /// title bar and a way out rather than being a column somebody scrolled past.
+    var onClose: (() -> Void)?
+
+    /// DELIBERATELY PLAIN, AND THAT IS THE DESIGN.
+    ///
+    /// This was a column of `rigCard`s — every row its own rounded, shadowed,
+    /// warm-edged tile, the same treatment the gear panels and the rig stage use.
+    /// On the gear screens that elevation means something: a card is a THING, and
+    /// you pick it up and drag it. A checkbox is not a thing. Fifteen tiles of
+    /// furniture for fifteen switches read as important, and settings are the one
+    /// screen in an app that should read as boring — you come here to change one
+    /// value and leave, and anything decorative is in the way of finding it.
+    ///
+    /// So: no cards. Rows on the page, hairline rules between them, section
+    /// headings in the app's small caps. The palette is unchanged, which is what
+    /// keeps it StreetRig's settings page rather than a different app's.
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                audioSection
-                displaySection
-                privacySection
-                helpSection
+        VStack(spacing: 0) {
+            titleBar
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    audioSection
+                    displaySection
+                    privacySection
+                    helpSection
+                }
+                .padding(.bottom, 14)
             }
-            .padding(.trailing, 2)   // keeps the card edges off the scroll indicator
-            .padding(.bottom, 6)
+            .scrollIndicators(.hidden)
         }
-        .scrollIndicators(.hidden)
+    }
+
+    private var titleBar: some View {
+        HStack(spacing: 10) {
+            if let onClose {
+                Button(action: onClose) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("Profile")
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                    .foregroundStyle(RigTheme.amber)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back to profile")
+            }
+            Spacer(minLength: 0)
+            Text("SETTINGS")
+                .font(.system(size: 10, weight: .bold))
+                .tracking(2)
+                .foregroundStyle(RigTheme.textMuted)
+            Spacer(minLength: 0)
+            // Balances the back button so the title sits on the centre of the
+            // bar rather than drifting — the same trick `MainView.topNav` uses.
+            Color.clear.frame(width: 62, height: 1)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 11)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(RigTheme.hairline).frame(height: 1)
+        }
     }
 
     // MARK: - Audio devices
@@ -129,6 +188,7 @@ struct PreferencesView: View {
                     .font(.system(size: 10.5))
                     .foregroundStyle(RigTheme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: Self.textMeasure, alignment: .leading)
 
                 HStack(spacing: 10) {
                     Button {
@@ -161,8 +221,9 @@ struct PreferencesView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .rigCard(cornerRadius: 10)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+            .overlay(alignment: .bottom) { rowRule }
         }
     }
 
@@ -247,16 +308,17 @@ struct PreferencesView: View {
                         .foregroundStyle(RigTheme.textMuted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                .frame(maxWidth: Self.textMeasure, alignment: .leading)
                 Spacer(minLength: 4)
                 Image(systemName: "chevron.right")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(RigTheme.textMuted.opacity(0.6))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
             .contentShape(Rectangle())
-            .rigCard(cornerRadius: 10)
+            .overlay(alignment: .bottom) { rowRule }
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(title). \(note)")
@@ -266,10 +328,31 @@ struct PreferencesView: View {
 
     private func section<Content: View>(_ title: String,
                                         @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            SectionLabel(title)
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title)
+                .font(.system(size: 9.5, weight: .bold))
+                .tracking(1.6)
+                .foregroundStyle(RigTheme.textMuted)
+                .padding(.horizontal, 20)
+                .padding(.top, 17)
+                .padding(.bottom, 6)
             content()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// How wide a row's words are allowed to get. Past about this the line stops
+    /// being scannable, and a settings page is scanned rather than read.
+    private static let textMeasure: CGFloat = 430
+
+    /// The rule under a row. Inset from the leading edge so the list reads as a
+    /// list rather than as a stack of separate slabs — the standard settings
+    /// idiom, and the reason these rows do not need boxes to look grouped.
+    private var rowRule: some View {
+        Rectangle()
+            .fill(RigTheme.hairline)
+            .frame(height: 1)
+            .padding(.leading, 20)
     }
 
     /// One preference row: name, one line of what it actually does, a switch.
@@ -293,15 +376,19 @@ struct PreferencesView: View {
                     .foregroundStyle(RigTheme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // CAPPED, because the page is 854 pt wide and the switch is at the
+            // far end of it. Left to fill, a 9.5 pt note ran a measure three
+            // times past the point where a line stops being scannable.
+            .frame(maxWidth: Self.textMeasure, alignment: .leading)
             Spacer(minLength: 4)
             Toggle("", isOn: isOn)
                 .labelsHidden()
                 .tint(RigTheme.amber)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .rigCard(cornerRadius: 10)
-        .padding(.leading, indented ? 14 : 0)
+        .padding(.leading, indented ? 34 : 20)
+        .padding(.trailing, 20)
+        .padding(.vertical, 10)
+        .overlay(alignment: .bottom) { rowRule }
         // Dimmed as well as disabled: `.disabled` alone leaves the row looking
         // live on this palette, since a dark theme has little headroom to grey
         // anything out with.

@@ -5,23 +5,22 @@
 //  The PROFILE page — the fourth page in the shell's pager, to the right of AR.
 //
 //  Every other screen in this app is about gear. This one is about the person
-//  holding it: a name, an avatar, and the settings that had nowhere to live. The
-//  two halves belong together for that second reason as much as the first — a
-//  page with only a name and a picture on it would be decoration, and a settings
-//  page on its own would be a fifth swipe nobody finds.
+//  holding it: a name, an avatar, and the way into the app's settings.
 //
-//  TWO COLUMNS, NOT A FORM. The app is landscape-only, so the page is roughly
-//  600 x 250 points on a phone: wide and very short. A vertical form — the shape
-//  every settings screen instinctively wants to be — would put one field on
-//  screen at a time. Identity goes left, preferences right, split by the app's
-//  hairline. The identity column is capped rather than fixed so the preferences
-//  side keeps enough room for a row of text plus a 51pt system switch on the
-//  narrower phones.
+//  SETTINGS LIVES BEHIND A BUTTON, not in the right-hand column. It was that
+//  column for one release, which made this two unrelated screens sharing a
+//  hairline and left neither with the width it wanted. `PreferencesView` is now
+//  its own page (see `settingsEntry`), and this one is about the player.
 //
-//  Both columns scroll. Not because either is long, but because 250 points is a
-//  number that changes: an iPhone SE in landscape, a taller error strip on the
-//  control panel below, or one more preference row all eat into it, and content
-//  that scrolls a little is content that never clips.
+//  THE GEAR RAIL STANDS DOWN HERE. `MainView` hides it on this page and only
+//  this page — there is nothing on PROFILE to drag gear onto, so all it did was
+//  take 150 points off the one page whose subject is not gear. That reclaimed
+//  width is why `identityWidth` is 360 rather than the 262 it started at.
+//
+//  Identity scrolls. Not because it is long, but because the page height is a
+//  number that changes: an iPhone SE in landscape, or a taller error strip on
+//  the control panel below, both eat into it, and content that scrolls a little
+//  is content that never clips.
 //
 //  THE KEYBOARD IS THE HARD PART HERE. In landscape it covers well over half the
 //  screen, and SwiftUI's default answer — shrink the whole hierarchy to sit above
@@ -55,11 +54,16 @@ struct ProfileView: View {
     /// is supposed to look like.
     @State private var draft = ""
 
+    /// Settings is a page of its own now, reached from `settingsEntry`. Page
+    /// state rather than a sheet: the app is landscape-locked and a sheet on a
+    /// ~400 pt-tall screen is a letterbox with a settings list inside it.
+    @State private var showingSettings = false
+
     /// Cap, not a fixed width — see the header. Sized off the widest thing in the
     /// column (a 66pt avatar plus a name field that has to hold 24 characters),
     /// and no wider: every point spent here comes straight out of the preferences
     /// column, where it buys a preference row one fewer wrapped line.
-    private let identityWidth: CGFloat = 262
+    private let identityWidth: CGFloat = 360
 
     var body: some View {
         ZStack {
@@ -69,25 +73,41 @@ struct ProfileView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { nameFocused = false }
 
-            HStack(alignment: .top, spacing: 14) {
-                identityColumn
-                    .frame(maxWidth: identityWidth)
-                    .layoutPriority(1)
-                    // The tour's last stop, and its second in-page target. Like
-                    // the rig stage's, this one reports from inside the pager
-                    // bridge and is validated before it is believed.
-                    .coachMarkTarget(.profileIdentity)
+            // SETTINGS IS A PLACE YOU GO, NOT A COLUMN YOU SCROLL PAST.
+            //
+            // It used to be the right-hand half of this page, which made the
+            // profile page two unrelated screens sharing a divider: who you are
+            // on the left, every switch in the app on the right. Neither got the
+            // width it wanted and the page had no subject. Behind a button, the
+            // profile page is about the player and the settings page is about
+            // settings, and each gets the whole screen.
+            if showingSettings {
+                PreferencesView(onClose: {
+                    withAnimation(.easeInOut(duration: 0.26)) { showingSettings = false }
+                })
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else {
+                HStack(alignment: .top, spacing: 18) {
+                    identityColumn
+                        .frame(maxWidth: identityWidth)
+                        .layoutPriority(1)
+                        // The tour's last stop, and its second in-page target. Like
+                        // the rig stage's, this one reports from inside the pager
+                        // bridge and is validated before it is believed.
+                        .coachMarkTarget(.profileIdentity)
 
-                Rectangle()
-                    .fill(RigTheme.hairline)
-                    .frame(width: 1)
+                    Rectangle()
+                        .fill(RigTheme.hairline)
+                        .frame(width: 1)
 
-                PreferencesView()
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    settingsEntry
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 10)
+                .padding(.bottom, 4)
+                .transition(.move(edge: .leading).combined(with: .opacity))
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 10)
-            .padding(.bottom, 4)
         }
         // The keyboard's own way out, for the case where the field is the only
         // thing on screen and there is no empty page left to tap.
@@ -98,6 +118,51 @@ struct ProfileView: View {
                     .tint(RigTheme.amber)
             }
         }
+    }
+
+    // MARK: - The way into settings
+
+    /// One button, and what is behind it. The list of section names is not
+    /// decoration: a button labelled only SETTINGS makes you open it to find out
+    /// whether the thing you want is in there, and the four words underneath
+    /// answer that without a tap.
+    private var settingsEntry: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                nameFocused = false
+                withAnimation(.easeInOut(duration: 0.26)) { showingSettings = true }
+            } label: {
+                HStack(spacing: 11) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(RigTheme.amber)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Settings")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(RigTheme.textPrimary)
+                        Text("Audio devices · Display · Data & privacy · Help & guides")
+                            .font(.system(size: 10))
+                            .foregroundStyle(RigTheme.textMuted)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(RigTheme.textMuted.opacity(0.7))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+                .rigCard(cornerRadius: 12)
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: 360, alignment: .leading)
+            .accessibilityHint("Opens settings")
+
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 2)
     }
 
     // MARK: - Identity

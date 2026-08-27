@@ -60,8 +60,17 @@ struct MainView: View {
             VStack(spacing: 0) {
                 topNav
                 HStack(spacing: 0) {
-                    CollectionTabView()
-                        .coachMarkTarget(.gearRail)
+                    // THE RAIL STANDS DOWN ON THE PROFILE PAGE. Everywhere else it
+                    // is the thing under your thumb — gear you drag onto the rig —
+                    // but there is nothing on PROFILE to drag it to, so all it does
+                    // there is take 150 pt off a page that wants the width for a
+                    // name field and a settings list. It is the one page whose
+                    // subject is not gear.
+                    if page != .profile {
+                        CollectionTabView()
+                            .coachMarkTarget(.gearRail)
+                            .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
                     TabView(selection: $page) {
                         LibraryContentView(openAt: $libraryDestination)
                             .tag(AppPage.library)
@@ -154,8 +163,22 @@ struct MainView: View {
         // The tour ASKS for a page; the shell moves. Using the shell's own
         // transition, deliberately — see OnboardingCoordinator's header.
         .onChange(of: onboarding.requestedPage) { _, requested in
-            guard let requested, requested != page else { return }
-            withAnimation(.easeInOut(duration: 0.28)) { page = requested }
+            guard let requested else { return }
+            if requested != page {
+                withAnimation(.easeInOut(duration: 0.28)) { page = requested }
+            }
+            // AND THEN CONSUME IT. `requestedPage` used to latch — it kept the
+            // last page it was handed — so asking for that same page a second
+            // time was not a CHANGE and this handler never ran at all. That is
+            // exactly the shape of the "Show me around" bug: finish or skip a
+            // tour that left the request sitting on `.main`, swipe to PROFILE by
+            // hand (which moves `currentPage` and nothing else), press "Show me
+            // around", and the coordinator sets `.main` onto `.main`. Nothing
+            // published, the shell never moved, and the walkthrough opened on the
+            // profile page pointing at a rail that was not there.
+            //
+            // Clearing it makes every request a fresh edge, whatever came before.
+            onboarding.requestedPage = nil
         }
         // …and reports back once it has landed, so a step that points INSIDE the
         // pager waits for the page instead of spotlighting the outgoing one.

@@ -143,6 +143,7 @@ struct CoachMarkOverlay: View {
             }
 
             caption(step, place: place)
+            skipBar
         }
         // MODAL, so VoiceOver stays in the tour instead of wandering into the
         // dimmed shell behind it and reading a rail it cannot reach.
@@ -154,6 +155,52 @@ struct CoachMarkOverlay: View {
         }
         .onAppear { if let spot { heldSpot = spot } }
         .onChange(of: coordinator.stepIndex) { _, _ in announce(step) }
+    }
+
+    /// THE WAY OUT, PINNED TO THE TOP-RIGHT AND NOWHERE NEAR NEXT.
+    ///
+    /// It used to live in the caption card's button row, which is the one piece
+    /// of this screen that moves: the card follows the spotlight, so SKIP landed
+    /// somewhere different on every step and sat a thumb's width from the button
+    /// you press eleven times. Up here it is in the same corner on all twelve
+    /// steps, far from the card wherever the card has gone, and it reads as the
+    /// dismiss it is rather than as a third navigation choice.
+    ///
+    /// It stays PRESENT on every step regardless — a landscape-locked tutorial
+    /// with no visible way out is the fastest way to make somebody resent an app.
+    /// Moving it is about making it hard to hit by accident, not hard to find.
+    /// POSITIONED WITH AN INSET FRAME, NOT WITH PADDING, and that distinction is
+    /// the whole reason this button works.
+    ///
+    /// The first cut was a full-bleed `VStack`/`HStack` of spacers with
+    /// `.padding(.top, 2).padding(.trailing, 2)` on the outside. A view that
+    /// already fills its parent and is THEN padded wants to be four points
+    /// bigger than the space it was given, so it overflows — and the pill ended
+    /// up a couple of points outside the overlay's bounds. SwiftUI still DREW it
+    /// there, perfectly, in the right corner: it just would not route a touch to
+    /// anything outside the parent's bounds. A skip button that renders and
+    /// cannot be pressed is worse than no skip button, because it looks like the
+    /// way out right up until you need it.
+    ///
+    /// Taking the inset off `proxy.size` keeps the pill inside the bounds, which
+    /// is where hit testing lives.
+    private var skipBar: some View {
+        Button { end { coordinator.skip() } } label: {
+            Text("SKIP")
+                .font(.system(size: 10, weight: .bold))
+                .tracking(1.2)
+                .foregroundStyle(RigTheme.textMuted)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(RigTheme.background.opacity(0.92)))
+                .overlay(Capsule().strokeBorder(RigTheme.surfaceEdge, lineWidth: 1))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Skip the walkthrough")
+        .frame(width: max(0, proxy.size.width - 16),
+               height: max(0, proxy.size.height - 16),
+               alignment: .topTrailing)
     }
 
     // MARK: - Geometry
@@ -298,11 +345,12 @@ struct CoachMarkOverlay: View {
             progressPips
 
             HStack(spacing: 8) {
-                // SKIP FIRST AND ALWAYS PRESENT. It sits on the leading edge, in
-                // the same place on every step, so the way out never has to be
-                // hunted for — which is the whole difference between a guide and
-                // a trap on a landscape-locked screen with no back gesture.
-                pill("SKIP", tone: .quiet) { end { coordinator.skip() } }
+                // SKIP IS NOT IN THIS ROW ANY MORE — see `skipBar`. It sat on the
+                // leading edge here, one pill away from BACK and two from NEXT,
+                // which put "leave the tour" inside the same thumb sweep as "keep
+                // going". On a card that MOVES from step to step, that is a
+                // mis-tap waiting to happen, and the cost of the mis-tap is the
+                // whole walkthrough.
                 if coordinator.stepIndex > 0 {
                     pill("BACK", tone: .quiet) { withAnimation(.easeInOut(duration: 0.28)) { coordinator.retreat() } }
                 }

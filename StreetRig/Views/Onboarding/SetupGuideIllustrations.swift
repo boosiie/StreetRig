@@ -112,59 +112,42 @@ private struct GearBox: View {
 struct PlugInIllustration: View {
     let reduceMotion: Bool
 
+    /// THE FIRST PAGE IS A CHAIN, NOT A SCENE.
+    ///
+    /// It was one drawing of a lead being pushed into a port: accurate, and
+    /// useless as an instruction, because it showed the LAST of three moves and
+    /// nothing of the order. Three numbered boxes with the signal running
+    /// between them say the order, which is the only thing a first page has to
+    /// say. The prose beside it now follows the same three beats.
+    ///
+    /// THE PHONE IS SIDEWAYS AND THE LEAD GOES INTO THE BOTTOM OF IT. Standing
+    /// it upright drew a phone in an orientation this app cannot even run in —
+    /// StreetRig is landscape-locked — and ran the cable into its side, where
+    /// there is no socket. Sideways, with the lead turning up into the bottom
+    /// edge, is both what the hardware does and what the player is holding.
     private struct Frame {
-        var approach: CGFloat = 0     // 0 = off to the left, 1 = seated
-        var seatGlow: CGFloat = 0
-        var jackWiggle: CGFloat = 0
+        var pulse: CGFloat = 0      // 0…1 along the whole chain
+        var lit: CGFloat = 0        // the screen coming alive at the end
     }
 
     var body: some View {
         GeometryReader { geo in
-            let w = geo.size.width, h = geo.size.height
-            let phoneW = w * 0.20, phoneH = h * 0.62
-            let phoneX = w * 0.74, phoneY = h * 0.46
-
-            ZStack {
-                // The phone, port down the left-hand side of it so the cable can
-                // arrive horizontally — a landscape pane has width to spare and
-                // almost no height.
-                PhoneShape(lit: true)
-                    .frame(width: phoneW, height: phoneH)
-                    .position(x: phoneX, y: phoneY)
-                PartLabel(text: "YOUR PHONE")
-                    .position(x: phoneX, y: phoneY + phoneH / 2 + 11)
-
-                if reduceMotion {
-                    seatedRig(w: w, h: h, phoneX: phoneX, phoneY: phoneY, phoneW: phoneW, glow: 1)
-                } else {
-                    KeyframeAnimator(initialValue: Frame(), repeating: true) { frame in
-                        seatedRig(w: w, h: h, phoneX: phoneX, phoneY: phoneY, phoneW: phoneW,
-                                  // 0.30 of the pane, not 0.45. Far enough that the
-                                  // plug visibly travels; near enough that the
-                                  // guitar at the far end of the lead stays on
-                                  // screen at the start of the loop rather than
-                                  // reappearing from nowhere.
-                                  glow: frame.seatGlow, offset: (1 - frame.approach) * w * 0.30,
-                                  wiggle: frame.jackWiggle)
-                    } keyframes: { _ in
-                        KeyframeTrack(\.approach) {
-                            LinearKeyframe(0, duration: 0.35)
-                            SpringKeyframe(1, duration: 1.05, spring: .init(response: 0.5, dampingRatio: 0.9))
-                            LinearKeyframe(1, duration: 1.5)
-                            LinearKeyframe(0, duration: 0.01)
-                        }
-                        KeyframeTrack(\.seatGlow) {
-                            LinearKeyframe(0, duration: 1.25)
-                            CubicKeyframe(1, duration: 0.18)
-                            LinearKeyframe(1, duration: 1.2)
-                            CubicKeyframe(0, duration: 0.28)
-                        }
-                        KeyframeTrack(\.jackWiggle) {
-                            LinearKeyframe(0, duration: 1.5)
-                            CubicKeyframe(1, duration: 0.5)
-                            CubicKeyframe(0, duration: 0.5)
-                            LinearKeyframe(0, duration: 0.5)
-                        }
+            if reduceMotion {
+                chain(geo.size, pulse: nil, lit: 1)
+            } else {
+                KeyframeAnimator(initialValue: Frame(), repeating: true) { f in
+                    chain(geo.size, pulse: f.pulse, lit: f.lit)
+                } keyframes: { _ in
+                    KeyframeTrack(\.pulse) {
+                        LinearKeyframe(0, duration: 0.30)
+                        LinearKeyframe(1, duration: 1.70)
+                        LinearKeyframe(1, duration: 1.10)
+                    }
+                    KeyframeTrack(\.lit) {
+                        LinearKeyframe(0, duration: 1.85)
+                        CubicKeyframe(1, duration: 0.22)
+                        LinearKeyframe(1, duration: 0.83)
+                        CubicKeyframe(0, duration: 0.20)
                     }
                 }
             }
@@ -172,56 +155,114 @@ struct PlugInIllustration: View {
         .accessibilityHidden(true)
     }
 
+    // MARK: - The chain
+
     @ViewBuilder
-    private func seatedRig(w: CGFloat, h: CGFloat, phoneX: CGFloat, phoneY: CGFloat,
-                           phoneW: CGFloat, glow: CGFloat,
-                           offset: CGFloat = 0, wiggle: CGFloat = 0) -> some View {
-        let portX = phoneX - phoneW / 2
-        let boxX = w * 0.30
-        let cableY = phoneY
+    private func chain(_ size: CGSize, pulse: CGFloat?, lit: CGFloat) -> some View {
+        let w = size.width, h = size.height
+        // One baseline for the lead, with the phone raised off it so the cable
+        // has somewhere to turn UP into. Guitar and interface sit on the line;
+        // the phone sits above it and reaches down.
+        let y0 = h * 0.60
+        let x1 = w * 0.15, x2 = w * 0.50, x3 = w * 0.85
+        // ASPECT FIRST, SIZE SECOND. Sizing the two edges off the pane
+        // independently (w * 0.22 by h * 0.30) let the pane's own proportions
+        // decide the phone's, and on the real pane that came out 80 x 85 — a
+        // square, which is the one shape that does not read as a phone at all,
+        // let alone a sideways one. Height is what is scarce here, so it is
+        // taken from whichever edge is tighter and the width follows it.
+        let phoneH = min(h * 0.20, w * 0.115)
+        let phoneW = phoneH * 1.95
+        let phoneY = y0 - h * 0.30
+        let plugTop = phoneY + phoneH / 2
+        let plugBottom = plugTop + h * 0.11
 
         ZStack {
-            // THE WHOLE LEAD MOVES AS ONE PIECE — guitar, box, cable AND plug —
-            // and it has to. The first cut moved only the box and left the plug
-            // parked at the port, so the cable stretched while the connector
-            // never went anywhere: the one moment the drawing exists to show was
-            // the one moment nothing happened.
-            ZStack {
-                Image(systemName: "guitars.fill")
-                    .font(.system(size: 30))
-                    .foregroundStyle(RigTheme.trim)
-                    .rotationEffect(.degrees(-10 + wiggle * 6))
-                    .position(x: w * 0.115, y: cableY - h * 0.15)
+            rail(from: CGPoint(x: x1 + w * 0.07, y: y0), to: CGPoint(x: x2 - w * 0.07, y: y0))
+            elbow(fromX: x2 + w * 0.07, toX: x3, y: y0, upTo: plugBottom)
 
-                curve(from: CGPoint(x: w * 0.135, y: cableY - h * 0.06),
-                      to: CGPoint(x: boxX - w * 0.08, y: cableY),
-                      sag: h * 0.13)
-
-                interfaceBox
-                    .frame(width: w * 0.155, height: h * 0.28)
-                    .position(x: boxX, y: cableY)
-                PartLabel(text: "GUITAR INTERFACE")
-                    .position(x: boxX, y: cableY + h * 0.23)
-
-                curve(from: CGPoint(x: boxX + w * 0.077, y: cableY),
-                      to: CGPoint(x: portX - w * 0.030, y: cableY),
-                      sag: h * 0.05)
-
-                plug
-                    .frame(width: w * 0.034, height: h * 0.11)
-                    .position(x: portX - w * 0.014, y: cableY)
+            if let pulse {
+                travellingDot(pulse: pulse, x1: x1, x2: x2, x3: x3,
+                              y0: y0, plugBottom: plugBottom, w: w)
             }
-            .offset(x: -offset)
 
-            // The port lighting as the plug lands — the "it's in" moment, and the
-            // only part that stays put, because the phone does.
+            // 1 — the guitar
+            stepBadge(1).position(x: x1, y: y0 - h * 0.30)
+            Image(systemName: "guitars.fill")
+                .font(.system(size: min(30, h * 0.20), weight: .semibold))
+                .foregroundStyle(RigTheme.trim)
+                .position(x: x1, y: y0 - h * 0.10)
+            PartLabel(text: "GUITAR").position(x: x1, y: y0 + h * 0.16)
+
+            // 2 — the interface
+            stepBadge(2).position(x: x2, y: y0 - h * 0.30)
+            interfaceBox
+                .frame(width: w * 0.13, height: h * 0.22)
+                .position(x: x2, y: y0 - h * 0.10)
+            PartLabel(text: "INTERFACE").position(x: x2, y: y0 + h * 0.16)
+
+            // 3 — the phone, on its side, socket down
+            stepBadge(3).position(x: x3, y: phoneY - phoneH * 0.78)
+            PhoneShape(lit: lit > 0.5)
+                .frame(width: phoneW, height: phoneH)
+                .position(x: x3, y: phoneY)
+            plug
+                .frame(width: 5.5, height: plugBottom - plugTop)
+                .position(x: x3, y: (plugTop + plugBottom) / 2)
+            // The socket lighting as the signal lands — the "it's in" moment.
             Capsule()
                 .fill(RigTheme.amber)
-                .frame(width: 4, height: h * 0.14)
-                .shadow(color: RigTheme.amber.opacity(0.95), radius: 8)
-                .shadow(color: RigTheme.amber.opacity(0.5), radius: 18)
-                .position(x: portX + 1, y: cableY)
-                .opacity(glow)
+                .frame(width: phoneW * 0.30, height: 3.5)
+                .shadow(color: RigTheme.amber.opacity(0.95), radius: 7)
+                .position(x: x3, y: plugTop)
+                .opacity(lit)
+            PartLabel(text: "PHONE, SIDEWAYS").position(x: x3, y: y0 + h * 0.16)
+        }
+    }
+
+    /// The step number. What makes three drawings read as one sequence rather
+    /// than as three things that happen to be next to each other.
+    private func stepBadge(_ n: Int) -> some View {
+        Text("\(n)")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(RigTheme.background)
+            .frame(width: 16, height: 16)
+            .background(Circle().fill(RigTheme.amber))
+    }
+
+    private func rail(from a: CGPoint, to b: CGPoint) -> some View {
+        Path { p in p.move(to: a); p.addLine(to: b) }
+            .stroke(RigTheme.hairline, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+    }
+
+    /// The last leg: along the floor, then UP into the phone's bottom edge.
+    private func elbow(fromX: CGFloat, toX: CGFloat, y: CGFloat, upTo: CGFloat) -> some View {
+        Path { p in
+            p.move(to: CGPoint(x: fromX, y: y))
+            p.addLine(to: CGPoint(x: toX - 10, y: y))
+            p.addQuadCurve(to: CGPoint(x: toX, y: y - 10),
+                           control: CGPoint(x: toX, y: y))
+            p.addLine(to: CGPoint(x: toX, y: upTo))
+        }
+        .stroke(RigTheme.hairline, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+    }
+
+    /// One dot for the whole chain, so the eye is told the ORDER rather than
+    /// shown three things blinking independently.
+    @ViewBuilder
+    private func travellingDot(pulse: CGFloat, x1: CGFloat, x2: CGFloat, x3: CGFloat,
+                               y0: CGFloat, plugBottom: CGFloat, w: CGFloat) -> some View {
+        let legA = (x1 + w * 0.07, x2 - w * 0.07)
+        let legB = (x2 + w * 0.07, x3)
+        if pulse < 0.42 {
+            let t = pulse / 0.42
+            SignalDot().position(x: legA.0 + (legA.1 - legA.0) * t, y: y0)
+        } else if pulse < 0.84 {
+            let t = (pulse - 0.42) / 0.42
+            SignalDot().position(x: legB.0 + (legB.1 - legB.0) * t, y: y0)
+        } else {
+            let t = (pulse - 0.84) / 0.16
+            SignalDot().position(x: x3, y: y0 + (plugBottom - y0) * t)
         }
     }
 
@@ -235,7 +276,7 @@ struct PlugInIllustration: View {
             .overlay {
                 VStack(spacing: 3) {
                     Circle().fill(RigTheme.signal).frame(width: 4, height: 4)
-                    Capsule().fill(RigTheme.hairline).frame(width: 16, height: 3)
+                    Capsule().fill(RigTheme.hairline).frame(width: 14, height: 3)
                 }
             }
     }
@@ -243,25 +284,9 @@ struct PlugInIllustration: View {
     private var plug: some View {
         Capsule()
             .fill(LinearGradient(colors: [RigTheme.panel, RigTheme.trim],
-                                 startPoint: .top, endPoint: .bottom))
-    }
-
-    private func curve(from a: CGPoint, to b: CGPoint, sag: CGFloat) -> some View {
-        Path { path in
-            path.move(to: a)
-            path.addQuadCurve(to: b, control: CGPoint(x: (a.x + b.x) / 2, y: max(a.y, b.y) + sag))
-        }
-        .stroke(RigTheme.cabinet, style: StrokeStyle(lineWidth: 4.5, lineCap: .round))
-        .overlay {
-            Path { path in
-                path.move(to: a)
-                path.addQuadCurve(to: b, control: CGPoint(x: (a.x + b.x) / 2, y: max(a.y, b.y) + sag))
-            }
-            .stroke(RigTheme.hairline, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
-        }
+                                 startPoint: .leading, endPoint: .trailing))
     }
 }
-
 // MARK: - 2. The Bluetooth lesson
 
 /// TWO ROUTES, ONE STARTING GUN. The same note leaves the guitar on both paths
