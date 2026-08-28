@@ -51,8 +51,17 @@ public struct TapSlider: View {
 
     /// How far the finger landed from the thumb's centre (0 for a track jump).
     @State private var grabOffset: CGFloat = 0
-    /// Bumped only by a touch-down that sets a value, to trigger the haptic.
+    /// Bumped only when a touch actually sets a value, to trigger the haptic.
     @State private var jumps = 0
+
+    /// Which way this touch turned out to be going, or nil while it is still too
+    /// small to tell. See the axis note on the gesture.
+    @State private var axis: Axis?
+
+    /// How far a finger must travel before this slider decides what the touch IS.
+    /// 6pt: under a normal scroll's first frame of travel, over the jitter of a
+    /// stationary thumb.
+    private static let axisLock: CGFloat = 6
 
     public init(value: Binding<Double>, in range: ClosedRange<Double>, tint: Color = RigTheme.amber) {
         self._value = value
@@ -115,29 +124,62 @@ public struct TapSlider: View {
             // Running simultaneously would let a scroll drag rewrite whatever track
             // it happened to start on. This way the touch belongs to exactly one of
             // them — scroll from the labels, set the value from the track.
+            // NOTHING IS WRITTEN UNTIL THE TOUCH SAYS WHAT IT IS.
+            //
+            // The track used to set the value on touch-DOWN, which made these sliders
+            // impossible to scroll past: putting a finger on a track to swipe the dock
+            // up had already jumped that parameter before the scroll was recognised,
+            // and the player got a changed setting for a gesture they meant as
+            // navigation. On a dock of a dozen dials that is not an edge case, it is
+            // every scroll.
+            //
+            // So the first `axisLock` points decide, and only then does anything
+            // happen: a mostly-VERTICAL travel is a scroll and this slider stays out
+            // of it entirely, leaving the ScrollView to claim the drag (it cancels us
+            // without `onEnded`, which is exactly why `touchStart` identifies a touch
+            // by its start location rather than a flag). A mostly-HORIZONTAL travel is
+            // a value change. And a touch that never passes the threshold at all is a
+            // TAP, honoured on release.
+            //
+            // Tap-to-set therefore fires on touch-up rather than touch-down. That is
+            // the cost, and it is the same trade every tappable row in a scroll view
+            // makes — a control that acts before it knows whether you were scrolling
+            // is a control that acts against you.
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { gesture in
                         if touchStart != gesture.startLocation {
                             touchStart = gesture.startLocation
-                            let thumbCentre = knobX + knob / 2
-                            if abs(gesture.startLocation.x - thumbCentre) <= knob / 2 {
-                                // Grabbed the thumb: hold the finger's offset so the
-                                // value stays put until the finger actually moves.
-                                grabOffset = gesture.startLocation.x - thumbCentre
-                            } else {
-                                grabOffset = 0
-                                jumps += 1
-                                withAnimation(.easeOut(duration: 0.12)) {
-                                    value = valueAt(gesture.location.x, usable: usable, span: span)
-                                }
-                                return
-                            }
+                            axis = nil
+                            grabOffset = 0
                         }
+                        if axis == nil {
+                            let dx = abs(gesture.translation.width)
+                            let dy = abs(gesture.translation.height)
+                            guard max(dx, dy) >= Self.axisLock else { return }
+                            guard dx > dy else { axis = .vertical; return }
+                            axis = .horizontal
+                            // Grabbed the thumb: hold the finger's offset so the value
+                            // stays put until the finger actually moves.
+                            let thumbCentre = knobX + knob / 2
+                            grabOffset = abs(gesture.startLocation.x - thumbCentre) <= knob / 2
+                                ? gesture.startLocation.x - thumbCentre
+                                : 0
+                        }
+                        guard axis == .horizontal else { return }
                         // Unanimated from here so the thumb never trails the finger.
                         value = valueAt(gesture.location.x - grabOffset, usable: usable, span: span)
                     }
-                    .onEnded { _ in touchStart = nil }
+                    .onEnded { gesture in
+                        if axis == nil {
+                            jumps += 1
+                            withAnimation(.easeOut(duration: 0.12)) {
+                                value = valueAt(gesture.location.x, usable: usable, span: span)
+                            }
+                        }
+                        touchStart = nil
+                        axis = nil
+                    }
             )
         }
         .frame(height: knob)
