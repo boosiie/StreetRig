@@ -66,6 +66,25 @@ enum AppPage: Int, CaseIterable, Hashable {
         case .ar, .profile:   return false
         }
     }
+
+    /// Whether the floating TONES square sits on this page's right edge.
+    ///
+    /// THE RIG PAGE ONLY, and written as an exhaustive switch for the same
+    /// reason `remembersGearDrawer` is: a fifth page should be a compile error
+    /// here, not a silent default.
+    ///
+    /// A preset rebuilds the amp, the cab and the board and then sets thirty
+    /// knobs, and every one of those things is drawn on the rig page. Pressing
+    /// it from the library or the profile would be pressing a button whose whole
+    /// effect happens somewhere you cannot see — and on AR the header is already
+    /// explicit that every point of chrome is a point of floor a propped phone
+    /// cannot show.
+    var showsTonePresets: Bool {
+        switch self {
+        case .main:                    return true
+        case .library, .ar, .profile:  return false
+        }
+    }
 }
 
 struct MainView: View {
@@ -85,6 +104,10 @@ struct MainView: View {
     /// no-amp warning, so far. Consumed by LibraryContentView.
     @State private var libraryDestination: LibraryContentView.Drill?
     @State private var showCredits = false
+
+    /// The TONES page, over the shell rather than inside the pager — see
+    /// `PresetsView`'s header for why it is not a fifth `AppPage`.
+    @State private var showingPresets = false
 
     /// HOW THE PLAYER LIKES THE DRAWER, and WHERE IT IS RIGHT NOW. Two values on
     /// purpose, because they are two different questions: the preference is a
@@ -166,6 +189,17 @@ struct MainView: View {
                     // spotlight is for the rail, and a handle stuck to the outside of
                     // that rect would widen the hole by a tab for no reason.
                     .overlay(alignment: .leading) { gearDrawerTab }
+                    // THE OTHER EDGE, AND DELIBERATELY NOT THE SAME SHAPE. The
+                    // drawer tab is flush to its edge and half a rounded
+                    // rectangle, because it is the visible handle of a thing that
+                    // is mostly off screen. This is not a handle: nothing is
+                    // parked behind it, so it floats clear of the edge as a whole
+                    // square with the card treatment every other liftable thing
+                    // in this app has. Two controls on two edges that behave
+                    // differently should not look the same.
+                    .overlay(alignment: .trailing) {
+                        if page.showsTonePresets { tonePresetsTab }
+                    }
                     // The trash lives HERE — top-left of the centre area, just
                     // past the MY GEAR rail — so it is somewhere you drag TO,
                     // equally reachable from the rail and from the rig stage.
@@ -255,6 +289,14 @@ struct MainView: View {
             // because hiding `topNav` took the only visible way off that page with
             // it — its own comment said so. The bar is back, and a second, quieter
             // exit sitting on top of the real one is just something else to explain.)
+
+            if showingPresets {
+                PresetsView(onClose: {
+                    withAnimation(.easeInOut(duration: 0.24)) { showingPresets = false }
+                })
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                .zIndex(1)
+            }
 
             if let component = focused {
                 ComponentDetailView(component: component) {
@@ -396,6 +438,50 @@ struct MainView: View {
     private static let drawerTabHeight: CGFloat = 56
     /// The 44pt minimum a target has to be to be worth aiming at.
     private static let drawerTabHitWidth: CGFloat = 44
+
+    /// THE TONES SQUARE — the way into `PresetsView`, floating at the vertical
+    /// centre of the rig page's trailing edge.
+    ///
+    /// LABELLED, NOT JUST DRAWN. A lone glyph on an edge is a guess, and the one
+    /// guess a knob icon invites here is "this opens the amp's controls", which
+    /// is the tap the player already has (the amp itself). Four letters under it
+    /// costs nine points and removes the guess.
+    ///
+    /// IT CLEARS THE ZOOM FIRST. Tapping a pedal opens `ComponentDetailView` over
+    /// this whole area; leaving that up under a full-screen presets page would
+    /// mean closing the presets and finding a zoomed pedal nobody asked to still
+    /// be there.
+    private var tonePresetsTab: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.24)) {
+                focused = nil
+                showingPresets = true
+            }
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: "dial.medium.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(RigTheme.amber)
+                Text("TONES")
+                    .font(.system(size: 7, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundStyle(RigTheme.textMuted)
+            }
+            .frame(width: Self.presetsTabSide, height: Self.presetsTabSide)
+            .rigCard(cornerRadius: 11, stroke: RigTheme.amber.opacity(0.38), lifted: true)
+            .padding(.trailing, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Tone presets")
+        .accessibilityHint("Loads a whole rig — amp, cabinet, pedals and knob settings")
+    }
+
+    /// 50, not 44. The minimum is the floor for something you have to AIM at;
+    /// this one floats over a 3D stage the player is also dragging to orbit, and
+    /// the extra six points are what keep a deliberate press apart from the
+    /// start of a spin.
+    private static let presetsTabSide: CGFloat = 50
 
     /// The tab was pressed. THE ONLY PLACE THE PREFERENCE IS EVER WRITTEN, and
     /// only from the pages that keep one — see `AppPage.remembersGearDrawer`.
