@@ -213,7 +213,11 @@ public enum RigTheme {
     /// copper (#D99E73) and reads brown-pink at low alpha; this is the same gold as
     /// `trim`, and it is what makes a card edge look like piping rather than a
     /// border. Used where the edge should be seen as trim.
-    public static let edgeBrass = Color(red: 0.894, green: 0.761, blue: 0.478).opacity(0.22)
+    /// 0.38, not the 0.22 this started at. Over a `surface` card that composites to
+    /// about #7A6244 — a gold hairline you can actually see. At 0.22 it landed on
+    /// #5A452F, which on a warm brown card is a slightly lighter brown and reads as
+    /// no border at all. Trim that cannot be seen is not restraint, it is absence.
+    public static let edgeBrass = Color(red: 0.894, green: 0.761, blue: 0.478).opacity(0.38)
 
     /// Lit top edge of the brass piping — the bright half of the two-tone hairline.
     public static let trimLit = Color(red: 0.894, green: 0.761, blue: 0.478)       // #E4C27A

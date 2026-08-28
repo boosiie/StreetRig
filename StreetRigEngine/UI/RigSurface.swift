@@ -25,7 +25,11 @@
 //
 //  Two modifiers, one per upper rung of `RigTheme`'s elevation ladder:
 //
-//    .rigCard()   → `surface`       + warm edge + ambient shadow   cards, panels, sheets
+//    .rigCard()   → `surface`       + BRASS edge   cards, panels, sheets
+//
+//  The edge defaults to `edgeBrass` and not `surfaceEdge`. Copper at low alpha over
+//  a warm brown card composites to a slightly lighter brown — technically an edge,
+//  visibly nothing. Brass reads as trim, which is what a card edge is for here.
 //    .rigRaised() → `surfaceRaised` + warm edge + tight shadow     chips, wells, buttons
 //
 //  Corner radius is a PARAMETER, but the SCALE is not: pass a `RigTheme.Radius`
@@ -61,7 +65,7 @@ public extension View {
     ///     NOT a way to mark state: on this near-black ground a deeper shadow is
     ///     close to invisible, so it cannot carry a distinction on its own.
     func rigCard(cornerRadius: CGFloat = RigTheme.Radius.control,
-                 stroke: Color = RigTheme.surfaceEdge,
+                 stroke: Color = RigTheme.edgeBrass,
                  lineWidth: CGFloat = 1,
                  lifted: Bool = false) -> some View {
         rigCard(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous),
@@ -72,7 +76,7 @@ public extension View {
     /// editor's `Capsule()` chips, mainly. Kept generic over `InsettableShape` so the
     /// stroke can still inset itself and sit flush inside the fill.
     func rigCard<S: InsettableShape>(_ shape: S,
-                                     stroke: Color = RigTheme.surfaceEdge,
+                                     stroke: Color = RigTheme.edgeBrass,
                                      lineWidth: CGFloat = 1,
                                      lifted: Bool = false) -> some View {
         background {
@@ -95,7 +99,7 @@ public extension View {
     /// still reads as pressable, with a much tighter shadow — it is a few points
     /// off its card, not a card off the page.
     func rigRaised(cornerRadius: CGFloat = RigTheme.Radius.tight,
-                   stroke: Color = RigTheme.surfaceEdge,
+                   stroke: Color = RigTheme.edgeBrass,
                    lineWidth: CGFloat = 1) -> some View {
         rigRaised(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous),
                   stroke: stroke, lineWidth: lineWidth)
@@ -103,7 +107,7 @@ public extension View {
 
     /// Shape-taking form. See `rigCard(_:stroke:lineWidth:lifted:)`.
     func rigRaised<S: InsettableShape>(_ shape: S,
-                                       stroke: Color = RigTheme.surfaceEdge,
+                                       stroke: Color = RigTheme.edgeBrass,
                                        lineWidth: CGFloat = 1) -> some View {
         background {
             // No shadow at all. A chip, a well or a keypad key sits IN its card,
