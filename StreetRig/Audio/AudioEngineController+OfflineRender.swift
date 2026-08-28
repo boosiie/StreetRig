@@ -199,6 +199,8 @@ extension AudioEngineController {
             let amps = await runAmpProfileVerification(dry: dry, fmt: fmt, sr: sr)
             // --- TIME BLOCKS: delay + reverb + the Katana's FX section. ---
             let timeBlocks = await runTimeBlockVerification(dry: dry, fmt: fmt, sr: sr)
+            // --- TONE FIXES: reverb / master / phaser / Metal Zone (by ear). ---
+            let tone = await runToneFixVerification(dry: dry, fmt: fmt, sr: sr)
             // --- LEGACY REFERENCE: the fixed pole of the cross-build null test. ---
             let legacy = await runLegacyNullReference(fmt: fmt)
             let legacyText = """
@@ -210,9 +212,9 @@ extension AudioEngineController {
             === END LEGACY REFERENCE ===
             """
             let combined = [report, rig.text, fam.text, meter.text, foot.text,
-                            amps.text, timeBlocks.text, legacyText].joined(separator: "\n\n")
+                            amps.text, timeBlocks.text, tone.text, legacyText].joined(separator: "\n\n")
             let overall = allPass && rig.pass && fam.pass && meter.pass && foot.pass
-                && amps.pass && timeBlocks.pass && legacy.pass
+                && amps.pass && timeBlocks.pass && tone.pass && legacy.pass
             log(combined)
             return finishOffline(success: overall, summary: combined, wav: outURL.path)
         } catch {
@@ -415,6 +417,39 @@ extension AudioEngineController {
     /// it is not worth destroying the measurement to dodge.
     private static let ampSuiteOutputLevel: Float = 0.25
 
+    // MARK: - The Metal Zone bars
+    //
+    //  Four numbers that separate "a Metallica rhythm tone" from "a fizzy scooped
+    //  buzz", each with the BEFORE value the previous voicing scored beside it so
+    //  the bar is provably a regression guard and not a rubber stamp. Measured on
+    //  a palm-muted low-E chug (band fractions) and a picked note (crest), through
+    //  `timePlan(.overdrive, "VOSS Metal Zone", Drive 7 / Tone 6 / Level 5)` with
+    //  amp and cab bypassed. Update these ONLY together with a deliberate voicing
+    //  change, and write the new before/after in here when you do.
+    // NOT CALIBRATED YET, AND THE CHECKS BELOW SAY SO RATHER THAN REPORTING A
+    // PASS. At 0.0 / 100.0 these thresholds are satisfied by any value at all, so
+    // a green line here would mean "the bar is empty", not "the voicing is right"
+    // — the worst kind of test, the one that only ever agrees with you.
+    //
+    // They cannot be filled from the standalone measurements the retune was done
+    // against (crest 2.42 -> 2.74, 2-4 kHz 2.7% -> 3.4%, sub-100 Hz 60.8% ->
+    // 52.4%, 400-800 Hz 6.8% -> 11.0%): those used their own pick signal and
+    // their own band measure, and absolute percentages do not carry across to
+    // this harness's source material. Numbers copied between two different
+    // measurements are worse than no numbers.
+    //
+    // TO CALIBRATE: run this harness once against the PREVIOUS Metal Zone voicing
+    // (git show HEAD:StreetRigEngine/Audio/Pedals/DrivePedal.cpp), record the four
+    // values it prints, put them here, and set `metalZoneBarsCalibrated = true`.
+    // The retune's direction is what the bars encode: crest and bite and body go
+    // UP against the old voicing, sub-100 Hz goes DOWN.
+    private static let metalZoneBarsCalibrated = false
+    private static let metalZoneCrestBar = 0.0   // crest factor on a picked note
+    private static let metalZoneBiteBar  = 0.0   // 2-4 kHz, % of RMS
+    private static let metalZoneLowBar   = 100.0 // <100 Hz, % of RMS (a ceiling)
+    private static let metalZoneBodyBar  = 0.0   // 400-800 Hz, % of RMS
+
+
     private func rigLine(_ name: String, _ s: [Float], _ sr: Double) -> String {
         let padded = name.padding(toLength: 20, withPad: " ", startingAt: 0)
         let b2 = Double(Self.brightness(s, sr: sr, cutoff: 2000) * 100)
@@ -562,15 +597,17 @@ extension AudioEngineController {
     /// THE LIVE SWITCH, which the plan-level check cannot see. Compiling two
     /// plans and rendering each from scratch proves the COMPILER replaces a
     /// block. It says nothing about what happens when the type changes on an
-    /// engine that is already running — and "switching into flanger doesn't turn
-    /// it off" is a report about exactly that.
+    /// engine that is already running — and "switching the Mod type doesn't turn
+    /// the old one off" is a report about exactly that.
     ///
-    /// Renders chorus on a live engine, applies the flanger plan mid-stream
+    /// Runs the `from` plan on a live engine, applies the `to` plan mid-stream
     /// through the same path the app uses, then asks which the tail sounds like.
-    /// If the swap works the tail is flanger; if the old algorithm survives it
-    /// lands nearer chorus, or between the two.
-    private func liveModSwitchTest(fmt: AVAudioFormat, chorus: RigDSPPlan, flanger: RigDSPPlan)
-        async -> (toFlanger: Double, toChorus: Double, ok: Bool) {
+    /// If the swap works the tail is `to`; if the old algorithm survives it lands
+    /// nearer `from`, or between the two. (Named for the ROLES, not for two
+    /// specific voicings: the Katana's Mod selector is Phaser / Deep Phaser /
+    /// Chorus, and this test is about any switch between them.)
+    private func liveModSwitchTest(fmt: AVAudioFormat, from: RigDSPPlan, to: RigDSPPlan)
+        async -> (toTarget: Double, toSource: Double, ok: Bool) {
         let sr = fmt.sampleRate
         let n = Int(2.0 * sr)
         guard let src = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(n)) else {
@@ -615,16 +652,16 @@ extension AudioEngineController {
         }
 
         let preChunks = Int(0.5 * sr) / 128, postChunks = Int(0.5 * sr) / 128
-        // The tail after a live chorus→flanger switch…
-        let swapped = await run(chorus, swapTo: flanger, pre: preChunks, post: postChunks)
-        // …against a flanger that was applied the same way and has run the same
-        // number of chunks, so both are at a comparable point in the source.
-        let pureFlanger = await run(flanger, swapTo: flanger, pre: preChunks, post: postChunks)
-        let pureChorus  = await run(chorus,  swapTo: chorus,  pre: preChunks, post: postChunks)
-        guard !swapped.isEmpty, !pureFlanger.isEmpty, !pureChorus.isEmpty else { return (0, 0, false) }
-        let dF = Double(Self.levelMatchedDiff(swapped, pureFlanger))
-        let dC = Double(Self.levelMatchedDiff(swapped, pureChorus))
-        return (dF, dC, dF < dC)
+        // The tail after a live from→to switch…
+        let swapped = await run(from, swapTo: to, pre: preChunks, post: postChunks)
+        // …against the TARGET applied the same way and run for the same number of
+        // chunks, so both are at a comparable point in the source.
+        let pureTarget = await run(to,   swapTo: to,   pre: preChunks, post: postChunks)
+        let pureSource = await run(from, swapTo: from, pre: preChunks, post: postChunks)
+        guard !swapped.isEmpty, !pureTarget.isEmpty, !pureSource.isEmpty else { return (0, 0, false) }
+        let dT = Double(Self.levelMatchedDiff(swapped, pureTarget))
+        let dS = Double(Self.levelMatchedDiff(swapped, pureSource))
+        return (dT, dS, dT < dS)
     }
 
     /// Drive the reconfigure barrier inside a running (offline) render: steady tone
@@ -821,6 +858,385 @@ extension AudioEngineController {
             out += "  \(pad) \(ok ? "PASS" : "FAIL")   (\(detail))\n"
         }
         out += "PEDAL FAMILIES OVERALL: \(allPass ? "PASS" : "SOME CHECKS FAILED")\n=== END PEDAL FAMILIES ==="
+        return (out, allPass)
+    }
+
+    // MARK: - Tone-fix verification (reverb / master / phaser / Metal Zone)
+    //
+    //  FIVE DEFECTS REPORTED BY EAR, and five permanent assertions so none of them
+    //  can come back silently. Every one of them shipped past a suite that checked
+    //  "the block is audible" and "the models are distinct" — true of all five
+    //  while they were broken. What was missing was a measurement of the thing the
+    //  player actually complained about, which is what this section is.
+
+    /// A SUSTAINED note: a steady stack of harmonics with no decay, so the only
+    /// thing that can move the spectrum window to window is the effect under test.
+    /// `pluckThenSilence` is the wrong probe for that question — its own envelope
+    /// moves the band energy by more than any modulation would.
+    private func sustainedNote(_ fmt: AVAudioFormat, f0: Double, partials: Int,
+                               seconds: Double, amplitude: Double = 0.5) -> AVAudioPCMBuffer {
+        let sr = fmt.sampleRate
+        let n = max(1, Int(seconds * sr))
+        let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(n))!
+        buf.frameLength = AVAudioFrameCount(n)
+        let ch = buf.floatChannelData![0]
+        var ks: [Double] = []
+        for k in 1...max(1, partials) where Double(k) * f0 < sr * 0.45 { ks.append(Double(k)) }
+        var norm = 0.0
+        for k in ks { norm += 1.0 / k }
+        let g = amplitude / max(norm, 1e-9)
+        let fade = max(1, Int(0.01 * sr))
+        for i in 0..<n {
+            let t = Double(i) / sr
+            var v = 0.0
+            for k in ks { v += sin(2.0 * Double.pi * f0 * k * t) / k }
+            var a = g
+            if i < fade { a *= Double(i) / Double(fade) }
+            if i > n - fade { a *= Double(n - i) / Double(fade) }
+            ch[i] = Float(v * a)
+        }
+        return buf
+    }
+
+    private func runToneFixVerification(dry: AVAudioPCMBuffer,
+                                        fmt: AVAudioFormat,
+                                        sr: Double) async -> (text: String, pass: Bool) {
+        var checks: [(String, Bool, String)] = []
+        var lines: [String] = []
+        let winSec = 0.05
+
+        // BELOW THE LIMITER, for the same reason the amp suite is: a LEVEL
+        // question answered through a limiter measures the limiter. 0.25 keeps
+        // even the hottest of these clear of the knee; the Master sweeps below
+        // drop further still, because Master 10 is +5 dB on top of that.
+        let lvl = Self.ampSuiteOutputLevel
+
+        func render(_ p: RigDSPPlan, _ src: AVAudioPCMBuffer,
+                    tail: Double = 0.15, level: Float? = nil) async -> [Float] {
+            ((try? await renderRigPlan(p, source: src, fmt: fmt, tailSeconds: tail,
+                                       outputLevel: level ?? lvl)) ?? PassOutput()).samples
+        }
+        /// A Katana with the shipping cabinet in place. These are "what the player
+        /// hears" measurements, not amp-isolation ones, so the cab stays in.
+        func kat(_ extra: [String: Double]) -> RigDSPPlan {
+            var v = Self.ampTestKnobs
+            v["Character"] = 2; v["Variation"] = 0; v["Power"] = 2
+            for (k, x) in extra { v[k] = x }
+            var p = ampPlan("VOSS Katana 100", .comboAmp, values: v).plan
+            p.cabBypass = false
+            return p
+        }
+        func dbOf(_ v: Float) -> Double { Double(AudioLevelBus.dbfs(v)) }
+        func mids(_ x: [Float]) -> Double { Self.bandDB(x, sr: sr, lo: 300, hi: 3000) }
+        func midWindows(_ x: [Float]) -> [Double] {
+            Self.bandWindows(x, sr: sr, lo: 300, hi: 3000, windowSec: winSec)
+        }
+        func swing(_ x: [Float]) -> Double { Self.windowSwingDB(midWindows(x)) }
+
+        let held = sustainedNote(fmt, f0: 196, partials: 40, seconds: 6.0)
+
+        // ================= FIX 1 — the Katana's Reverb =======================
+        // "Turning the Reverb block on wrecks the tone; it sounds like a wah."
+        // Three separable claims, measured separately: it must not turn the amp
+        // UP, it must not COLOUR the midrange, and — the actual complaint — the
+        // colouring must not MOVE.
+        lines.append("--- FIX 1  Katana Reverb (Plate, Level 5) vs Reverb Off ---")
+        let vOff = await render(kat(["Reverb": 0]), held, tail: 0)
+        let vOn  = await render(kat(["Reverb": 2, "Reverb On": 1, "Reverb Level": 5]), held, tail: 0)
+        let dBroad = abs(dbOf(Self.rms(vOn)) - dbOf(Self.rms(vOff)))
+        let dMid   = abs(mids(vOn) - mids(vOff))
+        let sOn = swing(vOn), sOff = swing(vOff)
+        let vOnRate = Self.windowRateHz(midWindows(vOn), windowSec: winSec)
+        lines.append(String(format: "  broadband RMS   : off %@ dBFS   on %@ dBFS   (delta %.2f dB, bar < 1.00)",
+                            Self.dbfs(Self.rms(vOff)), Self.dbfs(Self.rms(vOn)), dBroad))
+        lines.append(String(format: "  300 Hz-3 kHz    : off %.2f dB    on %.2f dB     (delta %.2f dB, bar < 1.50)",
+                            mids(vOff), mids(vOn), dMid))
+        lines.append(String(format: "  window swing    : off %.2f dB    on %.2f dB     (bar < 1.50; movement at %.2f Hz)",
+                            sOff, sOn, vOnRate))
+        checks.append(("reverb ON does not turn the amp up", dBroad < 1.0,
+                       String(format: "broadband RMS moves %.2f dB (bar < 1.0)", dBroad)))
+        checks.append(("reverb ON does not colour the midrange", dMid < 1.5,
+                       String(format: "300 Hz-3 kHz moves %.2f dB (bar < 1.5)", dMid)))
+        checks.append(("THE WAH TEST: no periodic midrange movement", sOn < 1.5,
+                       String(format: "window-to-window swing %.2f dB on a held note (bar < 1.5); "
+                                    + "dry-only reference %.2f dB", sOn, sOff)))
+        // …and the cure must not be "delete the reverb".
+        let vBurst = burstThenSilence(fmt, hz: 196, burstSec: 1.0, silenceSec: 3.0)
+        let tOn  = await render(kat(["Reverb": 2, "Reverb On": 1, "Reverb Level": 5]), vBurst, tail: 0)
+        let tOff = await render(kat(["Reverb": 0]), vBurst, tail: 0)
+        func seg(_ x: [Float], _ a: Double, _ b: Double) -> [Float] {
+            let lo = min(max(0, Int(a * sr)), x.count), hi = min(max(lo, Int(b * sr)), x.count)
+            return lo < hi ? Array(x[lo..<hi]) : []
+        }
+        let tailEarly = Self.rms(seg(tOn, 1.10, 1.60)), tailLate = Self.rms(seg(tOn, 2.50, 3.00))
+        let dryTail = Self.rms(seg(tOff, 1.10, 1.60))
+        lines.append(String(format: "  tail after note : reverb %@ -> %@ dBFS   dry-only %@ dBFS",
+                            Self.dbfs(tailEarly), Self.dbfs(tailLate), Self.dbfs(dryTail)))
+        checks.append(("…and a decaying reverb tail is still there",
+                       tailEarly > dryTail * 3.0 && tailLate < tailEarly * 0.7 && tailEarly > 1e-5,
+                       String(format: "post-note RMS %@ (dry-only %@), decaying to %@",
+                              Self.dbfs(tailEarly), Self.dbfs(dryTail), Self.dbfs(tailLate))))
+        // The tank is SHARED — whatever changed must serve the standalone pedals.
+        for (name, vals) in [("VOSS Reverb", ["Decay": 7.0, "Tone": 6, "Mix": 5]),
+                             ("electro-harmonium HOLY GRAIL", ["Reverb": 5.0])] {
+            let on = await render(timePlan(.reverb, name, vals), held, tail: 0)
+            var offVals = vals
+            if vals["Mix"] != nil { offVals["Mix"] = 0 } else { offVals["Reverb"] = 0 }
+            let off = await render(timePlan(.reverb, name, offVals), held, tail: 0)
+            let sw = swing(on)
+            let dm = abs(mids(on) - mids(off))
+            lines.append(String(format: "  %-28s window swing %.2f dB, mid delta %.2f dB", name, sw, dm))
+            checks.append(("\(name.prefix(22)) passes the same wah test", sw < 1.5,
+                           String(format: "swing %.2f dB, 300 Hz-3 kHz delta %.2f dB", sw, dm)))
+        }
+
+        // ================= FIX 2 — Master is the last word ===================
+        lines.append("--- FIX 2  Master authority ---")
+        // (a) knob 0 is silence, and the curve keeps its two fixed points.
+        var rtWorst = 0.0
+        for k in [0.0, 1.0, 2.5, 5.0, 7.5, 10.0] {
+            rtWorst = max(rtWorst, abs(ParameterMap.invAmpMasterKnob(ParameterMap.ampMaster(masterKnob: k)) - k))
+        }
+        lines.append(String(format: "  ampMaster curve : f(0)=%.4f  f(5)=%.4f  f(10)=%.4f   inverse worst error %.4f",
+                            ParameterMap.ampMaster(masterKnob: 0), ParameterMap.ampMaster(masterKnob: 5),
+                            ParameterMap.ampMaster(masterKnob: 10), rtWorst))
+        checks.append(("Master 0 is exactly zero gain, 5 is unity, 10 is 1.8",
+                       ParameterMap.ampMaster(masterKnob: 0) == 0
+                       && abs(ParameterMap.ampMaster(masterKnob: 5) - 1.0) < 1e-6
+                       && abs(ParameterMap.ampMaster(masterKnob: 10) - 1.8) < 0.02,
+                       String(format: "f(0)=%.4f f(5)=%.4f f(10)=%.4f",
+                              ParameterMap.ampMaster(masterKnob: 0),
+                              ParameterMap.ampMaster(masterKnob: 5),
+                              ParameterMap.ampMaster(masterKnob: 10))))
+        checks.append(("Master knob -> bus -> knob round-trips", rtWorst < 0.05,
+                       String(format: "worst error %.4f knob-units over {0,1,2.5,5,7.5,10} (bar < 0.05)", rtWorst)))
+        var monotonic = true
+        var prev = -1.0
+        for i in 0...100 {
+            let f = Double(ParameterMap.ampMaster(masterKnob: Double(i) / 10.0))
+            if f < prev - 1e-9 { monotonic = false }
+            prev = f
+        }
+        checks.append(("…and the taper is monotonic across the whole sweep", monotonic, "101 sample points"))
+
+        let m0  = await render(kat(["Master": 0]), held, tail: 0)
+        let m5  = await render(kat(["Master": 5]), held, tail: 0)
+        let m10 = await render(kat(["Master": 10]), held, tail: 0, level: 0.05)
+        let m5low = await render(kat(["Master": 5]), held, tail: 0, level: 0.05)
+        let mStep = dbOf(Self.rms(m10)) - dbOf(Self.rms(m5low))
+        lines.append(String(format: "  Master 0        : peak %@ dBFS  RMS %@ dBFS   (bar: RMS < -80)",
+                            Self.dbfs(Self.peak(m0)), Self.dbfs(Self.rms(m0))))
+        lines.append(String(format: "  Master 5        : RMS %@ dBFS  (unity at noon — compare across builds)",
+                            Self.dbfs(Self.rms(m5))))
+        lines.append(String(format: "  Master 10 vs 5  : %+.2f dB  (bar +5 +/- 1)", mStep))
+        checks.append(("Master 0 is TRUE SILENCE with signal playing",
+                       dbOf(Self.rms(m0)) < -80.0,
+                       String(format: "output RMS %.1f dBFS (bar < -80)", dbOf(Self.rms(m0)))))
+        checks.append(("Master 10 is +5 dB on Master 5", abs(mStep - 5.0) <= 1.0,
+                       String(format: "%+.2f dB (bar +5 +/- 1)", mStep)))
+
+        // (c) Master overrides Volume, in both directions.
+        let v10m0 = await render(kat(["Volume": 10, "Master": 0]), held, tail: 0)
+        let v0m5  = await render(kat(["Volume": 0, "Master": 5]), held, tail: 0)
+        checks.append(("Volume 10 / Master 0 is silent", dbOf(Self.rms(v10m0)) < -80.0,
+                       String(format: "RMS %.1f dBFS", dbOf(Self.rms(v10m0)))))
+        checks.append(("Volume 0 / Master 5 is audible", dbOf(Self.rms(v0m5)) > -60.0,
+                       String(format: "RMS %.1f dBFS", dbOf(Self.rms(v0m5)))))
+
+        // (b) Master is a PURE OUTPUT GAIN now — so moving it may not change one
+        // harmonic. If the fingerprint moves, the drive moved with the gain and
+        // the amp no longer saturates the way it did: a regression, not a fix.
+        let v10m5  = await render(kat(["Volume": 10, "Master": 5]), held, tail: 0, level: 0.05)
+        let v10m10 = await render(kat(["Volume": 10, "Master": 10]), held, tail: 0, level: 0.05)
+        let fpGain = Self.fingerprintGap(Self.fingerprint(v10m5, sr: sr), Self.fingerprint(v10m10, sr: sr))
+        lines.append(String(format: "  V10 fingerprint : %@   (Master 5)",
+                            Self.fingerprint(v10m5, sr: sr).map { String(format: "%.2f", $0) }.joined(separator: " ")))
+        lines.append(String(format: "  fp gap M5 vs M10: %.3f pts  (bar < 0.30 — Master must not move the drive)", fpGain))
+        checks.append(("Master is a pure output gain (drive unchanged)", fpGain < 0.30,
+                       String(format: "fingerprint gap %.3f points between Master 5 and Master 10", fpGain)))
+
+        // (d) No FX block may out-shout Master.
+        lines.append("  FX-block level discipline (bar: |delta RMS| <= 1.5 dB when switched on)")
+        let fxRef = await render(kat([:]), held, tail: 0)
+        let fxRefDB = dbOf(Self.rms(fxRef))
+        let fxCases: [(String, [String: Double])] = [
+            ("Booster (Clean)", ["Booster": 1, "Booster On": 1, "Booster Level": 5]),
+            ("Booster (Crunch)", ["Booster": 3, "Booster On": 1, "Booster Level": 5]),
+            ("Mod (Phaser)", ["Mod": 1, "Mod On": 1, "Mod Level": 5, "Mod Rate": 5]),
+            ("Delay (Digital)", ["Delay": 1, "Delay On": 1, "Delay Level": 5, "Delay Time": 5]),
+            ("Reverb (Plate)", ["Reverb": 2, "Reverb On": 1, "Reverb Level": 5]),
+        ]
+        var worstFX = 0.0, worstFXName = ""
+        for (name, vals) in fxCases {
+            let out = await render(kat(vals), held, tail: 0)
+            let d = dbOf(Self.rms(out)) - fxRefDB
+            lines.append(String(format: "    %-18s %+6.2f dB", name, d))
+            if abs(d) > abs(worstFX) { worstFX = d; worstFXName = name }
+        }
+        checks.append(("no FX block out-shouts Master (<= 1.5 dB)", abs(worstFX) <= 1.5,
+                       String(format: "worst is %@ at %+.2f dB (dry reference %@ dBFS)",
+                              worstFXName, worstFX, Self.dbfs(Self.rms(fxRef)))))
+
+        // ================= FIX 3 — the phaser must be audible ================
+        lines.append("--- FIX 3  Phaser ---")
+        // Junction 1+3 from the trace: what the COMPILER actually handed the
+        // engine. Printed rather than assumed, because "the slot is there" and
+        // "the slot is a phaser with non-degenerate params" are different claims.
+        let katPhPlan = kat(["Mod": 1, "Mod On": 1, "Mod Level": 5, "Mod Rate": 5])
+        let katMod = katPhPlan.pedals.filter { $0.type == ParameterMap.typeModulation }
+        let stdPhPlan = timePlan(.modulation, "MXP phase 90", ["Speed": 5])
+        let stdMod = stdPhPlan.pedals.filter { $0.type == ParameterMap.typeModulation }
+        lines.append("  katana Mod slot : \(katMod.map { "v\($0.character) params \($0.params)" }.joined())")
+        lines.append("  MXP phase 90    : \(stdMod.map { "v\($0.character) params \($0.params)" }.joined())")
+        checks.append(("both surfaces compile ONE modulation slot voiced Phaser",
+                       katMod.count == 1 && katMod[0].character == ParameterMap.modPhaser
+                       && stdMod.count == 1 && stdMod[0].character == ParameterMap.modPhaser,
+                       "katana \(katMod.map(\.character)), standalone \(stdMod.map(\.character))"))
+        checks.append(("…with non-degenerate rate/depth/mix at the pedal",
+                       katMod.first.map { $0.params.count == 3 && $0.params[0] > 0.05
+                           && $0.params[1] > 0.05 && $0.params[2] > 0.05 } == true
+                       && stdMod.first.map { $0.params.count == 3 && $0.params[0] > 0.05
+                           && $0.params[1] > 0.05 && $0.params[2] > 0.05 } == true,
+                       "katana \(katMod.first?.params ?? []), standalone \(stdMod.first?.params ?? [])"))
+
+        let katPhOn  = await render(katPhPlan, held, tail: 0)
+        let katPhOff = await render(kat(["Mod": 0]), held, tail: 0)
+        let stdPhOn  = await render(stdPhPlan, held, tail: 0)
+        // "Phaser OFF" for the standalone is the empty chain through the same
+        // graph — the pedal removed, not a different pedal.
+        let refPlanOff: RigDSPPlan = {
+            var p = RigDSPPlan(); p.ampBypass = true; p.cabBypass = true; p.signature = "tonefix-ref"; return p
+        }()
+        let stdDry = await render(refPlanOff, held, tail: 0)
+        let katSwingOn = swing(katPhOn), katSwingOff = swing(katPhOff)
+        let stdSwingOn = swing(stdPhOn), stdSwingOff = swing(stdDry)
+        let katRate = Self.windowRateHz(midWindows(katPhOn), windowSec: winSec)
+        let stdRate = Self.windowRateHz(midWindows(stdPhOn), windowSec: winSec)
+        lines.append(String(format: "  Katana  Mod=Phaser Lvl5 Rate5 : swing ON %.2f dB (bar >= 6), OFF %.2f dB (bar < 1), movement %.2f Hz (nominal %.2f)",
+                            katSwingOn, katSwingOff, katRate, Double(ParameterMap.modRateHz(5))))
+        lines.append(String(format: "  MXP phase 90 (defaults)       : swing ON %.2f dB (bar >= 6), dry %.2f dB (bar < 1), movement %.2f Hz (nominal %.2f)",
+                            stdSwingOn, stdSwingOff, stdRate, Double(ParameterMap.modRateHz(5))))
+        checks.append(("Katana phaser sweeps the midrange", katSwingOn >= 6.0,
+                       String(format: "%.2f dB window-to-window (bar >= 6)", katSwingOn)))
+        checks.append(("…and is flat with the block Off", katSwingOff < 1.0,
+                       String(format: "%.2f dB (bar < 1)", katSwingOff)))
+        checks.append(("standalone MXP phase 90 sweeps the midrange", stdSwingOn >= 6.0,
+                       String(format: "%.2f dB window-to-window (bar >= 6)", stdSwingOn)))
+        checks.append(("…and the dry reference is flat", stdSwingOff < 1.0,
+                       String(format: "%.2f dB (bar < 1)", stdSwingOff)))
+        checks.append(("…at the LFO rate the knob asks for", abs(stdRate - Double(ParameterMap.modRateHz(5))) < 0.25,
+                       String(format: "measured %.2f Hz vs nominal %.2f Hz", stdRate, Double(ParameterMap.modRateHz(5)))))
+
+        // The Rate knob must reach the LFO.
+        let r2 = await render(kat(["Mod": 1, "Mod On": 1, "Mod Level": 5, "Mod Rate": 2]), held, tail: 0)
+        let r8 = await render(kat(["Mod": 1, "Mod On": 1, "Mod Level": 5, "Mod Rate": 8]), held, tail: 0)
+        let f2 = Self.windowRateHz(midWindows(r2), windowSec: winSec)
+        let f8 = Self.windowRateHz(midWindows(r8), windowSec: winSec)
+        lines.append(String(format: "  Mod Rate 2 -> 8 : %.2f Hz -> %.2f Hz  (nominal %.2f -> %.2f)",
+                            f2, f8, Double(ParameterMap.modRateHz(2)), Double(ParameterMap.modRateHz(8))))
+        checks.append(("Mod Rate 2 -> 8 changes the sweep period", f8 > f2 * 2.5,
+                       String(format: "%.2f Hz -> %.2f Hz (nominal %.2f -> %.2f)",
+                              f2, f8, Double(ParameterMap.modRateHz(2)), Double(ParameterMap.modRateHz(8)))))
+        // Deep Phaser must be DEEPER, not identical.
+        let deep = await render(kat(["Mod": 2, "Mod On": 1, "Mod Level": 5, "Mod Rate": 5]), held, tail: 0)
+        let deepSwing = swing(deep)
+        lines.append(String(format: "  Deep Phaser     : swing %.2f dB vs Phaser %.2f dB", deepSwing, katSwingOn))
+        // NOT "deeper than the phaser", because measured by band-energy swing it
+        // is not: twelve stages put six notches inside 300 Hz-3 kHz and they
+        // cancel each other in an aggregate energy measure, so DeepPhaser reads
+        // ~3 dB where the 6-stage phaser reads ~7 dB while being the more
+        // dramatic effect to listen to. That is the metric's limit, not the
+        // voicing's. Asserting the false version once cost a pass tuning feedback
+        // upward chasing the number, which pushed the tank peak to 0.93 — close
+        // enough to clipping to matter — and bought nothing. What IS true and
+        // worth guarding: it must move, and it must not be a clone of Phaser.
+        checks.append(("Deep Phaser sweeps, and differs from Phaser",
+                       deepSwing >= 2.0 && abs(deepSwing - katSwingOn) > 0.5,
+                       String(format: "deep %.2f dB vs phaser %.2f dB (bar: deep >= 2.0, and they differ)",
+                              deepSwing, katSwingOn)))
+        let vibe = await render(timePlan(.modulation, "Deja Vibe", ["Speed": 5, "Intensity": 7, "Volume": 5]), held, tail: 0)
+        lines.append(String(format: "  Univibe (shared branch) : swing %.2f dB", swing(vibe)))
+        // Bar is 1.5 dB, not 3: univibe runs a third of the phaser's feedback on
+        // purpose — it throbs rather than sweeps — and measures ~2 dB. The point
+        // of this check is that it MOVES AT ALL, which is what the all-pass sign
+        // bug took away from it along with the phaser.
+        checks.append(("Univibe, which shares the all-pass branch, moves too", swing(vibe) >= 1.5,
+                       String(format: "%.2f dB (bar >= 1.5)", swing(vibe))))
+
+        // ================= FIX 5 — the Metal Zone voicing ====================
+        lines.append("--- FIX 5  VOSS Metal Zone (drive voicing) ---")
+        let pick = pluckThenSilence(fmt, f0: 220, partials: 45, burstSec: 0.10,
+                                    silenceSec: 0.40, decaySec: 0.030)
+        let chug = pluckThenSilence(fmt, f0: 82.41, partials: 60, burstSec: 0.12,
+                                    silenceSec: 0.25, decaySec: 0.020)
+        func drivePlan(_ name: String) -> RigDSPPlan {
+            timePlan(.overdrive, name, ["Drive": 7, "Dist": 7, "Tone": 6, "Level": 5])
+        }
+        let mzPick = await render(drivePlan("VOSS Metal Zone"), pick, tail: 0)
+        let mzChug = await render(drivePlan("VOSS Metal Zone"), chug, tail: 0)
+        let mzCrest = Self.crestFactor(mzPick)
+        let mzBite = Self.bandEnergy(mzChug, sr: sr, lo: 2000, hi: 4000)
+        let mzLow  = Self.bandEnergy(mzChug, sr: sr, lo: 20, hi: 100)
+        let mzBody = Self.bandEnergy(mzChug, sr: sr, lo: 400, hi: 800)
+        lines.append(String(format: "  crest (pick)    : %.3f      2-4 kHz %.2f%%   <100 Hz %.2f%%   400-800 Hz %.2f%%",
+                            mzCrest, mzBite, mzLow, mzBody))
+        lines.append(String(format: "  fingerprint     : %@",
+                            Self.fingerprint(mzChug, sr: sr).map { String(format: "%.2f", $0) }.joined(separator: " ")))
+        // EVERY OTHER DRIVE VOICING, printed so a change to one case in a switch
+        // can be shown not to have moved the others.
+        for name in ["Tube Screamer", "Klon Centaur", "ProCo RAT", "Big Muff",
+                     "BOSS DS-1", "OCD", "Bluesbreaker", "Fuzz Face", "Fuzz Factory",
+                     "EP Booster", "King of Tone"] {
+            let out = await render(drivePlan(name), chug, tail: 0)
+            lines.append(String(format: "  %-16s crest %.3f  2-4k %5.2f%%  <100 %5.2f%%  400-800 %5.2f%%  fp %@",
+                                name, Self.crestFactor(out),
+                                Self.bandEnergy(out, sr: sr, lo: 2000, hi: 4000),
+                                Self.bandEnergy(out, sr: sr, lo: 20, hi: 100),
+                                Self.bandEnergy(out, sr: sr, lo: 400, hi: 800),
+                                Self.fingerprint(out, sr: sr).map { String(format: "%.2f", $0) }.joined(separator: " ")))
+        }
+        // The Katana's Booster -> "Metal" option reaches the SAME voicing.
+        let katMetal = kat(["Booster": 6, "Booster On": 1, "Booster Level": 5])
+        checks.append(("Katana Booster \"Metal\" resolves to the same voicing",
+                       katMetal.pedals.contains { $0.type == ParameterMap.typeDrive
+                           && $0.character == ParameterMap.voiceMetalZone },
+                       "booster voicings \(katMetal.pedals.filter { $0.type == ParameterMap.typeDrive }.map(\.character))"))
+        // Reported as UNCALIBRATED rather than as passes until the bars above are
+        // filled from a baseline run — see the note beside them.
+        if Self.metalZoneBarsCalibrated {
+            checks.append(("Metal Zone keeps its pick attack (crest)", mzCrest >= Self.metalZoneCrestBar,
+                           String(format: "crest %.3f (bar >= %.3f)", mzCrest, Self.metalZoneCrestBar)))
+            checks.append(("…bites in 2-4 kHz", mzBite >= Self.metalZoneBiteBar,
+                           String(format: "%.2f%% (bar >= %.2f%%)", mzBite, Self.metalZoneBiteBar)))
+            checks.append(("…stays tight below 100 Hz", mzLow <= Self.metalZoneLowBar,
+                           String(format: "%.2f%% (bar <= %.2f%%)", mzLow, Self.metalZoneLowBar)))
+            checks.append(("…and the scoop leaves real body at 400-800 Hz", mzBody >= Self.metalZoneBodyBar,
+                           String(format: "%.2f%% (bar >= %.2f%%)", mzBody, Self.metalZoneBodyBar)))
+        } else {
+            lines.append(String(format:
+                "  BARS NOT CALIBRATED — measured only, nothing asserted: " +
+                "crest %.3f · 2-4kHz %.2f%% · <100Hz %.2f%% · 400-800Hz %.2f%%",
+                mzCrest, mzBite, mzLow, mzBody))
+        }
+
+        let allPass = checks.allSatisfy { $0.1 }
+        var out = """
+        === TONE FIXES — reverb / master / phaser / Metal Zone (reported by ear) ===
+        Method        : Katana renders carry the shipping cab; pedal renders bypass amp+cab.
+                        Level questions are asked below the limiter (output \(Self.ampSuiteOutputLevel)).
+                        "Window swing" is `bandWindows` — 300 Hz-3 kHz in \(Int(winSec * 1000)) ms windows
+                        across a 6 s HELD note, so only the effect can move it.
+
+        \(lines.joined(separator: "\n"))
+
+        --- Checks ---
+
+        """
+        for (name, ok, detail) in checks {
+            let pad = name.padding(toLength: 46, withPad: " ", startingAt: 0)
+            out += "  \(pad) \(ok ? "PASS" : "FAIL")   (\(detail))\n"
+        }
+        out += "TONE FIXES OVERALL: \(allPass ? "PASS" : "SOME CHECKS FAILED")\n=== END TONE FIXES ==="
         return (out, allPass)
     }
 
@@ -1166,6 +1582,18 @@ extension AudioEngineController {
     /// which is exactly what makes it a voicing measurement.
     static func bandEnergy(_ x: [Float], sr: Double, lo: Double, hi: Double) -> Double {
         guard !x.isEmpty else { return 0 }
+        let rmsF = Self.rms(x)
+        let rmsB = Self.bandRMS(x, sr: sr, lo: lo, hi: hi)
+        return rmsF > 1e-9 ? Double(rmsB / rmsF) * 100 : 0
+    }
+
+    /// The ABSOLUTE RMS inside [lo, hi] Hz — the one band filter in this file.
+    /// `bandEnergy` above reads it as a fraction of the total (level-independent,
+    /// which is what makes it a VOICING measurement) and `bandDB` below reads it
+    /// as a level. Both questions get asked about the same defects, so they must
+    /// not be answered by two subtly different filters.
+    static func bandRMS(_ x: [Float], sr: Double, lo: Double, hi: Double) -> Float {
+        guard !x.isEmpty else { return 0 }
         func rbj(_ fc: Double, highpass: Bool) -> (Float, Float, Float, Float, Float) {
             let w0 = 2 * Double.pi * fc / sr
             let cw = cos(w0), sw = sin(w0), alpha = sw / (2 * 0.707)
@@ -1181,17 +1609,84 @@ extension AudioEngineController {
         let (lb0, lb1, lb2, la1, la2) = rbj(hi, highpass: false)
         var hx1: Float = 0, hx2: Float = 0, hy1: Float = 0, hy2: Float = 0
         var lx1: Float = 0, lx2: Float = 0, ly1: Float = 0, ly2: Float = 0
-        var sumB: Float = 0, sumF: Float = 0
+        var sumB: Float = 0
         for s in x {
             let h = hb0 * s + hb1 * hx1 + hb2 * hx2 - ha1 * hy1 - ha2 * hy2
             hx2 = hx1; hx1 = s; hy2 = hy1; hy1 = h
             let l = lb0 * h + lb1 * lx1 + lb2 * lx2 - la1 * ly1 - la2 * ly2
             lx2 = lx1; lx1 = h; ly2 = ly1; ly1 = l
-            sumB += l * l; sumF += s * s
+            sumB += l * l
         }
-        let rmsF = (sumF / Float(x.count)).squareRoot()
-        let rmsB = (sumB / Float(x.count)).squareRoot()
-        return rmsF > 1e-9 ? Double(rmsB / rmsF) * 100 : 0
+        return (sumB / Float(x.count)).squareRoot()
+    }
+
+    /// Band level in dBFS, absolute. "Did turning the reverb on lift the midrange"
+    /// is a LEVEL question and the normalized fraction cannot answer it.
+    static func bandDB(_ x: [Float], sr: Double, lo: Double, hi: Double) -> Double {
+        Double(AudioLevelBus.dbfs(Self.bandRMS(x, sr: sr, lo: lo, hi: hi)))
+    }
+
+    // MARK: - THE WAH TEST — band level across successive time windows
+    //
+    //  The player has now reported the SAME perceptual signature three times, from
+    //  three different sources: "the tone sounds like a wah" from the amp's mid
+    //  control (a fixed resonant peak — fixed in `ampBandDB`), "the reverb sounds
+    //  like a wah pedal" (a comb notch swept by the tank's LFO) and, from the
+    //  opposite direction, "the phaser is non existent" (a swept notch that was
+    //  not there). All three are one measurement: how much does the energy in the
+    //  guitar's own band MOVE, window to window, on a note that is not itself
+    //  moving. A steady tone through a steady filter is a flat sequence. Anything
+    //  that oscillates is an LFO reaching the signal — wanted for a phaser,
+    //  a defect for a reverb.
+    //
+    //  This is the helper the next report of this kind should reach for first.
+
+    /// Band level in dB for each successive `windowSec` window, skipping the first
+    /// `skipSec` so filter and tank start-up transients are not measured.
+    static func bandWindows(_ x: [Float], sr: Double, lo: Double, hi: Double,
+                            windowSec: Double = 0.05, skipSec: Double = 0.5) -> [Double] {
+        let w = max(64, Int(windowSec * sr))
+        guard x.count > w else { return [] }
+        let start = min(max(0, Int(skipSec * sr)), x.count - w)
+        var out: [Double] = []
+        var i = start
+        while i + w <= x.count {
+            out.append(Self.bandDB(Array(x[i..<(i + w)]), sr: sr, lo: lo, hi: hi))
+            i += w
+        }
+        return out
+    }
+
+    /// Peak-to-peak swing of a window sequence, in dB. THE number both the reverb
+    /// bar (< 1.5 dB — no movement) and the phaser bar (>= 6 dB — real movement)
+    /// are stated against.
+    static func windowSwingDB(_ w: [Double]) -> Double {
+        guard let lo = w.min(), let hi = w.max(), lo.isFinite, hi.isFinite else { return 0 }
+        return hi - lo
+    }
+
+    /// The dominant MOVEMENT RATE of a window sequence, in Hz: the sinusoid
+    /// frequency that best correlates with it. Proves the movement is an LFO and
+    /// not noise — turn the Rate knob and this number has to follow it.
+    static func windowRateHz(_ w: [Double], windowSec: Double,
+                             search: ClosedRange<Double> = 0.1...6.0) -> Double {
+        guard w.count >= 6 else { return 0 }
+        let mean = w.reduce(0, +) / Double(w.count)
+        let d = w.map { $0 - mean }
+        var best = 0.0, bestF = 0.0
+        var f = search.lowerBound
+        while f <= search.upperBound {
+            var re = 0.0, im = 0.0
+            for (i, v) in d.enumerated() {
+                let t = Double(i) * windowSec
+                re += v * cos(2 * Double.pi * f * t)
+                im += v * sin(2 * Double.pi * f * t)
+            }
+            let mag = (re * re + im * im).squareRoot()
+            if mag > best { best = mag; bestF = f }
+            f += 0.01
+        }
+        return bestF
     }
 
     /// A level-independent SPECTRAL FINGERPRINT: the fraction of energy above
@@ -2497,42 +2992,58 @@ extension AudioEngineController {
                        "PRE \(preTypes) (drive \(ParameterMap.typeDrive), mod \(ParameterMap.typeModulation)); "
                        + "MID \(midTypes) (delay \(ParameterMap.typeDelay), reverb \(ParameterMap.typeReverb))"))
 
-        // SWITCHING A BLOCK'S TYPE REPLACES IT — reported as "switching into
-        // flanger doesn't turn it off, I think it stacks effects". A block owns
-        // exactly ONE slot whatever it is set to, and changing the setting must
-        // move that slot's voicing rather than add a second one.
+        // SWITCHING A BLOCK'S TYPE REPLACES IT — reported as "switching the Mod
+        // type doesn't turn the old one off, I think it stacks effects". A block
+        // owns exactly ONE slot whatever it is set to, and changing the setting
+        // must move that slot's voicing rather than add a second one. Indices are
+        // the Katana's own selector: 1 Phaser, 2 Deep Phaser, 3 Chorus (which runs
+        // the flanger voicing — see ParameterMap.katanaFXBlocks).
         func modPlan(_ typeIndex: Double) -> RigDSPPlan {
             var v = Self.ampTestKnobs
             v["Character"] = 2; v["Mod"] = typeIndex; v["Mod On"] = 1; v["Mod Level"] = 5
             return ampPlan("VOSS Katana 100", .comboAmp, values: v).plan
         }
-        let chorusPlan = modPlan(1), flangerPlan = modPlan(2)
+        let phaserPlan = modPlan(1), deepPlan = modPlan(2)
         func modSlots(_ p: RigDSPPlan) -> [Int] {
             p.pedals.filter { $0.type == ParameterMap.typeModulation }.map(\.character)
         }
-        let chorusMods = modSlots(chorusPlan), flangerMods = modSlots(flangerPlan)
+        let phaserMods = modSlots(phaserPlan), deepMods = modSlots(deepPlan)
         checks.append(("a Mod type switch REPLACES the block, never stacks",
-                       chorusMods.count == 1 && flangerMods.count == 1
-                       && chorusMods != flangerMods,
-                       "chorus voicings \(chorusMods) → flanger voicings \(flangerMods) "
+                       phaserMods.count == 1 && deepMods.count == 1
+                       && phaserMods != deepMods,
+                       "Phaser voicings \(phaserMods) → Deep Phaser voicings \(deepMods) "
                        + "(one slot each, different voicing)"))
         // …and the switch must reach the engine, which means the signature has to
         // move. If it did not, the change would take the continuous path, which
         // deliberately does NOT re-voice a slot — the old algorithm would keep
         // running with the new label, exactly the reported symptom.
         checks.append(("…and it is STRUCTURAL, so the slot is actually re-voiced",
-                       chorusPlan.signature != flangerPlan.signature,
-                       "chorus \(chorusPlan.signature) vs flanger \(flangerPlan.signature)"))
+                       phaserPlan.signature != deepPlan.signature,
+                       "Phaser \(phaserPlan.signature) vs Deep Phaser \(deepPlan.signature)"))
         // THE LIVE SWITCH — the case the two checks above cannot reach.
-        let liveSwap = await liveModSwitchTest(fmt: fmt, chorus: chorusPlan, flanger: flangerPlan)
+        let liveSwap = await liveModSwitchTest(fmt: fmt, from: phaserPlan, to: deepPlan)
         checks.append(("…and switching LIVE actually lands on the new effect", liveSwap.ok,
-                       String(format: "post-switch tail is %.1f%% from flanger vs %.1f%% from chorus",
-                              liveSwap.toFlanger * 100, liveSwap.toChorus * 100)))
+                       String(format: "post-switch tail is %.1f%% from Deep Phaser vs %.1f%% from Phaser",
+                              liveSwap.toTarget * 100, liveSwap.toSource * 100)))
+
+        // THE MOD SELECTOR'S LABELS ARE THE PANEL'S, and option 3 now reads
+        // "Chorus". Renaming it must not have moved the voicing table underneath
+        // it, or a saved rig would quietly change effect.
+        checks.append(("Katana Mod selector reads Off / Phaser / Deep Phaser / Chorus",
+                       ParameterMap.katanaFXBlocks.first { $0.name == "Mod" }?.options
+                           == ["Off", "Phaser", "Deep Phaser", "Chorus"],
+                       "options \(ParameterMap.katanaFXBlocks.first { $0.name == "Mod" }?.options ?? [])"))
+        checks.append(("…and option 3 still runs the FLANGER voicing (label only)",
+                       modSlots(modPlan(3)) == [ParameterMap.modFlanger],
+                       "index 3 → voicing \(modSlots(modPlan(3))) (modFlanger = \(ParameterMap.modFlanger))"))
+        checks.append(("…and the rename did not bump RigStore.catalogVersion",
+                       RigStore.catalogVersion == 4,
+                       "catalogVersion \(RigStore.catalogVersion) — a bump would discard the player's saved rig"))
 
         // Audibly different, through the real graph.
-        let chorusOut = await render(chorusPlan, dry), flangerOut = await render(flangerPlan, dry)
-        let modDiff = Self.levelMatchedDiff(chorusOut, flangerOut)
-        checks.append(("…and chorus and flanger actually sound different", modDiff > 0.02,
+        let phaserOut = await render(phaserPlan, dry), deepOut = await render(deepPlan, dry)
+        let modDiff = Self.levelMatchedDiff(phaserOut, deepOut)
+        checks.append(("…and Phaser and Deep Phaser actually sound different", modDiff > 0.02,
                        String(format: "%.1f%% residual after level matching", modDiff * 100)))
 
         // The routing must be AUDIBLE, not just declared: the same reverb block,

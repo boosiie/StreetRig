@@ -213,7 +213,9 @@ struct MainView: View {
                             .tag(AppPage.library)
                         RigStageView(focused: $focused, onFindAmp: showAmpLibrary)
                             .tag(AppPage.main)
-                        ARPedalSetupView()
+                        // `isActive` so the camera feed idles while the pager is
+                        // showing something else — see ARCameraView.isActive.
+                        ARPedalSetupView(isActive: page == .ar)
                             .tag(AppPage.ar)
                         ProfileView()
                             .tag(AppPage.profile)

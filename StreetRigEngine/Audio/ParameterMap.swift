@@ -31,15 +31,49 @@ public enum ParameterMap {
     // MARK: - Amp head / combo (Gain, Bass, Mid, Treble, Presence, Master)
 
     /// Amp "Gain" → linear pre-gain into the amp nonlinearity (SRParamAmpDrive).
-    /// Exponential so the knob feels even: knob 0 → 0.6, 5 → ≈3.0, 10 → ≈13.6.
+    /// Knob 0 → 0.0 (SILENT), 5 → ≈2.85, 10 → ≈13.6.
+    ///
+    /// REACHES ZERO, AND THIS KNOB IS PRINTED "VOLUME" ON HALF THE AMPS. It was
+    /// `0.6·2^(norm·4.5)`, which floored at 0.6 — so a knob rolled fully off still
+    /// passed signal. That is fine for something labelled GAIN and wrong for the
+    /// Fandor Twin Reverb, the Volt AC30 and the Bassman, whose channel VOLUME
+    /// controls are stored as `Gain` and drive this curve (see Gear.swift, where
+    /// they are declared `GearParameter("Gain", shortName: "VOLUME")`). On the real
+    /// amps those are preamp volume pots and they silence at zero.
+    ///
+    /// `A·(2^(k·norm) − 1)` is the same exponential shape shifted to pass through
+    /// the origin, with A and k solved so it matches the OLD curve EXACTLY at noon
+    /// (2.854) and at ten (13.576). Those two points are load-bearing: every saved
+    /// rig's tone is set by where its gain sits, and moving the middle or the top
+    /// would re-voice the whole catalogue.
+    ///
+    /// The cost is at the bottom, where the curve now has to get to zero: knob 1
+    /// is 62% quieter than it was, knob 3 about 18%. That is the trade for a
+    /// volume control that actually turns off, and it is the more honest end of
+    /// the sweep anyway — knob 1 on a real Twin is barely audible.
+    static let ampDriveA: Double = 1.035283
+    static let ampDriveK: Double = 3.819030
     static func ampDrive(gainKnob v: Double) -> Float {
-        0.6 * powf(2.0, norm(v) * 4.5)
+        Float(ampDriveA * (pow(2.0, ampDriveK * Double(norm(v))) - 1.0))
     }
 
-    /// Amp "Master" → post-amp makeup/master gain (SRParamAmpMakeup). Linear,
-    /// unity at noon: knob 0 → 0.2, 5 → 1.0, 10 → 1.8.
-    static func ampMaster(masterKnob v: Double) -> Float {
-        0.2 + norm(v) * 1.6
+    /// Amp "Master" → post-amp makeup/master gain (SRParamAmpMakeup).
+    /// Knob 0 → 0.0 (SILENT), 5 → 1.0 (unity at noon), 10 → 1.8.
+    ///
+    /// REACHES ZERO, WHICH THE OLD CURVE DID NOT. It was `0.2 + norm·1.6`, so a
+    /// Master rolled all the way off still passed 0.2 — about −14 dB — and the
+    /// amp could not be silenced from its own master control. Reported as
+    /// "Master should be the ultimate decider of volume", and a control that
+    /// cannot reach zero is not deciding anything at the bottom of its travel.
+    ///
+    /// `2.2n − 0.4n²` is the smooth curve through the three points that matter:
+    /// 0 at zero, 1.0 at noon and 1.8 at ten. Unity at noon is load-bearing —
+    /// every rig ever saved assumes it, so moving it would change the volume of
+    /// every stored preset. Monotonic across the whole range (slope 2.2 → 1.4),
+    /// so the knob never stalls or reverses.
+    public static func ampMaster(masterKnob v: Double) -> Float {
+        let n = Double(norm(v))
+        return Float(2.2 * n - 0.4 * n * n)
     }
 
     /// Amp tone band → shelf/peak gain in dB. Flat (0 dB) at noon so a centered
@@ -81,8 +115,14 @@ public enum ParameterMap {
     /// control — it just sits one stage earlier, which is the whole point: it
     /// decides how hard the character drives the output valves, while Master
     /// sets the room level. Knob 0 → 0.2, 5 → 1.0, 10 → 1.8.
+    /// REACHES ZERO, for the same reason `ampMaster` does and by the same curve:
+    /// the Bassman's VOL NORMAL, the Rectifier's channel VOLUMEs and the JCM800's
+    /// LOUDNESS II all land here, and a volume control that bottoms out at 0.2
+    /// cannot silence the amp it is written on. Unity at noon and 1.8 at ten are
+    /// unchanged, so no stored rig moves.
     public static func ampVolume(volumeKnob v: Double) -> Float {
-        0.2 + norm(v) * 1.6
+        let n = Double(norm(v))
+        return Float(2.2 * n - 0.4 * n * n)
     }
 
     // MARK: - Power control (0.5 W / 50 W / 100 W)
@@ -149,7 +189,7 @@ public enum ParameterMap {
     static func gateReleaseSec(_ v: Double) -> Float { 0.02 + norm(v) * 0.58 } // 20…600 ms
 
     /// Modulation "Rate" → LFO frequency in Hz, exponential: 0.1 → ≈6.4 Hz.
-    static func modRateHz(_ v: Double) -> Float { 0.1 * powf(2.0, norm(v) * 6.0) }
+    public static func modRateHz(_ v: Double) -> Float { 0.1 * powf(2.0, norm(v) * 6.0) }
 
     // MARK: - Delay (Time / Feedback / Mix / Tone / Mod depth)
 
@@ -469,11 +509,17 @@ public enum ParameterMap {
     public static let katanaFXBlocks: [AmpFXBlockSpec] = [
         .init(name: "Booster", options: ["Off", "Clean", "Blues", "Crunch", "Tube", "Dist", "Metal", "Fuzz"],
               dials: ["Level"], span: .pre),
-        // MOD IS THE PHASE-SHIFT BLOCK. Re-sorted on request: the two phasers and
-        // the flanger together, because they are the same family — swept notches —
-        // and belong on one selector. Chorus and Vibrato left the block; every
-        // remaining option is an LFO effect, so Rate is always live.
-        .init(name: "Mod", options: ["Off", "Phaser", "Deep Phaser", "Flanger"],
+        // MOD IS THE PHASE-SHIFT BLOCK, plus one thickener. Options 1–2 are the
+        // two phasers; option 3 is LABELLED "Chorus" and RUNS `modFlanger`, and
+        // that mismatch is deliberate — the player picked the label by ear. A
+        // flanger at this block's settings (2.5 ms base, ±2 ms sweep) is a short
+        // modulated comb, which is what most players call a chorus when it sits
+        // in front of an amp; the `ModulationPedal::Chorus` voicing is a longer
+        // 11 ms detune and is NOT what was asked for. Do not "correct" the
+        // voicing table below to match the word — the word was chosen to match
+        // the sound. Cue: option 3 should thicken and swirl, not double the note
+        // a semitone late. Every option is an LFO effect, so Rate is always live.
+        .init(name: "Mod", options: ["Off", "Phaser", "Deep Phaser", "Chorus"],
               dials: ["Level"], span: .pre, rateTypes: [1, 2, 3]),
         // FX IS EVERYTHING ELSE. Re-sorted on request to Wah / Tremolo, with the
         // phasers moved to Mod where they belong. PITCH SHIFTER IS ABSENT ON
@@ -529,6 +575,11 @@ public enum ParameterMap {
                 params = [pedalDrive(level), pedalToneHz(6), pedalLevel(6)]
             case "Mod":
                 type = typeModulation
+                // UNTOUCHED WHEN OPTION 3 WAS RENAMED. Index 3 reads "Chorus" on
+                // the panel and still runs `modFlanger` — see the block spec
+                // above for why the word and the voicing deliberately differ, and
+                // note that `GearItem.values` stores this selector as an INDEX, so
+                // the rename cost no saved rig its setting.
                 voicing = [0, modPhaser, modDeepPhaser, modFlanger][typeIndex]
                 // Rate is the player's now (it was pinned at 4). Level remains
                 // depth AND mix, which is what a single "depth" control does.
@@ -683,19 +734,29 @@ public enum ParameterMap {
     /// Clamp a computed knob back into the 0…10 dial range.
     @inline(__always) static func clampKnob(_ v: Double) -> Double { min(max(v, 0), 10) }
 
-    /// Inverse of `ampDrive(gainKnob:)`  (bus = 0.6·2^(norm·4.5)).
+    /// Inverse of `ampDrive(gainKnob:)`  (bus = A·(2^(k·norm) − 1)).
+    /// Solving for norm: norm = log2(bus/A + 1) / k.
     static func invAmpDriveKnob(_ bus: Float) -> Double {
-        clampKnob(log2(Double(max(bus, 1e-6)) / 0.6) / 4.5 * 10.0)
+        clampKnob(log2(Double(max(bus, 0)) / ampDriveA + 1.0) / ampDriveK * 10.0)
     }
 
-    /// Inverse of `ampMaster(masterKnob:)`  (bus = 0.2 + norm·1.6).
-    static func invAmpMasterKnob(_ bus: Float) -> Double {
-        clampKnob((Double(bus) - 0.2) / 1.6 * 10.0)
+    /// Inverse of `ampMaster(masterKnob:)`  (bus = 2.2·n − 0.4·n²).
+    ///
+    /// MUST TRACK THE CURVE ABOVE. This is what turns a host's automation value
+    /// back into a knob position; when the curve changed and this did not, an
+    /// AUv3 host read every Master setting back wrong. Solving the quadratic for
+    /// n and taking the root that lands in 0…1:
+    ///     0.4n² − 2.2n + bus = 0  →  n = (2.2 − √(4.84 − 1.6·bus)) / 0.8
+    public static func invAmpMasterKnob(_ bus: Float) -> Double {
+        let disc = max(0.0, 4.84 - 1.6 * Double(bus))
+        return clampKnob((2.2 - disc.squareRoot()) / 0.8 * 10.0)
     }
 
-    /// Inverse of `ampVolume(volumeKnob:)`  (bus = 0.2 + norm·1.6).
+    /// Inverse of `ampVolume(volumeKnob:)`  (bus = 2.2·norm − 0.4·norm²).
+    /// Same quadratic solve as `invAmpMasterKnob`.
     public static func invAmpVolumeKnob(_ bus: Float) -> Double {
-        clampKnob((Double(bus) - 0.2) / 1.6 * 10.0)
+        let disc = max(0.0, 4.84 - 1.6 * Double(bus))
+        return clampKnob((2.2 - disc.squareRoot()) / 0.8 * 10.0)
     }
 
     /// Inverse of `ampPowerScale(powerIndex:)`.
