@@ -81,6 +81,11 @@ private:
         float  driveScale = 1.0f;                        // extra gain into the clip
         float  outTrim = 1.0f;                           // level match across models
         bool   twoStage = false;                         // Big-Muff cascade
+        /// How much of the pick transient the clipper flattened is handed back,
+        /// AFTER the clip. 0 = none (the old behaviour), 1 = a full extra unit of
+        /// gain on a maximal transient. See `process` for why this is post-clip and
+        /// why it scales with drive.
+        float  attack = 0.0f;
     };
     static Voice voiceFor(int voicing) noexcept;
 
@@ -104,6 +109,9 @@ private:
         float toneState = 0.0f;
         float dcX1 = 0.0f, dcY1 = 0.0f;
         float smDrive = 1.0f, smLevel = 1.0f;
+        /// Fast/slow envelope pair on the PRE-clip signal. Their difference is the
+        /// part of the note that is attack rather than body.
+        float envFast = 0.0f, envSlow = 0.0f;
     };
     ChannelState ch_[kMaxChannels];
 
