@@ -60,8 +60,16 @@ enum PanelArtExporter {
             plates.append((PanelArt.categoryPlateName(for: probe), probe))
         }
 
+        var authored = 0
+
         for (name, item) in plates {
             let url = dir.appendingPathComponent("\(name).png")
+            // HAND ART IS NEVER RE-BAKED, force or not. A piece that ships a knob
+            // layout (`<slug>-panel.json`) has a real faceplate drawn for it, with
+            // the knobs placed against ITS artwork; overwriting that with a flat
+            // baseline would leave the knobs sitting on plain colour and the
+            // placement pointing at wells that are no longer painted.
+            if PanelArtLoader.knobLayout(for: item) != nil { authored += 1; continue }
             if !force, FileManager.default.fileExists(atPath: url.path) { skipped += 1; continue }
             guard let data = plateData(for: item) else { continue }
             do {
@@ -72,11 +80,48 @@ enum PanelArtExporter {
             }
         }
 
+        writeControlManifest(into: dir)
+
         print("=== StreetRig panel export → \(dir.path) ===")
         print("wrote \(written.count) plate(s)"
-              + (skipped > 0 ? ", kept \(skipped) already on disk (STREETRIG_EXPORT_PANELS=force to replace)" : ""))
+              + (skipped > 0 ? ", kept \(skipped) already on disk (STREETRIG_EXPORT_PANELS=force to replace)" : "")
+              + (authored > 0 ? ", left \(authored) hand-drawn plate(s) alone" : ""))
         print("=== end panel export ===")
         return written
+    }
+
+    /// WHAT TO PUT IN A SIDECAR. Anchors name controls by `GearParameter.name`,
+    /// which is not always what the panel prints — the JCM800's PRE-AMP VOLUME is
+    /// `Gain`, the BE-100's MIDDLE is `Mid`. Guessing gets you a layout that is
+    /// silently ignored, so the exporter writes the real list beside the plates:
+    /// every piece with knobs, its dials in panel order, and its switches.
+    @MainActor
+    private static func writeControlManifest(into dir: URL) {
+        var out = ["# StreetRig controls — the names a <slug>-panel.json must use.",
+                   "# KNOB  <name>  (printed as <label>)   SWITCH <name> [options]", ""]
+        for item in RigStore.catalog where !item.parameters.isEmpty {
+            let name = PanelArt.plateName(for: item)
+            guard !name.isEmpty else { continue }
+            let dials = KnobPanelLayout.dials(item.parameters)
+            out.append("\(name).json   — \(item.name)")
+            out.append("  \(dials.count) knob(s):")
+            for d in dials {
+                out.append("    KNOB   \(d.name.padding(toLength: max(16, d.name.count), withPad: " ", startingAt: 0))"
+                           + (d.displayName == d.name ? "" : "(printed \(d.displayName))")
+                           + (d.isDisabled ? "  [no engine behind it]" : ""))
+            }
+            let switches = item.parameters.filter { $0.isDiscrete && $0.group == nil }
+            if !switches.isEmpty {
+                out.append("  \(switches.count) switch(es):")
+                for w in switches {
+                    out.append("    SWITCH \(w.name.padding(toLength: max(16, w.name.count), withPad: " ", startingAt: 0))"
+                               + "\(w.options ?? [])")
+                }
+            }
+            out.append("")
+        }
+        try? out.joined(separator: "\n").write(to: dir.appendingPathComponent("controls.txt"),
+                                                atomically: true, encoding: .utf8)
     }
 
     /// One piece's plate as PNG data, at the size its panel actually gets.

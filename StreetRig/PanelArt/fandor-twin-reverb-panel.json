@@ -1,0 +1,60 @@
+{
+  "_comment": "Anchors measured from this artwork's placement marks. The panel follows the drawing: what is drawn is what the amp has.",
+  "captions": false,
+  "knobs": [
+    {
+      "param": "Gain",
+      "x": 0.12825,
+      "y": 0.49769,
+      "d": 0.4537
+    },
+    {
+      "param": "Treble",
+      "x": 0.19025,
+      "y": 0.49769,
+      "d": 0.4537
+    },
+    {
+      "param": "Bass",
+      "x": 0.25225,
+      "y": 0.49306,
+      "d": 0.4537
+    },
+    {
+      "param": "Gain 2",
+      "x": 0.43175,
+      "y": 0.50231,
+      "d": 0.4537
+    },
+    {
+      "param": "Treble 2",
+      "x": 0.49375,
+      "y": 0.50231,
+      "d": 0.4537
+    },
+    {
+      "param": "Bass 2",
+      "x": 0.55525,
+      "y": 0.49769,
+      "d": 0.4537
+    },
+    {
+      "param": "REVERB",
+      "x": 0.61775,
+      "y": 0.50231,
+      "d": 0.4537
+    },
+    {
+      "param": "SPEED",
+      "x": 0.67975,
+      "y": 0.49306,
+      "d": 0.4537
+    },
+    {
+      "param": "INTENSITY",
+      "x": 0.74175,
+      "y": 0.50231,
+      "d": 0.4537
+    }
+  ]
+}
