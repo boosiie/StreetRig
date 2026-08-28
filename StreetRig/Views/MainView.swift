@@ -282,7 +282,7 @@ struct MainView: View {
             creditsButton
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 10)
+        .padding(.vertical, 3)
         // The nav bar is a piece of the app's chassis, so it is made of something:
         // black anodised plate with a brass hairline along its lit edge. The white
         // 7% separator it used to carry is gone — the plate's own dark bottom stop
@@ -341,8 +341,13 @@ struct MainView: View {
         } label: {
             Image(systemName: systemName)
                 .font(.title3.weight(.bold))
-                .foregroundStyle(target != nil ? RigTheme.amber : RigTheme.textMuted.opacity(0.35))
-                .frame(width: 46, height: 30)
+                .foregroundStyle(target != nil ? RigTheme.amberChrome
+                                               : RigTheme.textMuted.opacity(0.35))
+                // 46x30 was one of three sub-minimum targets in this file. The height
+                // goes to 44; the bar does NOT grow, because the header's own vertical
+                // padding drops from 10 to 3 to pay for it. Same 50pt bar, a target
+                // you can actually hit with a guitar on.
+                .frame(width: 46, height: 44)
                 .contentShape(Rectangle())
         }
         .disabled(target == nil)

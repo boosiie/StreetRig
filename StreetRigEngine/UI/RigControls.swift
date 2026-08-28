@@ -58,10 +58,20 @@ public struct RigButtonStyle: ButtonStyle {
     /// finger. A thing can be engaged without being touched.
     public var role: Role
     public var isEngaged: Bool
+    /// Let the LAYOUT size this control instead of the role's fixed height.
+    ///
+    /// The fixed heights are the 44pt floor, so this is an escape hatch and not a
+    /// preference: use it only where a surrounding layout already pins the height
+    /// and is itself at least 44 tall once its own padding is counted. The control
+    /// panel's transport is the case it exists for — its row is pinned at 41pt so
+    /// that the panel's height cannot drift, and the zone's 8pt vertical padding
+    /// carries the touch target the rest of the way.
+    public var fills: Bool
 
-    public init(role: Role, isEngaged: Bool = false) {
+    public init(role: Role, isEngaged: Bool = false, fills: Bool = false) {
         self.role = role
         self.isEngaged = isEngaged
+        self.fills = fills
     }
 
     @Environment(\.isEnabled) private var isEnabled
@@ -86,9 +96,11 @@ public struct RigButtonStyle: ButtonStyle {
             .foregroundStyle(foreground(pressed: pressed))
             .padding(.horizontal, role == .icon ? 0 : (role == .quiet ? 10 : 18))
             .frame(minWidth: role == .icon ? 44 : 0)
-            .frame(height: visualHeight)
+            .frame(maxWidth: fills ? .infinity : nil,
+                   maxHeight: fills ? .infinity : nil)
+            .frame(height: fills ? nil : visualHeight)
             .background { background(pressed: pressed) }
-            .padding(.vertical, hitPadding)
+            .padding(.vertical, fills ? 0 : hitPadding)
             .contentShape(Rectangle())
             .animation(.easeOut(duration: pressed ? 0.06 : 0.18), value: pressed)
             .sensoryFeedback(haptic, trigger: pressed) { _, now in now }
@@ -157,11 +169,17 @@ public struct RigButtonStyle: ButtonStyle {
 
     private func primaryFill(pressed: Bool) -> AnyShapeStyle {
         guard isEnabled else { return AnyShapeStyle(RigTheme.surfaceRaised) }
+        // ENGAGED is a different colour, not just a different border. The transport
+        // is the case that matters: a lit STOP has to be tellable from a resting
+        // PROCEED at a glance while you are playing, and a 1pt ring will not do that
+        // from a metre away. `emberSoft` reads as "running" without shouting like
+        // `clip`, which is what it was chosen for before this kit existed.
+        let base   = isEngaged ? RigTheme.emberSoft : RigTheme.amberChrome
+        let lit    = isEngaged ? Color(red: 0.941, green: 0.635, blue: 0.443) : RigTheme.amberChromeLit
+        let deep   = isEngaged ? Color(red: 0.769, green: 0.396, blue: 0.180) : RigTheme.amberChromeDeep
         // Rest runs light-over-dark; pressed FLIPS it. Inverting the light is what
         // reads as depth — and unlike a scale or a translate it costs no motion.
-        let stops = pressed
-            ? [RigTheme.amberChromeDeep, RigTheme.amberChrome]
-            : [RigTheme.amberChromeLit, RigTheme.amberChrome, RigTheme.amberChromeDeep]
+        let stops = pressed ? [deep, base] : [lit, base, deep]
         return AnyShapeStyle(LinearGradient(colors: stops, startPoint: .top, endPoint: .bottom))
     }
 }

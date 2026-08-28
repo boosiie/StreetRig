@@ -364,15 +364,13 @@ struct ControlPanelSurface: View {
             }
         } label: {
             Text(audio.isEngaged ? "STOP" : "PROCEED")
-                .font(.system(size: 16, weight: .heavy))
                 .tracking(1)
-                .foregroundStyle(.black)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(audio.isEngaged ? RigTheme.emberSoft : RigTheme.amber)
-                )
         }
+        // The transport is the app's one primary action, so it comes off the shared
+        // kit rather than hand-rolling a fill: it gets the press state and the
+        // `.medium` haptic every other primary has. `fills` because this zone's row
+        // is pinned at 41pt — see the note on that property.
+        .buttonStyle(RigButtonStyle(role: .primary, isEngaged: audio.isEngaged, fills: true))
     }
 
     #if DEBUG
