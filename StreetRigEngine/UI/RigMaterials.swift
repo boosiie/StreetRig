@@ -39,14 +39,14 @@ public enum RigMaterials {
     public static let chromeFace = LinearGradient(
         stops: [
             .init(color: RigTheme.chromeLip,   location: 0.00),
-            .init(color: Color(red: 0.176, green: 0.192, blue: 0.216), location: 0.025),
+            .init(color: Color(red: 0.173, green: 0.169, blue: 0.161), location: 0.025),
             .init(color: RigTheme.chromeCatch, location: 0.025),
             .init(color: RigTheme.chromeSheen, location: 0.07),
-            .init(color: Color(red: 0.122, green: 0.129, blue: 0.137), location: 0.17),
+            .init(color: Color(red: 0.137, green: 0.133, blue: 0.129), location: 0.17),
             .init(color: RigTheme.chromeBody,  location: 0.52),
             .init(color: RigTheme.chromeLow,   location: 0.76),
-            .init(color: Color(red: 0.078, green: 0.086, blue: 0.098), location: 0.93),
-            .init(color: Color(red: 0.043, green: 0.043, blue: 0.051), location: 1.00)
+            .init(color: Color(red: 0.114, green: 0.110, blue: 0.106), location: 0.93),
+            .init(color: Color(red: 0.078, green: 0.075, blue: 0.071), location: 1.00)
         ],
         startPoint: .top, endPoint: .bottom)
 

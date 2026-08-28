@@ -101,7 +101,7 @@ struct DeviceOfferPrompt: View {
             // At `surface` it was the same tone as the card under it and vanished.
             if filled {
                 label.background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    RoundedRectangle(cornerRadius: RigTheme.Radius.panel, style: .continuous)
                         .fill(RigTheme.amber)
                 )
             } else {

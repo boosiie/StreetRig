@@ -139,7 +139,7 @@ struct LibraryContentView: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 7)
                 .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
                         .fill(selected ? RigTheme.amber : Color.clear)
                 )
         }
@@ -412,13 +412,13 @@ private struct LibraryTile: View {
         // on a warm espresso ground.
         .overlay {
             if owned {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: RigTheme.Radius.control, style: .continuous)
                     .fill(RigTheme.background.opacity(0.58))
                     .allowsHitTesting(false)
             }
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: RigTheme.Radius.control, style: .continuous)
                 .strokeBorder(owned ? RigTheme.amber.opacity(0.5) : RigTheme.surfaceEdge, lineWidth: 1)
         }
     }

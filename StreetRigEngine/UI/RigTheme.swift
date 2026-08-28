@@ -118,7 +118,14 @@ public enum RigTheme {
     // Black anodised aluminium, and near-black rather than black: a true black has
     // no surface, takes no light, and would swallow the brass piping.
     //
-    // WHY THESE VALUES. `chromeBody` measures 1.26:1 against `background`, matching
+    // NEUTRAL, NOT COOL. The first cut ran B - R = +8, chosen so the panel would
+    // separate from the warm tolex on hue as well as luminance. On a real phone that
+    // read plainly BLUE — a near-black carries its cast much further than a swatch
+    // suggests, because there is no colour around it to judge it against. It is now
+    // B - R = -1, a hair warm of neutral, and the separation rests on the luminance
+    // step alone, which is the cue that was doing the work anyway.
+    //
+    // WHY THESE VALUES. `chromeBody` measures 1.29:1 against `background`, matching
     // the CARD rung's documented-working step above. An earlier cut sat at #191A1D
     // — a more convincing "black" — which measures 1.09:1, the exact ratio the
     // elevation-ladder note above records as the bug that made `backgroundLift`
@@ -128,16 +135,16 @@ public enum RigTheme {
 
     /// The chrome's lip, top and bottom. An edge turns away from the key light, so
     /// it is the darkest part of a lit panel — not the lightest.
-    public static let chromeLip = Color(red: 0.078, green: 0.082, blue: 0.094)     // #141518
+    public static let chromeLip = Color(red: 0.090, green: 0.090, blue: 0.086)     // #171716
     /// The chamfer catch: thin, at 2.5% of the panel's height, and the brightest
     /// thing on it. On a dark surface a reflection genuinely IS narrow and faint,
     /// which is why anodised gear reads as expensive and flat at the same time.
-    public static let chromeCatch = Color(red: 0.243, green: 0.259, blue: 0.286)   // #3E4249
-    public static let chromeSheen = Color(red: 0.192, green: 0.208, blue: 0.227)   // #31353A
+    public static let chromeCatch = Color(red: 0.263, green: 0.259, blue: 0.255)   // #434241
+    public static let chromeSheen = Color(red: 0.208, green: 0.204, blue: 0.196)   // #353432
     /// The flat field — most of the panel, and it stays flat.
-    public static let chromeBody = Color(red: 0.141, green: 0.153, blue: 0.173)    // #24272C
+    public static let chromeBody = Color(red: 0.161, green: 0.157, blue: 0.157)    // #292828
     /// The faint bounce low down, where light comes back off the surface below.
-    public static let chromeLow = Color(red: 0.149, green: 0.165, blue: 0.184)     // #262A2F
+    public static let chromeLow = Color(red: 0.169, green: 0.165, blue: 0.161)     // #2B2A29
     /// Legend printed ON the chrome. Light, because the chrome is dark — 10.5:1.
     public static let chromeInk = Color(red: 0.855, green: 0.847, blue: 0.831)     // #DAD8D4
     /// Muted legend on the chrome — captions, units, secondary labels. 4.5:1.

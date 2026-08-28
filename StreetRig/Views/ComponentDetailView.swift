@@ -707,7 +707,7 @@ struct ComponentDetailView: View {
                                         .frame(maxWidth: .infinity, minHeight: 30)
                                         .background {
                                             if isOn {
-                                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                                RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
                                                     .fill(RigTheme.amber)
                                             } else {
                                                 Color.clear.rigRaised(cornerRadius: RigTheme.Radius.tight)
@@ -728,7 +728,7 @@ struct ComponentDetailView: View {
                     .opacity(param.isDisabled ? 0.5 : 1)
                     .overlay {
                         if param.isDisabled {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
                                 .fill(.black.opacity(0.28))
                                 .blendMode(.multiply)
                                 .allowsHitTesting(false)
@@ -806,7 +806,8 @@ struct ComponentDetailView: View {
                         .frame(maxWidth: .infinity, minHeight: 22)
                         .background {
                             if isOn {
-                                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(RigTheme.amber)
+                                RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+                                    .fill(RigTheme.amberChrome)
                             } else {
                                 Color.clear.rigRaised(cornerRadius: RigTheme.Radius.tight)
                             }
@@ -863,7 +864,7 @@ struct ComponentDetailView: View {
                     .padding(.vertical, 4)
                     .padding(.horizontal, 7)
                     .background(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
                             .fill(RigTheme.amber.opacity(0.14))
                     )
                     .contentShape(Rectangle())
@@ -1007,7 +1008,7 @@ struct ComponentDetailView: View {
                         .frame(maxWidth: .infinity, minHeight: compact ? 26 : 34)
                         .background {
                             if isOn {
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
                                     .fill(RigTheme.amber)
                             } else {
                                 Color.clear.rigRaised(cornerRadius: RigTheme.Radius.tight)

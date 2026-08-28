@@ -90,7 +90,7 @@ struct GearCardView: View {
         // exactly backwards. Hit testing off; the refusal lives in the gesture.
         .overlay {
             if inRig {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: RigTheme.Radius.control, style: .continuous)
                     .fill(RigTheme.background.opacity(0.58))
                     .allowsHitTesting(false)
             }
@@ -104,7 +104,7 @@ struct GearCardView: View {
         .opacity(isLifted ? 0.35 : 1)
         .scaleEffect(cardScale)   // animates with `charge`; no separate curve
         .offset(y: demoOffset)
-        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: RigTheme.Radius.control, style: .continuous))
         // Someone who taps instead of holding gets told what to do instead —
         // and nobody who already knows ever sees it.
         .onTapGesture { showHint() }
@@ -176,7 +176,7 @@ struct GearCardView: View {
     /// Fills over the hold, so an aborted press shows a half-drawn ring — which
     /// teaches "too early" rather than "nothing happened".
     private var holdRing: some View {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
+        RoundedRectangle(cornerRadius: RigTheme.Radius.control, style: .continuous)
             .trim(from: 0, to: charge)
             .stroke(RigTheme.amber, style: StrokeStyle(lineWidth: 2, lineCap: .round))
             .opacity(isHeld || isLifted ? 0 : 1)
