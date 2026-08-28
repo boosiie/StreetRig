@@ -367,7 +367,8 @@ extension OnboardingCoordinator {
             id: 8, target: .pageArea, page: .library,
             title: "GEAR LIBRARY",
             detail: "Every amp, cab and pedal StreetRig models — far more than you "
-                  + "own. Drag one across onto the MY GEAR rail to add it.",
+                  + "own. Drag one across onto the MY GEAR rail to add it. The noise "
+                  + "gate that shuts up a roaring rig lives in here too.",
             cornerRadius: 16, outset: -2
         ),
         CoachMarkStep(
@@ -387,9 +388,9 @@ extension OnboardingCoordinator {
         CoachMarkStep(
             id: 11, target: .profileIdentity, page: .profile,
             title: "NOW NAME YOURSELF",
-            detail: "Your name and avatar, and every setting the app has — including "
-                  + "this walkthrough, if you want it again. Nothing here leaves the "
-                  + "phone.",
+            detail: "Your name and avatar, every setting the app has, both guides "
+                  + "again, and the answers to the echo and the noise. Nothing here "
+                  + "leaves the phone.",
             cornerRadius: 14, outset: 4
         )
     ]
