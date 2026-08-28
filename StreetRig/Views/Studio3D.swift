@@ -140,6 +140,16 @@ enum Studio3D {
 
     /// A cheap fake contact shadow — a flat radial-gradient plane on the floor —
     /// so a model reads as grounded without a shadow-casting light setup.
+    ///
+    /// FOR THE ISOLATED DETAIL VIEWS ONLY (`AmpModel3DView`, `PedalModel3DView`,
+    /// `GuitarModel3DView`). Those scenes place a model against an empty background:
+    /// they have a `floorY` coordinate but no floor geometry, so the key light's cast
+    /// shadow has nothing to land on and this blob is the only thing grounding them.
+    ///
+    /// DO NOT call it from `RigStage3DView`. That scene has a real floor which
+    /// `StageEnvironment` is set up to receive a real shadow on, and adding this on
+    /// top gave every piece two shadows that disagreed on shape, direction and
+    /// density — see the note at that scene's lighting call.
     /// `name` ties the shadow to the piece casting it, so a piece lifted off the
     /// stage can take its shadow with it — the blob is a flat plane, not a real
     /// shadow, so hiding the gear alone leaves it printed on the floor.
@@ -182,9 +192,13 @@ enum Studio3D {
         let size = CGSize(width: 256, height: 256)
         return UIGraphicsImageRenderer(size: size).image { ctx in
             let center = CGPoint(x: 128, y: 128)
-            // Darker, denser core with a soft falloff so models read as grounded.
-            let colors = [UIColor(white: 0, alpha: 0.88).cgColor,
-                          UIColor(white: 0, alpha: 0.48).cgColor,
+            // Core alpha is 0.45, NOT the 0.88 this shipped with. At 0.88 the blob
+            // read as a hole punched in the floor rather than a shadow — and it was
+            // nearly three times the density of the real cast shadow
+            // (`key.shadowColor`, alpha 0.30), which is the wrong way round for
+            // something carrying no information about where the light is.
+            let colors = [UIColor(white: 0, alpha: 0.45).cgColor,
+                          UIColor(white: 0, alpha: 0.24).cgColor,
                           UIColor(white: 0, alpha: 0.0).cgColor] as CFArray
             guard let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
                                         colors: colors, locations: [0, 0.55, 1]) else { return }
