@@ -95,6 +95,15 @@ public extension View {
     /// expects, which is exactly why it reads as expensive rather than applied. It
     /// was 3pt and became the loudest thing on a screen whose whole argument is
     /// restraint.
+    /// THE PLATE IGNORES THE HORIZONTAL SAFE AREA; THE CONTENT DOES NOT.
+    ///
+    /// In landscape the safe-area insets sit left and right — around 45pt each on a
+    /// device with a Dynamic Island — and a chassis that stops 45pt short of the
+    /// glass reads as a window onto the app rather than the app itself. But pushing
+    /// the whole stack out put the island on top of the gear rail and clipped the
+    /// centre column's headers, so the extension belongs HERE, on the background,
+    /// where it costs the content nothing: the plate runs to the glass and the
+    /// controls stay where the system says they are safe.
     func rigChrome(piped: Bool = true) -> some View {
         background {
             RigMaterials.chromeFace
@@ -107,6 +116,7 @@ public extension View {
                         }
                     }
                 }
+                .ignoresSafeArea(edges: .horizontal)
         }
     }
 }

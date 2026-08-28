@@ -185,6 +185,14 @@ struct MainView: View {
             // the page measured 750×293 on a device whose screen is larger in both
             // directions — the safe-area inset had been taken by the stack before the
             // page ever saw it.
+            // The STACK keeps its safe area. Ignoring it here was tried and reverted:
+            // it does push the app to the glass, but it pushes the CONTENT there too,
+            // so the Dynamic Island landed on the gear rail and the centre column's
+            // section headers were clipped by the opposite inset.
+            //
+            // What actually wanted to reach the edge was the chassis, not the
+            // controls — so `rigChrome` extends its own plate instead, and the
+            // content it wraps stays inset. See `RigMaterials`.
             .ignoresSafeArea(edges: immersive ? .all : [])
             // THE SHELL DOES NOT MOVE FOR THE KEYBOARD, and this one line is the
             // whole reason the profile page's name field is usable.

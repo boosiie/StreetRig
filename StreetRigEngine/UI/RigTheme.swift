@@ -201,6 +201,20 @@ public enum RigTheme {
     /// piping is two-tone: `trim` with a lit `trimLit` line directly above it.
     public static let hairlineWidth: CGFloat = 1
 
+    /// A WELL: a recess cut into a surface — a search field, a segmented track, a
+    /// meter's unlit segments. Darker than `background`, because a groove shows you
+    /// the shadow inside it, and a control that is cut IN should never be lighter
+    /// than the panel it is cut into. Search fields and segmented wells were using
+    /// `surfaceRaised`, which is the rung for things sitting ON a card — the exact
+    /// opposite reading.
+    public static let well = Color(red: 0.063, green: 0.043, blue: 0.027)          // #100B07
+
+    /// The BRASS hairline that outlines a card. Distinct from `surfaceEdge`, which is
+    /// copper (#D99E73) and reads brown-pink at low alpha; this is the same gold as
+    /// `trim`, and it is what makes a card edge look like piping rather than a
+    /// border. Used where the edge should be seen as trim.
+    public static let edgeBrass = Color(red: 0.894, green: 0.761, blue: 0.478).opacity(0.22)
+
     /// Lit top edge of the brass piping — the bright half of the two-tone hairline.
     public static let trimLit = Color(red: 0.894, green: 0.761, blue: 0.478)       // #E4C27A
 

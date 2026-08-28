@@ -102,7 +102,14 @@ struct LibraryContentView: View {
                 segTab("Pedal", .pedal)
             }
             .padding(4)
-            .rigRaised(cornerRadius: RigTheme.Radius.tight)
+            .background {
+                RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+                    .fill(RigTheme.well)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+                            .strokeBorder(RigTheme.edgeBrass, lineWidth: 1)
+                    }
+            }
 
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(RigTheme.textMuted)
@@ -118,7 +125,17 @@ struct LibraryContentView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .rigRaised(cornerRadius: RigTheme.Radius.tight)
+            // A search field is a recess, so it takes `well` and not the RAISED rung
+            // it had — a control you type into should not look like it sits proud of
+            // the page.
+            .background {
+                RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+                    .fill(RigTheme.well)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+                            .strokeBorder(RigTheme.edgeBrass, lineWidth: 1)
+                    }
+            }
             .frame(maxWidth: 360)
 
             Spacer(minLength: 0)
@@ -352,13 +369,26 @@ private struct LibraryTile: View {
     /// aspect-fit icon fills the frame instead of floating between letterbox
     /// bars; the art sits inside a fixed 64pt-tall box below, so the grid's row
     /// height doesn't move when these change.
+    /// The art's drawn size, per category, shaped to the shipped artwork's measured
+    /// aspects (head ≈ 2.05:1, cabinet ≈ 0.87:1, combo ≈ 1.13:1, wah ≈ 1.29:1,
+    /// compact pedal ≈ 0.71:1) so an aspect-fit icon FILLS its box instead of
+    /// floating between letterbox bars.
+    ///
+    /// These are per-category for a reason this card learned the hard way: it first
+    /// shipped forcing every piece into one 34×46 box. That is about right for a
+    /// compact pedal and catastrophic for an amp head, which is twice as wide as it
+    /// is tall — heads came out tiny and adrift in the corner of their frame. A
+    /// single box cannot serve a 2.05:1 head and a 0.71:1 stompbox.
+    ///
+    /// The widths differ but the BOX below is constant, so the name column starts at
+    /// the same x on every card in the grid.
     private var artSize: CGSize {
         switch item.category {
-        case .amp:      return CGSize(width: 112, height: 55)
-        case .cabinet:  return CGSize(width: 55,  height: 63)
-        case .comboAmp: return CGSize(width: 70,  height: 62)
-        case .wah:      return CGSize(width: 72, height: 56)
-        default:        return CGSize(width: 44, height: 62)
+        case .amp:      return CGSize(width: 46, height: 22)
+        case .cabinet:  return CGSize(width: 30, height: 35)
+        case .comboAmp: return CGSize(width: 38, height: 34)
+        case .wah:      return CGSize(width: 40, height: 31)
+        default:        return CGSize(width: 30, height: 42)
         }
     }
 
@@ -406,15 +436,13 @@ private struct LibraryTile: View {
     private func tileFace(owned: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
-                // 34pt, not the 56 this first shipped at. A four-column grid gives
-                // each tile about 138pt; at 56 the art plus its padding and the
-                // badge's reserve left roughly 38pt for the name, so every model
-                // truncated to "Ibonez Tube Scr…" and every category to "OVERDR…".
-                // The art is the fastest way IN to a card, but it is not the thing
-                // being read — the name and the character line are.
+                // The art is drawn at its own aspect and then CENTRED in a constant
+                // 56×46 box, so heads, cabs and stompboxes all start their name
+                // column at the same x. Sizing the box instead of the art is what
+                // squashed heads before.
                 GearArtView(item: item)
                     .frame(width: artSize.width, height: artSize.height)
-                    .frame(width: 34, height: 46)
+                    .frame(width: 46, height: 46)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.name)
@@ -427,7 +455,7 @@ private struct LibraryTile: View {
                         .rigLegend(7.5, weight: .bold)
                         .foregroundStyle(RigTheme.trim.opacity(0.9))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                        .minimumScaleFactor(0.55)
                 }
                 // Room for the badge, which floats in the top-trailing corner.
                 .padding(.trailing, 16)
@@ -476,28 +504,43 @@ private struct LibraryTile: View {
         }
         .overlay {
             RoundedRectangle(cornerRadius: RigTheme.Radius.control, style: .continuous)
-                .strokeBorder(owned ? RigTheme.amberChrome.opacity(0.5) : RigTheme.surfaceEdge, lineWidth: 1)
+                .strokeBorder(owned ? RigTheme.amberChrome.opacity(0.6) : RigTheme.edgeBrass, lineWidth: 1)
         }
     }
 
     @ViewBuilder
+    /// A small square, not a filled SF circle.
+    ///
+    /// Owned reads as an OUTLINE and unowned as a FILL, which is the right way round:
+    /// adding is the action this page exists for, so it gets the solid one, while
+    /// removing is a thing you should have to aim at. The circle glyphs it replaced
+    /// were `plus.circle.fill` in muted grey and `minus.circle.fill` in `clip` red —
+    /// the destructive red shouting on every piece the player already owns, which is
+    /// most of the grid once they have been using the app a while.
     private func badge(owned: Bool) -> some View {
-        if owned {
-            Button { remove() } label: {
-                Image(systemName: "minus.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(RigTheme.clip)
-                    .padding(8)
-                    .contentShape(Rectangle())
+        let shape = RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+        return Group {
+            if owned {
+                Button { remove() } label: {
+                    Text("−")
+                        .font(.system(size: 13, weight: .heavy))
+                        .foregroundStyle(RigTheme.amberChrome)
+                        .frame(width: 18, height: 18)
+                        .background { shape.strokeBorder(RigTheme.amberChrome.opacity(0.75), lineWidth: 1) }
+                        .padding(7)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove \(item.name) from your gear")
+            } else {
+                Text("+")
+                    .font(.system(size: 13, weight: .heavy))
+                    .foregroundStyle(Color(red: 0.086, green: 0.047, blue: 0.016))
+                    .frame(width: 18, height: 18)
+                    .background { shape.fill(RigTheme.amberChrome) }
+                    .padding(7)
+                    .allowsHitTesting(false)   // the whole tile is the add target
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Remove \(item.name) from your gear")
-        } else {
-            Image(systemName: "plus.circle.fill")
-                .font(.title3)
-                .foregroundStyle(RigTheme.textMuted)
-                .padding(8)
-                .allowsHitTesting(false)   // the whole tile is the add target
         }
     }
 

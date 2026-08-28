@@ -72,41 +72,12 @@ struct GearCardView: View {
                 .minimumScaleFactor(0.8)
                 .frame(height: 28)
 
-            // THE CONTROL SET, ruled off at the foot.
-            //
-            // The card used to carry a picture and a name and then stop, so choosing
-            // between four overdrives meant opening all four — the grid's whole speed
-            // advantage spent on a second navigation step. A three-knob overdrive and
-            // a two-knob fuzz are different instruments and a player knows it, so this
-            // is the line the choice is actually made on.
-            //
-            // It costs no new data: `GearItem.parameters` already knows. The rule is a
-            // hairline rather than a gap because it separates the SPECIFICATION from
-            // the description, the way a spec sheet does.
-            //
-            // Deliberately NOT the "character" line the design also calls for: that is
-            // new copy for all 61 pieces and it only earns its space if it
-            // discriminates ("transparent boost") rather than describes ("great
-            // overdrive tone"). Filler would be worse than the omission.
-            if !controlSet.isEmpty {
-                VStack(spacing: 0) {
-                    Rectangle()
-                        .fill(RigTheme.hairline.opacity(0.55))
-                        .frame(height: 1)
-                        .padding(.bottom, 5)
-                    Text(controlSet)
-                        .rigLegend(7, weight: .semibold)
-                        .foregroundStyle(RigTheme.textMuted.opacity(0.85))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                }
-            }
         }
         .padding(10)
         .frame(maxWidth: .infinity)
         // `.rigCard` before the affordance overlays so the grip dots, hold ring and
         // hint draw ON the card rather than under its edge and shadow.
-        .rigCard(cornerRadius: RigTheme.Radius.control)
+        .rigCard(cornerRadius: RigTheme.Radius.control, stroke: RigTheme.edgeBrass)
         // Gear already in the rig sits in shadow, matching how the library shades
         // what you already own: darkened means "already accounted for", so the
         // cards that stay bright are the ones still available to place. The rail
@@ -212,14 +183,6 @@ struct GearCardView: View {
             .opacity(isHeld || isLifted ? 0 : 1)
             .animation(.easeOut(duration: 0.14), value: isHeld)
             .allowsHitTesting(false)
-    }
-
-    /// `DRIVE · TONE · LEVEL`. Capped at three so a wah's single control and a
-    /// ten-band EQ both fit the same card without one of them wrapping.
-    private var controlSet: String {
-        item.parameters.prefix(3)
-            .map { $0.name.uppercased() }
-            .joined(separator: " · ")
     }
 
     @ViewBuilder
