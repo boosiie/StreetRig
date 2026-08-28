@@ -47,7 +47,30 @@ struct MainView: View {
     /// itself in `CoachMarkOverlay`.
     @EnvironmentObject private var onboarding: OnboardingCoordinator
     @State private var focused: RigComponent?
-    @State private var page: AppPage = .main
+    @State private var page: AppPage = MainView.initialPage
+
+    /// Which page the shell opens on.
+    ///
+    /// `-OpenPage library|main|ar|profile` drops straight onto a page in DEBUG
+    /// builds. Same family as `-CoachMarkTour` and `-ShowDeviceOffer`: a screen you
+    /// have to LOOK at repeatedly, on several device sizes, is a screen worth being
+    /// able to open directly — the alternative is three swipes before every check,
+    /// and synthetic swipes into a landscape app running in a portrait simulator
+    /// frame are exactly as reliable as that sounds.
+    private static var initialPage: AppPage {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-OpenPage"), i + 1 < args.count {
+            switch args[i + 1] {
+            case "library": return .library
+            case "ar":      return .ar
+            case "profile": return .profile
+            default:        return .main
+            }
+        }
+        #endif
+        return .main
+    }
     /// Where the library should open when something sends the player there — the
     /// no-amp warning, so far. Consumed by LibraryContentView.
     @State private var libraryDestination: LibraryContentView.Drill?

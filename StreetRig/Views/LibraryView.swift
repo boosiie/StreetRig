@@ -140,7 +140,7 @@ struct LibraryContentView: View {
                 .padding(.vertical, 7)
                 .background(
                     RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
-                        .fill(selected ? RigTheme.amber : Color.clear)
+                        .fill(selected ? RigTheme.amberChrome : Color.clear)
                 )
         }
         .buttonStyle(.plain)
@@ -251,7 +251,7 @@ struct LibraryContentView: View {
                     Text("Back")
                 }
                 .font(.body.weight(.semibold))
-                .foregroundStyle(RigTheme.amber)
+                .foregroundStyle(RigTheme.amberChrome)
             }
             Spacer()
             Text(drillTitle(drill))
@@ -385,21 +385,70 @@ private struct LibraryTile: View {
         .overlay(alignment: .topTrailing) { badge(owned: owned) }
     }
 
+    /// `DRIVE · TONE · LEVEL`. Capped at three so a wah's single control and a
+    /// ten-band EQ both fit one line on the same card.
+    private var controlSet: String {
+        item.parameters.prefix(3).map { $0.name.uppercased() }.joined(separator: " · ")
+    }
+
+    /// The tile face: artwork LEFT, identity RIGHT, then what the piece sounds like,
+    /// then what it gives you to turn.
+    ///
+    /// It used to be a centred column — art on top, name under it, nothing else. That
+    /// is a fine shape for a rail card 150pt wide, and the wrong one here: a library
+    /// tile is roomy, and the room was going to whitespace while the player still had
+    /// to open four overdrives to tell them apart. Horizontal puts the art and the
+    /// name on one line and frees the height for the two rows that actually decide a
+    /// choice.
+    ///
+    /// The foot rule is a hairline rather than a gap because it separates the
+    /// SPECIFICATION from the description, the way a spec sheet does.
     private func tileFace(owned: Bool) -> some View {
-        VStack(spacing: 10) {
-            GearArtView(item: item)
-                .frame(width: artSize.width, height: artSize.height)
-                .frame(height: 64)
-            Text(item.name)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(RigTheme.textPrimary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .minimumScaleFactor(0.8)
-                .frame(height: 32)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                GearArtView(item: item)
+                    .frame(width: artSize.width, height: artSize.height)
+                    .frame(width: 56, height: 58)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.name)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(RigTheme.textPrimary)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.85)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(item.category.displayName.uppercased())
+                        .rigLegend(8, weight: .bold)
+                        .foregroundStyle(RigTheme.trim.opacity(0.9))
+                }
+                // Room for the badge, which floats in the top-trailing corner.
+                .padding(.trailing, 20)
+
+                Spacer(minLength: 0)
+            }
+
+            if let character = GearCharacter.line(forName: item.name, category: item.category) {
+                Text(character)
+                    .font(.system(size: 11))
+                    .foregroundStyle(RigTheme.textMuted)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !controlSet.isEmpty {
+                Rectangle()
+                    .fill(RigTheme.hairline.opacity(0.55))
+                    .frame(height: 1)
+                    .padding(.top, 1)
+                Text(controlSet)
+                    .rigLegend(7.5, weight: .semibold)
+                    .foregroundStyle(RigTheme.textMuted.opacity(0.8))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
         }
         .padding(12)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
         // The stroke is drawn separately, BELOW, so the scrim can pass between the
         // card and its edge: the tile goes dark, the amber edge saying why does not.
         .rigCard(cornerRadius: RigTheme.Radius.control, stroke: .clear)
@@ -419,7 +468,7 @@ private struct LibraryTile: View {
         }
         .overlay {
             RoundedRectangle(cornerRadius: RigTheme.Radius.control, style: .continuous)
-                .strokeBorder(owned ? RigTheme.amber.opacity(0.5) : RigTheme.surfaceEdge, lineWidth: 1)
+                .strokeBorder(owned ? RigTheme.amberChrome.opacity(0.5) : RigTheme.surfaceEdge, lineWidth: 1)
         }
     }
 
