@@ -112,16 +112,16 @@ struct PreferencesView: View {
                         Text("Profile")
                             .font(.system(size: 13, weight: .medium))
                     }
-                    .foregroundStyle(RigTheme.amber)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                // Quiet: a back affordance should not compete with the screen it is
+                // backing out of, and the kit gives it the 44pt floor it lacked.
+                .buttonStyle(.rigQuiet)
                 .accessibilityLabel("Back to profile")
             }
             Spacer(minLength: 0)
             Text("SETTINGS")
-                .font(.system(size: 10, weight: .bold))
-                .tracking(2)
+                .rigLegend(10, weight: .bold)
                 .foregroundStyle(RigTheme.textMuted)
             Spacer(minLength: 0)
             // Balances the back button so the title sits on the centre of the
@@ -196,14 +196,8 @@ struct PreferencesView: View {
                         withAnimation(.easeOut(duration: 0.2)) { hintsResetAt = Date() }
                     } label: {
                         Text("SHOW HINTS AGAIN")
-                            .font(.system(size: 9.5, weight: .bold))
-                            .tracking(1.1)
-                            .foregroundStyle(RigTheme.amber)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .rigRaised(cornerRadius: RigTheme.Radius.tight, stroke: RigTheme.amber.opacity(0.45))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.rigSecondary)
 
                     if hintsResetAt != nil {
                         Label("Ready", systemImage: "checkmark.circle.fill")
@@ -330,8 +324,7 @@ struct PreferencesView: View {
                                         @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title)
-                .font(.system(size: 9.5, weight: .bold))
-                .tracking(1.6)
+                .rigLegend(9.5, weight: .bold)
                 .foregroundStyle(RigTheme.textMuted)
                 .padding(.horizontal, 20)
                 .padding(.top, 17)

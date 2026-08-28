@@ -291,7 +291,7 @@ struct LibraryContentView: View {
                 if !items.isEmpty {
                     if showHeaders {
                         Text(sectionTitle(category))
-                            .font(.caption.weight(.bold)).tracking(1.2)
+                            .rigLegend(12, weight: .bold)
                             .foregroundStyle(RigTheme.trim)
                     }
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {

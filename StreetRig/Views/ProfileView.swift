@@ -247,10 +247,7 @@ struct ProfileView: View {
                 // accessory bar — which, on a short landscape screen, is easy to
                 // miss and easy to cover with a thumb.
                 Button("DONE") { nameFocused = false }
-                    .font(.system(size: 9, weight: .bold))
-                    .tracking(1)
-                    .foregroundStyle(RigTheme.amber)
-                    .buttonStyle(.plain)
+                    .buttonStyle(.rigSecondary)
                     .transition(.opacity)
             }
         }

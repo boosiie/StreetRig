@@ -368,8 +368,7 @@ struct SectionLabel: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 9, weight: .bold))
-            .tracking(1.5)
+            .rigLegend(9, weight: .bold)
             .foregroundStyle(color)
     }
 }

@@ -400,8 +400,7 @@ struct ControlPanelSurface: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 15, weight: .bold))
                 Text("DONE")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1)
+                    .rigLegend(10, weight: .bold)
             }
             .foregroundStyle(RigTheme.textMuted)
             .frame(maxWidth: .infinity, maxHeight: .infinity)

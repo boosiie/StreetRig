@@ -689,7 +689,7 @@ struct ComponentDetailView: View {
                     let off = rowIsOffChannel(param.rowLabel)
                     VStack(alignment: .leading, spacing: 6) {
                         Text(param.displayName.uppercased())
-                            .font(.caption2.weight(.bold)).tracking(1.2)
+                            .rigLegend(11, weight: .bold)
                             .foregroundStyle(RigTheme.textMuted.opacity(off ? 0.45 : 1))
                             .lineLimit(1)
                         HStack(spacing: 5) {
@@ -894,7 +894,7 @@ struct ComponentDetailView: View {
         return VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
                 Text(name.uppercased())
-                    .font(.caption2.weight(.bold)).tracking(1.2)
+                    .rigLegend(11, weight: .bold)
                     .foregroundStyle(isOff ? RigTheme.textMuted : RigTheme.amber)
                     .lineLimit(1)
                 Spacer(minLength: 4)
@@ -1163,7 +1163,7 @@ struct NumberKeypad: View {
 
             VStack(spacing: 14) {
                 Text(title.uppercased())
-                    .font(.caption.weight(.bold)).tracking(1.5)
+                    .rigLegend(12, weight: .bold)
                     .foregroundStyle(RigTheme.textMuted)
 
                 Text(text.isEmpty ? "0" : text)

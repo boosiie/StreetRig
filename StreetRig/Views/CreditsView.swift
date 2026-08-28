@@ -82,8 +82,7 @@ struct CreditsView: View {
     private var header: some View {
         HStack {
             Text("CREDITS")
-                .font(.caption.weight(.bold))
-                .tracking(2)
+                .rigLegend(12, weight: .bold)
                 .foregroundStyle(RigTheme.textMuted)
             Spacer()
             Button { dismiss() } label: {
@@ -104,8 +103,7 @@ struct CreditsView: View {
     private func card(for credit: Credit) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(credit.usedFor.uppercased())
-                .font(.caption2.weight(.bold))
-                .tracking(1.2)
+                .rigLegend(11, weight: .bold)
                 .foregroundStyle(RigTheme.amber)
 
             // Title and author, the two things attribution is actually about.

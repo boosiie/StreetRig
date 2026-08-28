@@ -193,12 +193,22 @@ struct LoadingView: View {
 
     // MARK: - Decoration
 
-    /// Dark amp backdrop (tolex gradient).
+    /// Dark amp backdrop.
+    ///
+    /// RADIAL, not a top-to-bottom fade. A linear ramp lights the whole top edge
+    /// evenly, which reads as a gradient someone applied; a pool centred slightly
+    /// above the middle reads as a room with one lamp in it, and it puts the
+    /// brightest ground exactly where the mark sits. The centre is at 0.42 rather
+    /// than 0.5 because the wordmark hangs below the mark, so the pair's optical
+    /// centre is above the frame's.
     private var backdrop: some View {
-        LinearGradient(
-            colors: [RigTheme.backgroundLift, RigTheme.background],
-            startPoint: .top,
-            endPoint: .bottom
+        RadialGradient(
+            colors: [RigTheme.backgroundLift,
+                     RigTheme.background,
+                     Color(red: 0.047, green: 0.031, blue: 0.020)],
+            center: UnitPoint(x: 0.5, y: 0.42),
+            startRadius: 0,
+            endRadius: 520
         )
         .ignoresSafeArea()
     }

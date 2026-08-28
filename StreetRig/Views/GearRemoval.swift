@@ -168,8 +168,7 @@ struct GearTrashTarget: View {
             .background(frameReader)
 
             Text(rejection ?? caption)
-                .font(.system(size: 9, weight: .semibold))
-                .tracking(0.8)
+                .rigLegend(9, weight: .semibold)
                 .foregroundStyle(rejection == nil ? RigTheme.clip.opacity(0.95) : RigTheme.textPrimary)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
