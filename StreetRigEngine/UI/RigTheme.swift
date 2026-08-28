@@ -209,15 +209,20 @@ public enum RigTheme {
     /// opposite reading.
     public static let well = Color(red: 0.063, green: 0.043, blue: 0.027)          // #100B07
 
-    /// The BRASS hairline that outlines a card. Distinct from `surfaceEdge`, which is
-    /// copper (#D99E73) and reads brown-pink at low alpha; this is the same gold as
-    /// `trim`, and it is what makes a card edge look like piping rather than a
-    /// border. Used where the edge should be seen as trim.
-    /// 0.38, not the 0.22 this started at. Over a `surface` card that composites to
-    /// about #7A6244 — a gold hairline you can actually see. At 0.22 it landed on
-    /// #5A452F, which on a warm brown card is a slightly lighter brown and reads as
-    /// no border at all. Trim that cannot be seen is not restraint, it is absence.
-    public static let edgeBrass = Color(red: 0.894, green: 0.761, blue: 0.478).opacity(0.38)
+    /// STRUCTURAL BRASS. The line that separates one REGION of the app from another:
+    /// the gear rail from the page beside it, the profile from its settings column.
+    /// NOT a card edge.
+    ///
+    /// It was briefly the default stroke on every card, and that was wrong in the way
+    /// trim is usually wrong — brass on a hundred small things is not luxury, it is
+    /// noise, and it costs the few lines that should carry it any weight at all. A
+    /// card is already separated from the page by its FILL; only a boundary with
+    /// nothing else to distinguish it needs a drawn line, and those are the ones
+    /// worth gilding. Cards keep the quiet `surfaceEdge`.
+    ///
+    /// 0.55 because there are about three of these in the app rather than fifty: over
+    /// the page it composites to ≈#8B7147, unmistakably gold at 1pt.
+    public static let edgeBrass = Color(red: 0.894, green: 0.761, blue: 0.478).opacity(0.55)
 
     /// Lit top edge of the brass piping — the bright half of the two-tone hairline.
     public static let trimLit = Color(red: 0.894, green: 0.761, blue: 0.478)       // #E4C27A

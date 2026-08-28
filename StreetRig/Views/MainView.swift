@@ -220,6 +220,20 @@ struct MainView: View {
             // both that do (the library's search box, the profile's name) already
             // sit at the top of their column.
             .ignoresSafeArea(.keyboard, edges: .bottom)
+            // `-OpenDetail pedal|amp` opens the knob panel straight away. Same family
+            // as -OpenPage: the detail overlay is two navigations and a tap deep, and
+            // it is the screen whose layout is hardest to check by eye.
+            .task {
+                #if DEBUG
+                let args = ProcessInfo.processInfo.arguments
+                guard let i = args.firstIndex(of: "-OpenDetail"), i + 1 < args.count else { return }
+                switch args[i + 1] {
+                case "amp":   focused = .amp
+                case "pedal": if let id = store.rig.pedalIds.compactMap({ $0 }).first { focused = .pedal(id) }
+                default:      break
+                }
+                #endif
+            }
 
             // Hiding `topNav` took the only VISIBLE way off this page with it. The
             // pager still swipes, but a full-screen camera feed gives no hint that it

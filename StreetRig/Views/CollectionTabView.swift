@@ -91,8 +91,12 @@ struct CollectionTabView: View {
             railHintShown = true
         }
         .background(RigTheme.background.opacity(0.55))
+        // THE RAIL'S EDGE. This is one of the app's few real boundaries — the gear
+        // you own on one side, the page you are using it on the other — and it is the
+        // kind of line that earns brass. It was `white.opacity(0.07)`, which on a warm
+        // espresso ground greys out and reads as a seam rather than trim.
         .overlay(alignment: .trailing) {
-            Rectangle().fill(Color.white.opacity(0.07)).frame(width: 1)
+            Rectangle().fill(RigTheme.edgeBrass).frame(width: 1)
         }
         .overlay {
             Rectangle()

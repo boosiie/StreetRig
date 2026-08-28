@@ -107,7 +107,7 @@ struct LibraryContentView: View {
                     .fill(RigTheme.well)
                     .overlay {
                         RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
-                            .strokeBorder(RigTheme.edgeBrass, lineWidth: 1)
+                            .strokeBorder(RigTheme.surfaceEdge, lineWidth: 1)
                     }
             }
 
@@ -133,7 +133,7 @@ struct LibraryContentView: View {
                     .fill(RigTheme.well)
                     .overlay {
                         RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
-                            .strokeBorder(RigTheme.edgeBrass, lineWidth: 1)
+                            .strokeBorder(RigTheme.surfaceEdge, lineWidth: 1)
                     }
             }
             .frame(maxWidth: 360)
@@ -168,7 +168,7 @@ struct LibraryContentView: View {
                             .fill(RigTheme.surfaceRaised)
                             .overlay {
                                 RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
-                                    .strokeBorder(RigTheme.edgeBrass, lineWidth: 1)
+                                    .strokeBorder(RigTheme.surfaceEdge, lineWidth: 1)
                             }
                     }
                 }
@@ -529,7 +529,7 @@ private struct LibraryTile: View {
         }
         .overlay {
             RoundedRectangle(cornerRadius: RigTheme.Radius.control, style: .continuous)
-                .strokeBorder(owned ? RigTheme.amberChrome.opacity(0.6) : RigTheme.edgeBrass, lineWidth: 1)
+                .strokeBorder(owned ? RigTheme.amberChrome.opacity(0.6) : RigTheme.surfaceEdge, lineWidth: 1)
         }
     }
 

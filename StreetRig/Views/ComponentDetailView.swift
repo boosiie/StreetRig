@@ -29,6 +29,10 @@ struct ComponentDetailView: View {
     /// used, the notification is the whole point.
     @ObservedObject private var plateRevision = PanelArtRevision.shared
 
+    /// The natural height of the levels list, measured so the dock can cap itself to
+    /// its own content rather than filling whatever the sheet has spare.
+    @State private var dialsHeight: CGFloat = 0
+
     /// The switch the player just flicked, named over the panel for a moment.
     /// A toggle on a faceplate carries no caption at arm's length, so touching
     /// one has to say what it is and which way it now points.
@@ -192,7 +196,7 @@ struct ComponentDetailView: View {
                         // the dock a real viewport, and a real viewport is what makes
                         // a ScrollView scroll.
                         sliderDock(id: id)
-                            .frame(maxHeight: .infinity)
+                            .frame(maxHeight: .infinity, alignment: .top)
                     } else {
                         VStack(spacing: 12) {
                             GearArtView(item: item)
@@ -286,12 +290,20 @@ struct ComponentDetailView: View {
         // exactly; a plate of some other shape loses its edges instead of its
         // geometry. The signature colour stays UNDER it, so a plate with
         // transparency tints rather than replaces.
+        // THE CLIP GOES ON THE COMPOSITE, NOT ON THE PLATE.
+        //
+        // `plate` is `.aspectRatio(contentMode: .fill)`, so it is deliberately LARGER
+        // than the panel — that is what lets a plate authored at one machine's
+        // proportions cover any width. Clipping the plate to its own rounded rect
+        // therefore clipped it to the size of the IMAGE, not the size of the panel,
+        // and an overlay is not clipped to its parent by default. The artwork painted
+        // straight out past the panel's border: measured at 2400px wide against a
+        // 2165px dock beneath it, and off-centre, because the overflow is centred on
+        // the image while the panel is not centred on the screen.
         return RoundedRectangle(cornerRadius: 24, style: .continuous)
             .fill(panel)
-            .overlay(
-                plate
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            )
+            .overlay(plate)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(
                 GeometryReader { geo in
                     // A PLATE MAY PLACE ITS OWN KNOBS. When the artwork is a real
@@ -763,6 +775,13 @@ struct ComponentDetailView: View {
             if !fxGroups.isEmpty { panePicker }
             switch (fxGroups.isEmpty || !panes.contains(pane) ? .levels : pane) {
             case .levels:
+                // CAPPED AT ITS OWN CONTENT so the dock hugs three sliders instead of
+                // filling the sheet. A ScrollView is greedy vertically, so a
+                // three-knob pedal drew a box with half its height empty. `maxHeight`
+                // is a ceiling and not a demand: with a short list the dock shrinks to
+                // fit, and with a long one the stack hands it less than the ceiling
+                // and it scrolls exactly as before — which is the behaviour the
+                // unreachable-dial fix above depends on.
                 ScrollView {
                     VStack(spacing: KnobPanelLayout.isDialHeavy(params) ? 10 : 14) {
                         ForEach(dials) { param in
@@ -770,7 +789,9 @@ struct ComponentDetailView: View {
                         }
                     }
                     .padding(.vertical, 4)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { dialsHeight = $0 }
                 }
+                .frame(maxHeight: dialsHeight > 0 ? dialsHeight : nil)
             case .fx:
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 10) {

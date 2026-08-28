@@ -96,8 +96,11 @@ struct ProfileView: View {
                         // bridge and is validated before it is believed.
                         .coachMarkTarget(.profileIdentity)
 
+                    // Who you are on the left, how the app behaves on the right —
+                    // the other boundary in the app worth drawing in brass rather
+                    // than the brown `hairline` a groove uses.
                     Rectangle()
-                        .fill(RigTheme.hairline)
+                        .fill(RigTheme.edgeBrass)
                         .frame(width: 1)
 
                     settingsEntry
@@ -254,7 +257,7 @@ struct ProfileView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .rigRaised(cornerRadius: RigTheme.Radius.tight,
-                   stroke: nameFocused ? RigTheme.amberChrome.opacity(0.8) : RigTheme.edgeBrass)
+                   stroke: nameFocused ? RigTheme.amberChrome.opacity(0.8) : RigTheme.surfaceEdge)
         .animation(.easeOut(duration: 0.15), value: nameFocused)
         // The field is loaded from the store once, then mirrors INTO it. See
         // `draft` for why the field does not simply bind to the store.

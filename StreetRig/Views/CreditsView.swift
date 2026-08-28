@@ -135,7 +135,7 @@ struct CreditsView: View {
         .background(RigTheme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(RigTheme.edgeBrass, lineWidth: 1)
+                .stroke(RigTheme.surfaceEdge, lineWidth: 1)
         }
     }
 }
