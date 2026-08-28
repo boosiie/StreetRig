@@ -1643,3 +1643,29 @@ Barlow Semi Condensed is carrying labels down to **7pt** on the gear card's cont
 stage slot labels. That was legible in the specimen at desktop scale but has **not** been checked on
 a phone at arm's length with a guitar on, which is the real test. If it fails there, the fix is to
 raise those two to 8pt rather than to abandon the face.
+
+---
+
+## Part 18 — Type: Barlow declined, SF kept (2026-08-27)
+
+**Decision: the app ships in SF Pro. Part 17 is superseded as an implementation
+instruction; it stands as the record of why Barlow was chosen and what it would have cost.**
+
+The cramped, cartoonish look the specimen exercise was meant to fix turned out **not to be the
+typeface**. It was tracking: the app set letter-spacing as a *constant* while sizes varied, so a
+1.2pt letterspace was 0.13em on a 9pt caption and 0.10em on an 8pt label, against 0.167em on a 12pt
+title. Uppercase needs proportionally MORE air as it shrinks, and the app was giving its smallest
+legends the least. `RigTheme.legendTracking(_:)` fixed that (Part 16.1 / the tracking commits), and
+with it fixed the case for a custom face largely evaporated.
+
+**What SF buys that Barlow would have cost:**
+
+- Ships with the OS — **zero bundle weight**
+- **Dynamic Type for free**; a custom face means owning accessibility sizing
+- Full glyph coverage, including the catalogue's `π` and `'` characters
+- No `UIAppFonts` registration, no loading helper, no fallback path to maintain
+
+**If it is ever revisited**, Part 17.1's boundary is the one that matters and it has not changed:
+a custom face belongs on the **wordmark and headings only**, never on text a player reads at length
+or resizes. And note the wordmark already sets its own tracking from its own size, which is why it
+looked right when everything around it did not.
