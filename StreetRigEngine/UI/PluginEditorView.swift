@@ -224,7 +224,7 @@ private struct SectionCard<Content: View>: View {
             content
         }
         .padding(14)
-        .rigCard(cornerRadius: 16)
+        .rigCard(cornerRadius: RigTheme.Radius.control)
     }
 }
 

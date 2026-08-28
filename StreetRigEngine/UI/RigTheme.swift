@@ -106,6 +106,97 @@ public enum RigTheme {
     public static let signal = Color(red: 0.353, green: 0.663, blue: 0.506)         // #5AA981
     public static let clip = Color(red: 0.812, green: 0.290, blue: 0.196)           // #CF4A32
 
+    // MARK: - Chrome — the app's own bars, and NOTHING that draws gear
+    //
+    // These are the top nav, the control panel and any surface the APP owns. They
+    // are deliberately separate tokens from `panel`, which is a GEAR colour: it is
+    // the fallback faceplate in `Faceplate.ampSpec(for:) ?? RigTheme.panel`, it
+    // fills the drawn plates in `GearArt`, and it is handed to the logo shader as
+    // "cream". Re-grading `panel` to darken the app's bars would repaint every
+    // amp's faceplate and the app icon along with them. Two roles, two tokens.
+    //
+    // Black anodised aluminium, and near-black rather than black: a true black has
+    // no surface, takes no light, and would swallow the brass piping.
+    //
+    // WHY THESE VALUES. `chromeBody` measures 1.26:1 against `background`, matching
+    // the CARD rung's documented-working step above. An earlier cut sat at #191A1D
+    // — a more convincing "black" — which measures 1.09:1, the exact ratio the
+    // elevation-ladder note above records as the bug that made `backgroundLift`
+    // invisible. Hue alone will not hold two near-blacks apart on a cheap screen in
+    // daylight, so the panel separates on THREE cues: a real luminance step, a cool
+    // cast (B > R, against the warm tolex behind it), and the brass hairline.
+
+    /// The chrome's lip, top and bottom. An edge turns away from the key light, so
+    /// it is the darkest part of a lit panel — not the lightest.
+    public static let chromeLip = Color(red: 0.078, green: 0.082, blue: 0.094)     // #141518
+    /// The chamfer catch: thin, at 2.5% of the panel's height, and the brightest
+    /// thing on it. On a dark surface a reflection genuinely IS narrow and faint,
+    /// which is why anodised gear reads as expensive and flat at the same time.
+    public static let chromeCatch = Color(red: 0.243, green: 0.259, blue: 0.286)   // #3E4249
+    public static let chromeSheen = Color(red: 0.192, green: 0.208, blue: 0.227)   // #31353A
+    /// The flat field — most of the panel, and it stays flat.
+    public static let chromeBody = Color(red: 0.141, green: 0.153, blue: 0.173)    // #24272C
+    /// The faint bounce low down, where light comes back off the surface below.
+    public static let chromeLow = Color(red: 0.149, green: 0.165, blue: 0.184)     // #262A2F
+    /// Legend printed ON the chrome. Light, because the chrome is dark — 10.5:1.
+    public static let chromeInk = Color(red: 0.855, green: 0.847, blue: 0.831)     // #DAD8D4
+    /// Muted legend on the chrome — captions, units, secondary labels. 4.5:1.
+    public static let chromeInkMuted = Color(red: 0.557, green: 0.549, blue: 0.533) // #8E8C88
+
+    /// The UI-chrome accent: primary action, engaged state, selection, focus.
+    ///
+    /// Matured DOWN from `amber` on purpose, and the reasoning is physical rather
+    /// than aesthetic. A control is a PAINTED SURFACE, and paint at 79% saturation
+    /// is a toy. `amber` stays exactly where it is because it is LIGHT — LEDs, meter
+    /// segments, the tube glow, the logo's pointers — and light IS saturated. One
+    /// colour doing both jobs is why the accent used to read as loud everywhere and
+    /// special nowhere; now nothing in the interface is allowed to be as hot as a
+    /// thing that is actually lit.
+    ///
+    /// NOTE the direction of this split. `amber` was NOT re-graded, because
+    /// `AmpLogoView` hands it to the Metal shader as the pointer ember and the app
+    /// icon is baked from that view — maturing it in place would desaturate the
+    /// logo and leave the shipped icon out of step with the splash.
+    public static let amberChrome = Color(red: 0.761, green: 0.416, blue: 0.173)   // #C26A2C
+    public static let amberChromeLit = Color(red: 0.831, green: 0.510, blue: 0.247) // #D4823F
+    public static let amberChromeDeep = Color(red: 0.584, green: 0.318, blue: 0.122) // #95511F
+
+    // MARK: - Geometry
+    //
+    // RADII COLLAPSE. Was 19 distinct values across the codebase, running up to 22.
+    // A rounded corner is visual softness applied uniformly to things that are not
+    // uniformly soft, and pro audio hardware is square because its controls are
+    // machined rather than moulded. At r16 a 52pt button reads as a web CTA.
+    // The one radius NOT on this scale is a device bezel, which is a real radius on
+    // a real object.
+    public enum Radius {
+        public static let flush: CGFloat = 0    // full-bleed bars, list rows, dividers
+        public static let tight: CGFloat = 2    // chips, wells, text fields
+        public static let control: CGFloat = 3  // buttons, cards, segmented
+        public static let panel: CGFloat = 4    // modals, sheets, footswitch
+        public static let sheet: CGFloat = 6    // the largest permitted
+    }
+
+    /// 4pt base. Use these rather than typing a number.
+    public enum Space {
+        public static let hair: CGFloat = 2
+        public static let xs: CGFloat = 4
+        public static let s: CGFloat = 8
+        public static let m: CGFloat = 12
+        public static let l: CGFloat = 16
+        public static let xl: CGFloat = 24
+        public static let xxl: CGFloat = 32
+    }
+
+    /// Brass is a HAIRLINE. It was 3pt on panel edges and 2pt on rings, and at that
+    /// weight it stopped being trim and became a stripe — the loudest thing on a
+    /// screen whose whole argument is restraint. It still reads at 1pt because the
+    /// piping is two-tone: `trim` with a lit `trimLit` line directly above it.
+    public static let hairlineWidth: CGFloat = 1
+
+    /// Lit top edge of the brass piping — the bright half of the two-tone hairline.
+    public static let trimLit = Color(red: 0.894, green: 0.761, blue: 0.478)       // #E4C27A
+
     /// Semantic — "this position works": the AR page's placement-ready outline, and
     /// nothing else. Deliberately NOT `amber`, which already means "this pedal is
     /// engaged"; a player standing over their phone has to be able to tell the two

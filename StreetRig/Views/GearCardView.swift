@@ -76,7 +76,7 @@ struct GearCardView: View {
         .frame(maxWidth: .infinity)
         // `.rigCard` before the affordance overlays so the grip dots, hold ring and
         // hint draw ON the card rather than under its edge and shadow.
-        .rigCard(cornerRadius: 14)
+        .rigCard(cornerRadius: RigTheme.Radius.control)
         // Gear already in the rig sits in shadow, matching how the library shades
         // what you already own: darkened means "already accounted for", so the
         // cards that stay bright are the ones still available to place. The rail

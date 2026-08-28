@@ -39,6 +39,16 @@ public struct TapSlider: View {
     /// claims the drag cancels us WITHOUT calling `onEnded` — a stale flag would
     /// then swallow the jump on the next touch.
     @State private var touchStart: CGPoint?
+    /// The cap's machined grip: four hairlines, drawn rather than tiled because at
+    /// this size a tiled pattern would alias into a grey wash.
+    private var knurl: some View {
+        HStack(spacing: 1.5) {
+            ForEach(0..<4, id: \.self) { _ in
+                Rectangle().fill(Color.black.opacity(0.16)).frame(width: 1)
+            }
+        }
+    }
+
     /// How far the finger landed from the thumb's centre (0 for a track jump).
     @State private var grabOffset: CGFloat = 0
     /// Bumped only by a touch-down that sets a value, to trigger the haptic.
@@ -67,11 +77,36 @@ public struct TapSlider: View {
                 // espresso card behind it.)
                 Capsule().fill(RigTheme.hairline).frame(height: track)
                 Capsule().fill(tint).frame(width: knobX + knob / 2, height: track)
-                Circle()
-                    .fill(.white)
-                    .frame(width: knob, height: knob)
-                    .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
-                    .offset(x: knobX)
+                // A KNURLED FADER CAP, not a bead. A circle carries no orientation,
+                // so it cannot show where in its travel the value sits — every
+                // slider in the app looked identical at every setting, and there was
+                // no long axis whose bevel a pressed state could invert. The cap has
+                // a machined grip, a bevel lit from the same 0° overhead as every
+                // other control, and an amber index line down the middle that IS the
+                // readout.
+                //
+                // The CONTAINER stays `knob` wide. Everything downstream — `knobX`,
+                // `thumbCentre`, the grab offset — is arithmetic on that width, so
+                // the cap is drawn inside a frame of the old size rather than
+                // replacing it. Change the frame and the drag maths goes with it.
+                ZStack {
+                    RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+                        .fill(LinearGradient(colors: [Color(white: 0.98), Color(white: 0.91),
+                                                      Color(white: 0.75), Color(white: 0.60)],
+                                             startPoint: .top, endPoint: .bottom))
+                        .overlay { knurl }
+                        .overlay {
+                            RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+                                .strokeBorder(Color.black.opacity(0.30), lineWidth: 1)
+                        }
+                        .overlay {
+                            Capsule().fill(RigTheme.amber)
+                                .frame(width: 1.5, height: knob * 0.56)
+                        }
+                        .frame(width: knob * 0.66, height: knob * 1.18)
+                }
+                .frame(width: knob, height: knob)
+                .offset(x: knobX)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())

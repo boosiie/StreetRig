@@ -11,10 +11,26 @@
 //  enough to invisible that collection, library, detail and device bar all read as
 //  one flat dark field. Centralising it here is the only way that stays fixed.
 //
+//  SHADOWS WERE REMOVED FROM BOTH OF THESE, deliberately, and that is the biggest
+//  change this file has ever taken. Every card, row, chip and well used to cast one.
+//  A shadow is a claim that one surface floats above another in space, and almost
+//  nothing in a control panel does: the rail, the cards, the chips and the buttons
+//  are all IN the panel. A screen where everything floats is a screen where nothing
+//  does. Depth is now the tone ladder plus a 1pt hairline — which is what the ladder
+//  and `surfaceEdge` were always for, and what pro audio software actually does.
+//
+//  Exactly three things in the app may cast a drop shadow: a modal or sheet over
+//  the app, the drag ghost, and real gear on the stage. The first two come through
+//  here as `lifted: true`; the third is not a SwiftUI surface at all.
+//
 //  Two modifiers, one per upper rung of `RigTheme`'s elevation ladder:
 //
 //    .rigCard()   → `surface`       + warm edge + ambient shadow   cards, panels, sheets
 //    .rigRaised() → `surfaceRaised` + warm edge + tight shadow     chips, wells, buttons
+//
+//  Corner radius is a PARAMETER, but the SCALE is not: pass a `RigTheme.Radius`
+//  case, never a number. The 19 distinct radii this app used to carry are why it
+//  read as soft — see the note on `RigTheme.Radius`.
 //
 //  Corner radius is a PARAMETER, not a constant. The device bar's dropdowns are 8pt
 //  and the detail keypad is 22pt; forcing one radius would visibly break those
@@ -44,7 +60,7 @@ public extension View {
     ///     tone ladder stays three steps instead of quietly growing a fourth.
     ///     NOT a way to mark state: on this near-black ground a deeper shadow is
     ///     close to invisible, so it cannot carry a distinction on its own.
-    func rigCard(cornerRadius: CGFloat = 14,
+    func rigCard(cornerRadius: CGFloat = RigTheme.Radius.control,
                  stroke: Color = RigTheme.surfaceEdge,
                  lineWidth: CGFloat = 1,
                  lifted: Bool = false) -> some View {
@@ -62,9 +78,12 @@ public extension View {
         background {
             shape
                 .fill(RigTheme.surface)
-                .shadow(color: RigTheme.elevationShadow,
-                        radius: lifted ? 22 : 9,
-                        y: lifted ? 10 : 4)
+                // ONLY a genuinely floating thing casts. `lifted` means the drag
+                // ghost or a modal — something actually in the air above the app.
+                // A resting card gets NOTHING: see the shadow note in the header.
+                .shadow(color: lifted ? RigTheme.elevationShadow : .clear,
+                        radius: lifted ? 44 : 0,
+                        y: lifted ? 18 : 0)
         }
         .overlay { shape.strokeBorder(stroke, lineWidth: lineWidth) }
     }
@@ -75,7 +94,7 @@ public extension View {
     /// keypad key, slider track, glyph tile. One step lighter than the card so it
     /// still reads as pressable, with a much tighter shadow — it is a few points
     /// off its card, not a card off the page.
-    func rigRaised(cornerRadius: CGFloat = 10,
+    func rigRaised(cornerRadius: CGFloat = RigTheme.Radius.tight,
                    stroke: Color = RigTheme.surfaceEdge,
                    lineWidth: CGFloat = 1) -> some View {
         rigRaised(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous),
@@ -87,9 +106,9 @@ public extension View {
                                        stroke: Color = RigTheme.surfaceEdge,
                                        lineWidth: CGFloat = 1) -> some View {
         background {
-            shape
-                .fill(RigTheme.surfaceRaised)
-                .shadow(color: RigTheme.elevationShadow.opacity(0.55), radius: 3, y: 1)
+            // No shadow at all. A chip, a well or a keypad key sits IN its card,
+            // not above it — the tone step and the hairline do the separating.
+            shape.fill(RigTheme.surfaceRaised)
         }
         .overlay { shape.strokeBorder(stroke, lineWidth: lineWidth) }
     }

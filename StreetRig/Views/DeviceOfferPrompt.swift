@@ -86,7 +86,7 @@ struct DeviceOfferPrompt: View {
         // A floating dialog, so `lifted:` — a deeper shadow than a card resting in
         // the page. `backgroundLift` here was the old invisible-card bug carried
         // over from DeviceBarView; it is only 1.10:1 against the page behind it.
-        .rigCard(cornerRadius: 16, lifted: true)
+        .rigCard(cornerRadius: RigTheme.Radius.control, lifted: true)
     }
 
     @ViewBuilder
@@ -105,7 +105,7 @@ struct DeviceOfferPrompt: View {
                         .fill(RigTheme.amber)
                 )
             } else {
-                label.rigRaised(cornerRadius: 10)
+                label.rigRaised(cornerRadius: RigTheme.Radius.tight)
             }
         }
     }

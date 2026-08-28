@@ -710,7 +710,7 @@ struct ComponentDetailView: View {
                                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                                                     .fill(RigTheme.amber)
                                             } else {
-                                                Color.clear.rigRaised(cornerRadius: 8)
+                                                Color.clear.rigRaised(cornerRadius: RigTheme.Radius.tight)
                                             }
                                         }
                                         .contentShape(Rectangle())
@@ -745,7 +745,7 @@ struct ComponentDetailView: View {
         // off the buttons.
         .frame(height: compact ? 52 : 56)
         .padding(compact ? 8 : 14)
-        .rigCard(cornerRadius: 16)
+        .rigCard(cornerRadius: RigTheme.Radius.control)
     }
 
     // MARK: - Slider dock (bottom), aligned under the knobs
@@ -786,7 +786,7 @@ struct ComponentDetailView: View {
             }
         }
         .padding(14)
-        .rigCard(cornerRadius: 18)
+        .rigCard(cornerRadius: RigTheme.Radius.control)
     }
 
     /// The pages this item actually has. Channel memories are offered only to an
@@ -808,7 +808,7 @@ struct ComponentDetailView: View {
                             if isOn {
                                 RoundedRectangle(cornerRadius: 6, style: .continuous).fill(RigTheme.amber)
                             } else {
-                                Color.clear.rigRaised(cornerRadius: 6)
+                                Color.clear.rigRaised(cornerRadius: RigTheme.Radius.tight)
                             }
                         }
                         .contentShape(Rectangle())
@@ -969,7 +969,7 @@ struct ComponentDetailView: View {
             }
             .buttonStyle(.plain)
         }
-        .background { Color.clear.rigRaised(cornerRadius: 7) }
+        .background { Color.clear.rigRaised(cornerRadius: RigTheme.Radius.tight) }
     }
 
     /// A block's own dial: label above, slider below, so it fits a 178 pt card.
@@ -1010,7 +1010,7 @@ struct ComponentDetailView: View {
                                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                                     .fill(RigTheme.amber)
                             } else {
-                                Color.clear.rigRaised(cornerRadius: 7)
+                                Color.clear.rigRaised(cornerRadius: RigTheme.Radius.tight)
                             }
                         }
                         .contentShape(Rectangle())
@@ -1049,7 +1049,7 @@ struct ComponentDetailView: View {
                         }
                         .foregroundStyle(filled ? RigTheme.textPrimary : RigTheme.textMuted)
                         .frame(maxWidth: .infinity, minHeight: 40)
-                        .background { Color.clear.rigRaised(cornerRadius: 9) }
+                        .background { Color.clear.rigRaised(cornerRadius: RigTheme.Radius.tight) }
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -1191,7 +1191,7 @@ struct NumberKeypad: View {
             .padding(20)
             .frame(width: 300)
             // A modal sheet over the dimmed detail view — the deepest shadow in the app.
-            .rigCard(cornerRadius: 22, lifted: true)
+            .rigCard(cornerRadius: RigTheme.Radius.control, lifted: true)
         }
         .onAppear { if text.isEmpty { text = fmt(initial) } }
     }
@@ -1202,7 +1202,7 @@ struct NumberKeypad: View {
                 .font(.title2.weight(.medium))
                 .foregroundStyle(RigTheme.textPrimary)
                 .frame(maxWidth: .infinity, minHeight: 48)
-                .rigRaised(cornerRadius: 12)
+                .rigRaised(cornerRadius: RigTheme.Radius.tight)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1220,7 +1220,7 @@ struct NumberKeypad: View {
                     if filled {
                         RoundedRectangle(cornerRadius: 12, style: .continuous).fill(tint)
                     } else {
-                        Color.clear.rigRaised(cornerRadius: 12)
+                        Color.clear.rigRaised(cornerRadius: RigTheme.Radius.tight)
                     }
                 }
                 .contentShape(Rectangle())

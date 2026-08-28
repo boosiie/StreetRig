@@ -283,8 +283,12 @@ struct MainView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
-        .background(RigTheme.background)
-        .overlay(alignment: .bottom) { Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1) }
+        // The nav bar is a piece of the app's chassis, so it is made of something:
+        // black anodised plate with a brass hairline along its lit edge. The white
+        // 7% separator it used to carry is gone — the plate's own dark bottom stop
+        // is the edge now, and a white line on a warm-black app was always a borrowed
+        // Material trick rather than a decision.
+        .rigChrome()
         .contentShape(Rectangle())   // the gaps beside the title are swipeable too
         .gesture(headerSwipe)
         .coachMarkTarget(.header)
@@ -367,7 +371,7 @@ struct DragGhostView: View {
                 .padding(8)
                 // Literally in the air: the `lifted` shadow, and an amber edge that
                 // means "this one is in your hand" rather than the usual hairline.
-                .rigCard(cornerRadius: 12,
+                .rigCard(cornerRadius: RigTheme.Radius.control,
                          stroke: RigTheme.amber.opacity(0.85),
                          lineWidth: 1.5,
                          lifted: true)

@@ -152,10 +152,9 @@ struct ControlPanelSurface: View {
             .frame(height: PanelMetrics.rows)
             .padding(.vertical, PanelMetrics.vPadding)
         }
-        .background(RigTheme.background)
-        .overlay(alignment: .top) {
-            Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1)
-        }
+        // Same plate as the nav bar — see `rigChrome`. The two are the top and
+        // bottom of one chassis and must be made of the same thing.
+        .rigChrome()
         // The error strip changes the panel's height, so the strip arriving would
         // otherwise snap whatever is next to it by 30pt.
         .animation(.easeInOut(duration: 0.2), value: audio.status)

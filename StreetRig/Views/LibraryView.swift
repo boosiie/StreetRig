@@ -102,7 +102,7 @@ struct LibraryContentView: View {
                 segTab("Pedal", .pedal)
             }
             .padding(4)
-            .rigRaised(cornerRadius: 12)
+            .rigRaised(cornerRadius: RigTheme.Radius.tight)
 
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(RigTheme.textMuted)
@@ -118,7 +118,7 @@ struct LibraryContentView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .rigRaised(cornerRadius: 10)
+            .rigRaised(cornerRadius: RigTheme.Radius.tight)
             .frame(maxWidth: 360)
 
             Spacer(minLength: 0)
@@ -203,7 +203,7 @@ struct LibraryContentView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(18)
-            .rigCard(cornerRadius: 18)
+            .rigCard(cornerRadius: RigTheme.Radius.control)
             .overlay(alignment: .topTrailing) {
                 Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(RigTheme.textMuted).padding(12)
             }
@@ -231,7 +231,7 @@ struct LibraryContentView: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity)
-            .rigCard(cornerRadius: 16)
+            .rigCard(cornerRadius: RigTheme.Radius.control)
             .overlay(alignment: .topTrailing) {
                 Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(RigTheme.textMuted).padding(8)
             }
@@ -402,7 +402,7 @@ private struct LibraryTile: View {
         .frame(maxWidth: .infinity)
         // The stroke is drawn separately, BELOW, so the scrim can pass between the
         // card and its edge: the tile goes dark, the amber edge saying why does not.
-        .rigCard(cornerRadius: 16, stroke: .clear)
+        .rigCard(cornerRadius: RigTheme.Radius.control, stroke: .clear)
         // Gear you already own sits in shadow — the whole tile, fill included, not
         // just its contents. Scanning for what you have yet to add is the main thing
         // this page gets used for, and a tile that has visibly gone dark answers

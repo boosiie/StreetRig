@@ -154,7 +154,7 @@ struct ProfileView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
                 .contentShape(Rectangle())
-                .rigCard(cornerRadius: 12)
+                .rigCard(cornerRadius: RigTheme.Radius.control)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: 360, alignment: .leading)
@@ -256,7 +256,7 @@ struct ProfileView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .rigRaised(cornerRadius: 8,
+        .rigRaised(cornerRadius: RigTheme.Radius.tight,
                    stroke: nameFocused ? RigTheme.amber.opacity(0.8) : RigTheme.surfaceEdge)
         .animation(.easeOut(duration: 0.15), value: nameFocused)
         // The field is loaded from the store once, then mirrors INTO it. See
@@ -311,7 +311,7 @@ struct ProfileView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .rigCard(cornerRadius: 10)
+        .rigCard(cornerRadius: RigTheme.Radius.control)
     }
 
     // MARK: - Bindings

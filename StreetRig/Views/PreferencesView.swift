@@ -201,7 +201,7 @@ struct PreferencesView: View {
                             .foregroundStyle(RigTheme.amber)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 7)
-                            .rigRaised(cornerRadius: 8, stroke: RigTheme.amber.opacity(0.45))
+                            .rigRaised(cornerRadius: RigTheme.Radius.tight, stroke: RigTheme.amber.opacity(0.45))
                     }
                     .buttonStyle(.plain)
 
