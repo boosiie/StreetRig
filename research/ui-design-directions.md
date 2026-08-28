@@ -1585,3 +1585,61 @@ Two descriptions were still describing the cream build and have been corrected: 
 component-detail lede (legends "engraved-looking in `#2A1C14`" → screen-printed in light `#DAD8D4`).
 Worth noting because they were *wrong*, not merely stale — a spec that describes the wrong colour is
 worse than one that omits it.
+
+---
+
+## Part 17 — Type: the Barlow superfamily (2026-08-27)
+
+Chosen from five pairings, each set on the same six fragments (wordmark, status line, section
+heading, panel legend with a numeric readout, gear card, primary button). Supersedes the SF-only type
+scale in §3.x for the display and label roles.
+
+| Role | Face | Used for |
+|---|---|---|
+| Display | **Barlow Condensed** | wordmark, section headings, page title |
+| Body | **Barlow** | UI text, gear names, character lines, prose |
+| Data / label | **Barlow Semi Condensed** | uppercase micro-labels, zone captions, numeric readouts, control lists |
+| Code | IBM Plex Mono | **identifiers only** — see 17.2 |
+
+**Why one superfamily.** Display, body and data are the same underlying design at three widths, so
+they never have to be argued into agreement — the commonest way a type system drifts is three
+unrelated faces each tuned separately. Barlow was drawn for signage: low contrast, open apertures,
+and built to survive small sizes, which is exactly the demand a control panel makes. It replaces
+Oswald, whose narrow caps were drawn for posters and got tight at legend sizes.
+
+All three are Google Fonts, so licensing is not a question.
+
+### 17.1 The custom-face boundary — do NOT set the whole app in Barlow
+
+Inside the app, running text stays **`-apple-system` (SF Pro)**. SF ships with the OS, carries every
+glyph, and gets **Dynamic Type** for free; a custom face costs bundle weight and hands you
+responsibility for accessibility sizing. The split:
+
+- **Barlow Condensed** — the wordmark and page titles
+- **Barlow Semi Condensed** — uppercase micro-labels and numeric readouts (`MY GEAR`, `MASTER`,
+  `+2.5 dB`, `DRIVE · TONE · LEVEL`)
+- **SF Pro** — everything a player reads at length or resizes: gear names, character lines,
+  onboarding prose, settings, alerts
+
+Ship only the weights actually used (500/600/700 condensed, 400/500/600 regular). Register with
+`UIAppFonts` and resolve through a single helper so the fallback to SF is one line if a face fails
+to load.
+
+### 17.2 Two mechanical consequences
+
+1. **Barlow is proportional, so figures do not align by default.** Anything that lines up in a
+   column — dB values, latency badges, knob values, the token sheet's hex column — needs
+   `font-variant-numeric: tabular-nums` (`.monospacedDigit()` on the SF side). Without it a master
+   fader reading `+2.5 dB` jitters horizontally as the value changes, which on a live control is
+   very visible.
+2. **Code identifiers keep a real monospace.** `IBM Plex Mono` survives for `code` spans and symbol
+   names. A proportional face makes `.buttonStyle(` and `#24272C` harder to scan, and that is the one
+   job Barlow should not be asked to do. This applies to developer-facing surfaces (this spec, the
+   diagnostics screens), not to the app's own chrome.
+
+### 17.3 Unverified
+
+Barlow Semi Condensed is carrying labels down to **7pt** on the gear card's control line and the
+stage slot labels. That was legible in the specimen at desktop scale but has **not** been checked on
+a phone at arm's length with a guitar on, which is the real test. If it fails there, the fix is to
+raise those two to 8pt rather than to abandon the face.
