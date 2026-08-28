@@ -260,7 +260,7 @@ struct PreferencesView: View {
                         ? "Armed. Both guides run on the next launch, as they do for a new player."
                         : "Clears the flag that says you have been shown around.",
                     symbol: onboardingWillReplay ? "checkmark.circle.fill" : "arrow.counterclockwise",
-                    tint: onboardingWillReplay ? RigTheme.signal : RigTheme.amber
+                    tint: onboardingWillReplay ? RigTheme.signal : RigTheme.amberChrome
                 ) {
                     onboarding.resetCompletionFlag()
                     withAnimation(.easeOut(duration: 0.2)) { onboardingResetAt = Date() }
@@ -284,7 +284,7 @@ struct PreferencesView: View {
     private func actionRow(title: String,
                            note: String,
                            symbol: String,
-                           tint: Color = RigTheme.amber,
+                           tint: Color = RigTheme.amberChrome,
                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(alignment: .center, spacing: 10) {
@@ -376,7 +376,7 @@ struct PreferencesView: View {
             Spacer(minLength: 4)
             Toggle("", isOn: isOn)
                 .labelsHidden()
-                .tint(RigTheme.amber)
+                .tint(RigTheme.amberChrome)
         }
         .padding(.leading, indented ? 34 : 20)
         .padding(.trailing, 20)

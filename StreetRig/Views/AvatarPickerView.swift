@@ -211,7 +211,7 @@ private struct FilamentShape: Shape {
 
 /// A preamp valve: glass envelope, lit filament, base. The filament carries a
 /// coloured shadow — the ONE glow in this file, and it is here because the tube
-/// glow is where `RigTheme.amber` came from in the first place.
+/// glow is where `RigTheme.amberChrome` came from in the first place.
 private struct TubeGlyph: View {
     let tint: Color
     var body: some View {
@@ -290,7 +290,7 @@ struct AvatarStripView: View {
             AvatarView(style: style, tint: tint, size: tileSize, showsEdge: !isSelected)
                 .overlay {
                     if isSelected {
-                        Circle().strokeBorder(RigTheme.amber, lineWidth: 2)
+                        Circle().strokeBorder(RigTheme.amberChrome, lineWidth: 2)
                     }
                 }
         }
@@ -340,7 +340,7 @@ struct AvatarTintRow: View {
                 .overlay {
                     // Same amber ring as the avatar tiles. A tick mark was the
                     // alternative and it disappears on the cream and brass swatches.
-                    if isSelected { Circle().strokeBorder(RigTheme.amber, lineWidth: 2) }
+                    if isSelected { Circle().strokeBorder(RigTheme.amberChrome, lineWidth: 2) }
                 }
                 // The dot is 18pt; the thing you can HIT is 26. Drawn small so
                 // seven of them fit the column, tappable large so seven of them

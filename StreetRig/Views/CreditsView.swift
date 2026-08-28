@@ -88,7 +88,7 @@ struct CreditsView: View {
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
                     .font(.footnote.weight(.bold))
-                    .foregroundStyle(RigTheme.amber)
+                    .foregroundStyle(RigTheme.amberChrome)
                     .frame(width: 44, height: 30)
                     .contentShape(Rectangle())
             }
@@ -104,7 +104,7 @@ struct CreditsView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(credit.usedFor.uppercased())
                 .rigLegend(11, weight: .bold)
-                .foregroundStyle(RigTheme.amber)
+                .foregroundStyle(RigTheme.amberChrome)
 
             // Title and author, the two things attribution is actually about.
             (Text(credit.title).font(.headline).foregroundStyle(RigTheme.textPrimary)
@@ -121,7 +121,7 @@ struct CreditsView: View {
                         .font(.footnote.weight(.medium))
                 }
             }
-            .tint(RigTheme.amber)
+            .tint(RigTheme.amberChrome)
 
             if let mods = credit.modifications {
                 Text("Changes made: \(mods)")
@@ -135,7 +135,7 @@ struct CreditsView: View {
         .background(RigTheme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(RigTheme.surfaceEdge, lineWidth: 1)
+                .stroke(RigTheme.edgeBrass, lineWidth: 1)
         }
     }
 }

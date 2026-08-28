@@ -106,6 +106,17 @@ struct MainView: View {
     /// IS the app and stays put.
     private var immersive: Bool { page == .ar }
 
+    /// Whether the transport bar belongs on this page.
+    ///
+    /// It does not belong on PROFILE — which is also where Settings and Credits
+    /// live. Those pages are about the player and the app, not about signal: nothing
+    /// on them makes a sound, so a live INPUT/OUTPUT/MASTER strip with a lit PROCEED
+    /// under a list of privacy copy is 77pt spent on controls that have nothing to do
+    /// with what is on screen, and an invitation to start the engine while reading
+    /// about data handling. The rail already stands down on this page for the same
+    /// reason; the transport was the half of the chassis that never got the memo.
+    private var showsTransport: Bool { !immersive && page != .profile }
+
     var body: some View {
         ZStack {
             RigTheme.background.ignoresSafeArea()
@@ -168,9 +179,10 @@ struct MainView: View {
                     .coachMarkTarget(.pageArea)
                 }
                 // Same reasoning as the rail: on the AR page the control panel is
-                // 77 pt of floor the player cannot see. It keeps its coach-mark
-                // target for every page that still shows it.
-                if !immersive {
+                // 77 pt of floor the player cannot see, and on PROFILE it is 77pt of
+                // transport on a page where nothing makes a sound. It keeps its
+                // coach-mark target for every page that still shows it.
+                if showsTransport {
                     ControlPanelView()
                         .coachMarkTarget(.controlPanel)
                 }

@@ -115,7 +115,7 @@ struct ProfileView: View {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
                 Button("Done") { nameFocused = false }
-                    .tint(RigTheme.amber)
+                    .tint(RigTheme.amberChrome)
             }
         }
     }
@@ -135,7 +135,7 @@ struct ProfileView: View {
                 HStack(spacing: 11) {
                     Image(systemName: "gearshape.fill")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(RigTheme.amber)
+                        .foregroundStyle(RigTheme.amberChrome)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Settings")
                             .font(.system(size: 14, weight: .semibold))
@@ -220,7 +220,7 @@ struct ProfileView: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(RigTheme.textPrimary)
-                    .tint(RigTheme.amber)
+                    .tint(RigTheme.amberChrome)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.words)
                     .submitLabel(.done)
@@ -239,7 +239,7 @@ struct ProfileView: View {
                     .font(.system(size: 9, weight: .medium))
                     .monospacedDigit()
                     .foregroundStyle(draft.count >= Profile.usernameLimit
-                                     ? RigTheme.amber : RigTheme.textMuted)
+                                     ? RigTheme.amberChrome : RigTheme.textMuted)
             }
 
             if nameFocused {
@@ -254,7 +254,7 @@ struct ProfileView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .rigRaised(cornerRadius: RigTheme.Radius.tight,
-                   stroke: nameFocused ? RigTheme.amber.opacity(0.8) : RigTheme.surfaceEdge)
+                   stroke: nameFocused ? RigTheme.amberChrome.opacity(0.8) : RigTheme.edgeBrass)
         .animation(.easeOut(duration: 0.15), value: nameFocused)
         // The field is loaded from the store once, then mirrors INTO it. See
         // `draft` for why the field does not simply bind to the store.
@@ -298,7 +298,7 @@ struct ProfileView: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "lock.fill")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(RigTheme.amber)
+                .foregroundStyle(RigTheme.amberChrome)
                 .padding(.top, 1)
             Text("Stored on this device only. No account, no sign-in, never uploaded.")
                 .font(.system(size: 10.5))

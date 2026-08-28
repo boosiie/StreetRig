@@ -150,15 +150,28 @@ struct LibraryContentView: View {
         return Button {
             withAnimation(.easeInOut(duration: 0.15)) { section = value }
         } label: {
+            // The selected tab is a RAISED THUMB, not an amber fill.
+            //
+            // A segmented control is a switch: the thumb is the physical thing that
+            // moved, and on hardware it is the same material as the panel, lifted.
+            // Filling it with the accent made the picker the loudest object on the
+            // page and spent the one colour that is supposed to mean "this action" on
+            // a state that means "you are looking at amps".
             Text(title)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(selected ? .black : RigTheme.textMuted)
+                .foregroundStyle(selected ? RigTheme.textPrimary : RigTheme.textMuted)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 7)
-                .background(
-                    RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
-                        .fill(selected ? RigTheme.amberChrome : Color.clear)
-                )
+                .background {
+                    if selected {
+                        RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+                            .fill(RigTheme.surfaceRaised)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+                                    .strokeBorder(RigTheme.edgeBrass, lineWidth: 1)
+                            }
+                    }
+                }
         }
         .buttonStyle(.plain)
     }
@@ -207,9 +220,21 @@ struct LibraryContentView: View {
             VStack(spacing: 12) {
                 Group {
                     if stack {
-                        VStack(spacing: 4) {
-                            GearArtView(item: Self.representative(.amp)).frame(width: 88, height: 32)
-                            GearArtView(item: Self.representative(.cabinet)).frame(width: 102, height: 62)
+                        // A HEAD SITS ON ITS CAB. Two things were wrong here.
+                        //
+                        // `GearArtView` aspect-FITS, so a frame is a bounding box and
+                        // not a size. The cab's art is 0.87:1, so a 102×62 box drew it
+                        // 54 wide; the head's is 2.05:1, so an 88×32 box drew it 66
+                        // wide. The cabinet came out NARROWER than the head sitting on
+                        // it — a half stack upside down. These frames match the art's
+                        // own aspects, so what is asked for is what is drawn.
+                        //
+                        // And `spacing: 4` floated the head above the cab. A head does
+                        // not hover; the whole read of a half stack is that the two are
+                        // one object.
+                        VStack(spacing: 0) {
+                            GearArtView(item: Self.representative(.amp)).frame(width: 45, height: 22)
+                            GearArtView(item: Self.representative(.cabinet)).frame(width: 57, height: 66)
                         }
                     } else {
                         GearArtView(item: Self.representative(.comboAmp)).frame(width: 112, height: 90)
