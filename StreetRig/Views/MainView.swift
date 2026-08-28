@@ -73,7 +73,28 @@ struct MainView: View {
     }
     /// Where the library should open when something sends the player there — the
     /// no-amp warning, so far. Consumed by LibraryContentView.
-    @State private var libraryDestination: LibraryContentView.Drill?
+    @State private var libraryDestination: LibraryContentView.Drill? = MainView.initialDrill
+
+    /// `-OpenPage library -OpenDrill overdrive` lands on a model grid rather than the
+    /// category cards above it. The grid is where the gear CARD lives, so it is the
+    /// thing worth being able to open directly; the category screen in front of it is
+    /// one tap that a synthetic tap cannot reliably make.
+    private static var initialDrill: LibraryContentView.Drill? {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-OpenDrill"), i + 1 < args.count else { return nil }
+        switch args[i + 1] {
+        case "ampStack":  return .ampStack
+        case "ampCombo":  return .ampCombo
+        case "overdrive": return .pedal(.overdrive)
+        case "delay":     return .pedal(.delay)
+        case "modulation":return .pedal(.modulation)
+        default:          return nil
+        }
+        #else
+        return nil
+        #endif
+    }
     @State private var showCredits = false
 
     /// Whether the current page runs edge to edge with the app chrome hidden.

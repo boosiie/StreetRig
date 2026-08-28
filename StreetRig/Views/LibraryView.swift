@@ -406,23 +406,31 @@ private struct LibraryTile: View {
     private func tileFace(owned: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
+                // 34pt, not the 56 this first shipped at. A four-column grid gives
+                // each tile about 138pt; at 56 the art plus its padding and the
+                // badge's reserve left roughly 38pt for the name, so every model
+                // truncated to "Ibonez Tube Scr…" and every category to "OVERDR…".
+                // The art is the fastest way IN to a card, but it is not the thing
+                // being read — the name and the character line are.
                 GearArtView(item: item)
                     .frame(width: artSize.width, height: artSize.height)
-                    .frame(width: 56, height: 58)
+                    .frame(width: 34, height: 46)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.name)
-                        .font(.caption.weight(.semibold))
+                        .font(.system(size: 11.5, weight: .semibold))
                         .foregroundStyle(RigTheme.textPrimary)
                         .lineLimit(2)
-                        .minimumScaleFactor(0.85)
+                        .minimumScaleFactor(0.75)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(item.category.displayName.uppercased())
-                        .rigLegend(8, weight: .bold)
+                        .rigLegend(7.5, weight: .bold)
                         .foregroundStyle(RigTheme.trim.opacity(0.9))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
                 // Room for the badge, which floats in the top-trailing corner.
-                .padding(.trailing, 20)
+                .padding(.trailing, 16)
 
                 Spacer(minLength: 0)
             }
