@@ -205,3 +205,38 @@ public enum RigTheme {
     /// drawn as a hairline over a live camera image of a carpet.
     public static let ready = Color(red: 0.322, green: 0.827, blue: 0.478)          // #52D37A
 }
+
+// MARK: - Legends
+
+public extension RigTheme {
+
+    /// Letter-spacing for an UPPERCASE legend, in points, derived from the point
+    /// size rather than typed in.
+    ///
+    /// THE BUG THIS FIXES. Tracking was a CONSTANT across the app — 1.2pt on a 9pt
+    /// caption and 1.2pt on a 12pt title — while the sizes varied. Constant tracking
+    /// means the SMALLER the label, the tighter it reads: `MASTER` at 11/1.2 was
+    /// 0.109em and `HOLD TO PLACE` at 8/0.8 was 0.100em, against a page title at
+    /// 0.167em. Uppercase needs MORE air as it shrinks, not less, so the app's
+    /// smallest legends were its most cramped — which is what makes a panel read as
+    /// cartoonish rather than engraved.
+    ///
+    /// The coefficient falls slightly as size rises (0.228em at 8pt, 0.216 at 11,
+    /// 0.212 at 12, 0.196 at 16): small caps want proportionally more space, large
+    /// ones want less or they fall apart into separate letters. This is for
+    /// UPPERCASE only — running text and the wordmark are untouched, and the
+    /// wordmark sets its own tracking from its own size.
+    static func legendTracking(_ size: CGFloat) -> CGFloat {
+        size * (0.26 - size * 0.004)
+    }
+}
+
+public extension View {
+
+    /// An uppercase legend printed on a panel: font and tracking together, so the
+    /// two cannot drift apart at a call site the way they did before.
+    func rigLegend(_ size: CGFloat, weight: Font.Weight = .bold) -> some View {
+        font(.system(size: size, weight: weight))
+            .tracking(RigTheme.legendTracking(size))
+    }
+}

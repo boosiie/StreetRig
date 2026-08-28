@@ -241,8 +241,7 @@ struct ControlPanelSurface: View {
         VStack(alignment: .leading, spacing: PanelMetrics.rowGap) {
             HStack(spacing: 6) {
                 Text("MASTER")
-                    .font(.system(size: 11, weight: .bold))
-                    .tracking(1.2)
+                    .rigLegend(11)
                     .foregroundStyle(RigTheme.textMuted)
                 Spacer(minLength: 4)
                 Text(masterText)
@@ -312,7 +311,7 @@ struct ControlPanelSurface: View {
                     .shadow(color: audio.isEngaged ? statusColor : .clear, radius: 4)
                 Text(statusText)
                     .font(.system(size: 11, weight: .bold).monospacedDigit())
-                    .tracking(1.2)
+                    .tracking(RigTheme.legendTracking(11))
                     .foregroundStyle(statusColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -479,8 +478,7 @@ private struct RouteZone: View {
             HStack(spacing: 7) {
                 SignalLamp(monitor: monitor, channel: channel, isLive: isLive)
                 Text(title)
-                    .font(.system(size: 11, weight: .bold))
-                    .tracking(1.2)
+                    .rigLegend(11)
                     .foregroundStyle(RigTheme.textMuted)
                     .fixedSize()
                 Spacer(minLength: 0)

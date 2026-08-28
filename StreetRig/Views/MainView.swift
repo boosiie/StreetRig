@@ -272,8 +272,7 @@ struct MainView: View {
             Spacer()
             VStack(spacing: 5) {
                 Text(page.title)
-                    .font(.caption.weight(.bold))
-                    .tracking(2)
+                    .rigLegend(12)
                     .foregroundStyle(RigTheme.textMuted)
                 pageDots
             }
