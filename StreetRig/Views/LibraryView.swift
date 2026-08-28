@@ -102,7 +102,14 @@ struct LibraryContentView: View {
                 segTab("Pedal", .pedal)
             }
             .padding(4)
-            .rigRaised(cornerRadius: 12)
+            .background {
+                RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+                    .fill(RigTheme.well)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+                            .strokeBorder(RigTheme.surfaceEdge, lineWidth: 1)
+                    }
+            }
 
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(RigTheme.textMuted)
@@ -118,7 +125,17 @@ struct LibraryContentView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .rigRaised(cornerRadius: 10)
+            // A search field is a recess, so it takes `well` and not the RAISED rung
+            // it had — a control you type into should not look like it sits proud of
+            // the page.
+            .background {
+                RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+                    .fill(RigTheme.well)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+                            .strokeBorder(RigTheme.surfaceEdge, lineWidth: 1)
+                    }
+            }
             .frame(maxWidth: 360)
 
             Spacer(minLength: 0)
@@ -133,15 +150,28 @@ struct LibraryContentView: View {
         return Button {
             withAnimation(.easeInOut(duration: 0.15)) { section = value }
         } label: {
+            // The selected tab is a RAISED THUMB, not an amber fill.
+            //
+            // A segmented control is a switch: the thumb is the physical thing that
+            // moved, and on hardware it is the same material as the panel, lifted.
+            // Filling it with the accent made the picker the loudest object on the
+            // page and spent the one colour that is supposed to mean "this action" on
+            // a state that means "you are looking at amps".
             Text(title)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(selected ? .black : RigTheme.textMuted)
+                .foregroundStyle(selected ? RigTheme.textPrimary : RigTheme.textMuted)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 7)
-                .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(selected ? RigTheme.amber : Color.clear)
-                )
+                .background {
+                    if selected {
+                        RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+                            .fill(RigTheme.surfaceRaised)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+                                    .strokeBorder(RigTheme.surfaceEdge, lineWidth: 1)
+                            }
+                    }
+                }
         }
         .buttonStyle(.plain)
     }
@@ -190,9 +220,21 @@ struct LibraryContentView: View {
             VStack(spacing: 12) {
                 Group {
                     if stack {
-                        VStack(spacing: 4) {
-                            GearArtView(item: Self.representative(.amp)).frame(width: 88, height: 32)
-                            GearArtView(item: Self.representative(.cabinet)).frame(width: 102, height: 62)
+                        // A HEAD SITS ON ITS CAB. Two things were wrong here.
+                        //
+                        // `GearArtView` aspect-FITS, so a frame is a bounding box and
+                        // not a size. The cab's art is 0.87:1, so a 102×62 box drew it
+                        // 54 wide; the head's is 2.05:1, so an 88×32 box drew it 66
+                        // wide. The cabinet came out NARROWER than the head sitting on
+                        // it — a half stack upside down. These frames match the art's
+                        // own aspects, so what is asked for is what is drawn.
+                        //
+                        // And `spacing: 4` floated the head above the cab. A head does
+                        // not hover; the whole read of a half stack is that the two are
+                        // one object.
+                        VStack(spacing: 0) {
+                            GearArtView(item: Self.representative(.amp)).frame(width: 45, height: 22)
+                            GearArtView(item: Self.representative(.cabinet)).frame(width: 57, height: 66)
                         }
                     } else {
                         GearArtView(item: Self.representative(.comboAmp)).frame(width: 112, height: 90)
@@ -203,7 +245,7 @@ struct LibraryContentView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(18)
-            .rigCard(cornerRadius: 18)
+            .rigCard(cornerRadius: RigTheme.Radius.control)
             .overlay(alignment: .topTrailing) {
                 Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(RigTheme.textMuted).padding(12)
             }
@@ -231,7 +273,7 @@ struct LibraryContentView: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity)
-            .rigCard(cornerRadius: 16)
+            .rigCard(cornerRadius: RigTheme.Radius.control)
             .overlay(alignment: .topTrailing) {
                 Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(RigTheme.textMuted).padding(8)
             }
@@ -251,7 +293,7 @@ struct LibraryContentView: View {
                     Text("Back")
                 }
                 .font(.body.weight(.semibold))
-                .foregroundStyle(RigTheme.amber)
+                .foregroundStyle(RigTheme.amberChrome)
             }
             Spacer()
             Text(drillTitle(drill))
@@ -291,7 +333,7 @@ struct LibraryContentView: View {
                 if !items.isEmpty {
                     if showHeaders {
                         Text(sectionTitle(category))
-                            .font(.caption.weight(.bold)).tracking(1.2)
+                            .rigLegend(12, weight: .bold)
                             .foregroundStyle(RigTheme.trim)
                     }
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
@@ -352,13 +394,26 @@ private struct LibraryTile: View {
     /// aspect-fit icon fills the frame instead of floating between letterbox
     /// bars; the art sits inside a fixed 64pt-tall box below, so the grid's row
     /// height doesn't move when these change.
+    /// The art's drawn size, per category, shaped to the shipped artwork's measured
+    /// aspects (head ≈ 2.05:1, cabinet ≈ 0.87:1, combo ≈ 1.13:1, wah ≈ 1.29:1,
+    /// compact pedal ≈ 0.71:1) so an aspect-fit icon FILLS its box instead of
+    /// floating between letterbox bars.
+    ///
+    /// These are per-category for a reason this card learned the hard way: it first
+    /// shipped forcing every piece into one 34×46 box. That is about right for a
+    /// compact pedal and catastrophic for an amp head, which is twice as wide as it
+    /// is tall — heads came out tiny and adrift in the corner of their frame. A
+    /// single box cannot serve a 2.05:1 head and a 0.71:1 stompbox.
+    ///
+    /// The widths differ but the BOX below is constant, so the name column starts at
+    /// the same x on every card in the grid.
     private var artSize: CGSize {
         switch item.category {
-        case .amp:      return CGSize(width: 112, height: 55)
-        case .cabinet:  return CGSize(width: 55,  height: 63)
-        case .comboAmp: return CGSize(width: 70,  height: 62)
-        case .wah:      return CGSize(width: 72, height: 56)
-        default:        return CGSize(width: 44, height: 62)
+        case .amp:      return CGSize(width: 46, height: 22)
+        case .cabinet:  return CGSize(width: 30, height: 35)
+        case .comboAmp: return CGSize(width: 38, height: 34)
+        case .wah:      return CGSize(width: 40, height: 31)
+        default:        return CGSize(width: 30, height: 42)
         }
     }
 
@@ -385,24 +440,79 @@ private struct LibraryTile: View {
         .overlay(alignment: .topTrailing) { badge(owned: owned) }
     }
 
+    /// `DRIVE · TONE · LEVEL`. Capped at three so a wah's single control and a
+    /// ten-band EQ both fit one line on the same card.
+    private var controlSet: String {
+        item.parameters.prefix(3).map { $0.name.uppercased() }.joined(separator: " · ")
+    }
+
+    /// The tile face: artwork LEFT, identity RIGHT, then what the piece sounds like,
+    /// then what it gives you to turn.
+    ///
+    /// It used to be a centred column — art on top, name under it, nothing else. That
+    /// is a fine shape for a rail card 150pt wide, and the wrong one here: a library
+    /// tile is roomy, and the room was going to whitespace while the player still had
+    /// to open four overdrives to tell them apart. Horizontal puts the art and the
+    /// name on one line and frees the height for the two rows that actually decide a
+    /// choice.
+    ///
+    /// The foot rule is a hairline rather than a gap because it separates the
+    /// SPECIFICATION from the description, the way a spec sheet does.
     private func tileFace(owned: Bool) -> some View {
-        VStack(spacing: 10) {
-            GearArtView(item: item)
-                .frame(width: artSize.width, height: artSize.height)
-                .frame(height: 64)
-            Text(item.name)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(RigTheme.textPrimary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .minimumScaleFactor(0.8)
-                .frame(height: 32)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                // The art is drawn at its own aspect and then CENTRED in a constant
+                // 56×46 box, so heads, cabs and stompboxes all start their name
+                // column at the same x. Sizing the box instead of the art is what
+                // squashed heads before.
+                GearArtView(item: item)
+                    .frame(width: artSize.width, height: artSize.height)
+                    .frame(width: 46, height: 46)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.name)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(RigTheme.textPrimary)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.75)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(item.category.displayName.uppercased())
+                        .rigLegend(7.5, weight: .bold)
+                        .foregroundStyle(RigTheme.trim.opacity(0.9))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.55)
+                }
+                // Room for the badge, which floats in the top-trailing corner.
+                .padding(.trailing, 16)
+
+                Spacer(minLength: 0)
+            }
+
+            if let character = GearCharacter.line(forName: item.name, category: item.category) {
+                Text(character)
+                    .font(.system(size: 11))
+                    .foregroundStyle(RigTheme.textMuted)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !controlSet.isEmpty {
+                Rectangle()
+                    .fill(RigTheme.hairline.opacity(0.55))
+                    .frame(height: 1)
+                    .padding(.top, 1)
+                Text(controlSet)
+                    .rigLegend(7.5, weight: .semibold)
+                    .foregroundStyle(RigTheme.textMuted.opacity(0.8))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
         }
         .padding(12)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
         // The stroke is drawn separately, BELOW, so the scrim can pass between the
         // card and its edge: the tile goes dark, the amber edge saying why does not.
-        .rigCard(cornerRadius: 16, stroke: .clear)
+        .rigCard(cornerRadius: RigTheme.Radius.control, stroke: .clear)
         // Gear you already own sits in shadow — the whole tile, fill included, not
         // just its contents. Scanning for what you have yet to add is the main thing
         // this page gets used for, and a tile that has visibly gone dark answers
@@ -412,35 +522,50 @@ private struct LibraryTile: View {
         // on a warm espresso ground.
         .overlay {
             if owned {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: RigTheme.Radius.control, style: .continuous)
                     .fill(RigTheme.background.opacity(0.58))
                     .allowsHitTesting(false)
             }
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(owned ? RigTheme.amber.opacity(0.5) : RigTheme.surfaceEdge, lineWidth: 1)
+            RoundedRectangle(cornerRadius: RigTheme.Radius.control, style: .continuous)
+                .strokeBorder(owned ? RigTheme.amberChrome.opacity(0.6) : RigTheme.surfaceEdge, lineWidth: 1)
         }
     }
 
     @ViewBuilder
+    /// A small square, not a filled SF circle.
+    ///
+    /// Owned reads as an OUTLINE and unowned as a FILL, which is the right way round:
+    /// adding is the action this page exists for, so it gets the solid one, while
+    /// removing is a thing you should have to aim at. The circle glyphs it replaced
+    /// were `plus.circle.fill` in muted grey and `minus.circle.fill` in `clip` red —
+    /// the destructive red shouting on every piece the player already owns, which is
+    /// most of the grid once they have been using the app a while.
     private func badge(owned: Bool) -> some View {
-        if owned {
-            Button { remove() } label: {
-                Image(systemName: "minus.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(RigTheme.clip)
-                    .padding(8)
-                    .contentShape(Rectangle())
+        let shape = RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+        return Group {
+            if owned {
+                Button { remove() } label: {
+                    Text("−")
+                        .font(.system(size: 13, weight: .heavy))
+                        .foregroundStyle(RigTheme.amberChrome)
+                        .frame(width: 18, height: 18)
+                        .background { shape.strokeBorder(RigTheme.amberChrome.opacity(0.75), lineWidth: 1) }
+                        .padding(7)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove \(item.name) from your gear")
+            } else {
+                Text("+")
+                    .font(.system(size: 13, weight: .heavy))
+                    .foregroundStyle(Color(red: 0.086, green: 0.047, blue: 0.016))
+                    .frame(width: 18, height: 18)
+                    .background { shape.fill(RigTheme.amberChrome) }
+                    .padding(7)
+                    .allowsHitTesting(false)   // the whole tile is the add target
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Remove \(item.name) from your gear")
-        } else {
-            Image(systemName: "plus.circle.fill")
-                .font(.title3)
-                .foregroundStyle(RigTheme.textMuted)
-                .padding(8)
-                .allowsHitTesting(false)   // the whole tile is the add target
         }
     }
 

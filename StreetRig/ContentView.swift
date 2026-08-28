@@ -9,9 +9,10 @@ import SwiftUI
 import StreetRigEngine
 
 struct ContentView: View {
-    /// How long the splash stays up. Temporary timed splash — later this
-    /// will be driven by real audio-engine / asset warmup completing.
-    private let splashDuration: Duration = .seconds(4)
+    /// The splash owns this now — `LoadingView.splashDuration` — because its
+    /// progress bar has to fill over exactly the same span. Two copies of the
+    /// number meant the bar could finish early or late the moment either moved.
+    private var splashDuration: Duration { LoadingView.splashDuration }
 
     @State private var isLoading = true
 

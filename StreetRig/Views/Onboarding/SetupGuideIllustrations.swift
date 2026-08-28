@@ -552,7 +552,7 @@ struct OutputChoicesIllustration: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 9)
-        .rigRaised(cornerRadius: 9,
+        .rigRaised(cornerRadius: RigTheme.Radius.tight,
                    stroke: lit ? RigTheme.amber.opacity(0.85) : RigTheme.surfaceEdge,
                    lineWidth: lit ? 1.5 : 1)
         .animation(.easeInOut(duration: 0.25), value: lit)
@@ -717,7 +717,7 @@ struct LevelsIllustration: View {
         }
         .background(RigTheme.background)
         .overlay(alignment: .top) { Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1) }
-        .rigCard(cornerRadius: 12)
+        .rigCard(cornerRadius: RigTheme.Radius.control)
     }
 
     /// Full-height inside the strip, but the STRIP is only as tall as its rows —

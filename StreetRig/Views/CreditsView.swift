@@ -82,14 +82,13 @@ struct CreditsView: View {
     private var header: some View {
         HStack {
             Text("CREDITS")
-                .font(.caption.weight(.bold))
-                .tracking(2)
+                .rigLegend(12, weight: .bold)
                 .foregroundStyle(RigTheme.textMuted)
             Spacer()
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
                     .font(.footnote.weight(.bold))
-                    .foregroundStyle(RigTheme.amber)
+                    .foregroundStyle(RigTheme.amberChrome)
                     .frame(width: 44, height: 30)
                     .contentShape(Rectangle())
             }
@@ -104,9 +103,8 @@ struct CreditsView: View {
     private func card(for credit: Credit) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(credit.usedFor.uppercased())
-                .font(.caption2.weight(.bold))
-                .tracking(1.2)
-                .foregroundStyle(RigTheme.amber)
+                .rigLegend(11, weight: .bold)
+                .foregroundStyle(RigTheme.amberChrome)
 
             // Title and author, the two things attribution is actually about.
             (Text(credit.title).font(.headline).foregroundStyle(RigTheme.textPrimary)
@@ -123,7 +121,7 @@ struct CreditsView: View {
                         .font(.footnote.weight(.medium))
                 }
             }
-            .tint(RigTheme.amber)
+            .tint(RigTheme.amberChrome)
 
             if let mods = credit.modifications {
                 Text("Changes made: \(mods)")

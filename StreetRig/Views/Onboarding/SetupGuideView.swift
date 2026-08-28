@@ -87,17 +87,10 @@ struct SetupGuideView: View {
                 .tracking(2)
                 .foregroundStyle(RigTheme.textMuted)
             Spacer(minLength: 0)
-            Button(action: onSkip) {
-                Text("SKIP")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1.2)
-                    .foregroundStyle(RigTheme.textMuted)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(Capsule().fill(RigTheme.surfaceRaised))
-                    .overlay(Capsule().strokeBorder(RigTheme.surfaceEdge, lineWidth: 1))
-            }
-            .buttonStyle(.plain)
+            // Quiet, not secondary: skipping is the one thing on this screen that
+            // should not compete with the action it is offering to skip.
+            Button("SKIP", action: onSkip)
+                .buttonStyle(.rigQuiet)
             .accessibilityLabel("Skip the audio setup guide")
         }
         .padding(.bottom, 6)
@@ -165,7 +158,7 @@ struct SetupGuideView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .rigCard(cornerRadius: 9)
+                .rigCard(cornerRadius: RigTheme.Radius.control)
             }
         }
         .accessibilityElement(children: .combine)
@@ -198,24 +191,15 @@ struct SetupGuideView: View {
         .accessibilityLabel("Page \(index + 1) of \(pages.count)")
     }
 
+    /// Both guide buttons come from the shared kit now. They used to be capsules
+    /// filled with `RigTheme.amber` at 11pt over 9pt of padding — about 33pt tall,
+    /// under the HIG minimum, on a screen a player taps while holding a guitar. The
+    /// kit enforces the 44pt floor itself, so the size is no longer a call-site
+    /// decision, and `amberChrome` replaces the hot ember: this is a painted control,
+    /// not a lit one.
     private func chrome(_ title: String, filled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 11, weight: .bold))
-                .tracking(1.2)
-                .foregroundStyle(filled ? .black : RigTheme.textPrimary)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 9)
-                .background {
-                    if filled {
-                        Capsule().fill(RigTheme.amber)
-                    } else {
-                        Capsule().fill(RigTheme.surfaceRaised)
-                            .overlay { Capsule().strokeBorder(RigTheme.surfaceEdge, lineWidth: 1) }
-                    }
-                }
-        }
-        .buttonStyle(.plain)
+        Button(title, action: action)
+            .buttonStyle(RigButtonStyle(role: filled ? .primary : .secondary))
     }
 
     private func move(to next: Int) {

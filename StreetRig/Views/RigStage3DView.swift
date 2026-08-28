@@ -242,7 +242,6 @@ struct RigStage3DView: UIViewRepresentable {
         /// piece is in your hand as a card it must not ALSO be sitting on the
         /// stage — the ghost is the piece, not a copy of it.
         private var liftedNode: SCNNode?
-        private var liftedShadow: SCNNode?
         private var liftedComponent: RigComponent?
         /// True from the moment a lift is recognised until the finger comes up.
         private var lifting = false
@@ -603,13 +602,11 @@ struct RigStage3DView: UIViewRepresentable {
                 // bin actually took it — see `.ended`.
                 node.isHidden = true
                 liftedNode = node
-                // The contact shadow is a separate flat plane, not a cast shadow,
-                // so the piece leaves its blob printed on the floor unless the two
-                // are hidden together. Pedals share one board-wide shadow, so only
-                // the amp and the guitar have one of their own to take along.
-                liftedShadow = node.name.flatMap { view.scene?.rootNode.childNode(withName: $0 + "Shadow",
-                                                                                  recursively: true) }
-                liftedShadow?.isHidden = true
+                // Nothing to do for the shadow any more. It used to need hiding by
+                // hand, because a flat contact-shadow plane is not attached to the
+                // piece and stayed printed on the floor once the piece was lifted out.
+                // The stage now casts a real shadow from the key light, and SceneKit
+                // stops casting for a hidden node — so it leaves with the piece.
                 liftedComponent = component
                 // Take the camera offline for the duration: SceneKit's built-in
                 // controller would otherwise orbit on the very same finger.
@@ -638,10 +635,8 @@ struct RigStage3DView: UIViewRepresentable {
                 // discards this node anyway.
                 if !(intoBin && liftedComponent != .guitar) {
                     liftedNode?.isHidden = false
-                    liftedShadow?.isHidden = false
                 }
                 liftedNode = nil
-                liftedShadow = nil
                 liftedComponent = nil
                 view.allowsCameraControl = true
                 resumeAncestorScrolling()
@@ -1176,23 +1171,28 @@ enum RigDiorama {
 
         scene.rootNode.addChildNode(world)
 
-        // ---- Lighting + grounding shadows + camera.
+        // ---- Lighting + camera.
+        //
+        // NO `addContactShadow` HERE, deliberately. The stage used to draw a fake
+        // blob under the amp, the board and the guitar — a flat `SCNPlane` wearing a
+        // radial gradient, `lightingModel = .constant`, centred under the piece, core
+        // alpha 0.88. That predates the key light casting anything, which it now does
+        // (`Studio3D.addLighting`: 2048 map, PCF radius 8, 16 samples, alpha 0.30) onto
+        // a floor `StageEnvironment` is explicitly set up to receive.
+        //
+        // Running both put TWO shadows under every piece, disagreeing on all three
+        // cues a shadow is read by: shape (symmetric ellipse vs the real silhouette),
+        // direction (centred vs offset along the key) and density (0.88 vs 0.30 — the
+        // fake one nearly three times the darker). The dominant dark shape under each
+        // piece was therefore the one carrying no information about the light, which
+        // is what made the diorama read as cartoony.
+        //
+        // The blob still earns its place in the ISOLATED detail views
+        // (`AmpModel3DView`, `PedalModel3DView`, `GuitarModel3DView`): those scenes
+        // have a `floorY` coordinate but no floor geometry, so a cast shadow has
+        // nothing to land on. This scene has a real floor. If gear ever stops reading
+        // as planted here, raise `key.shadowColor`'s alpha — do not bring the blob back.
         Studio3D.addLighting(to: scene)
-        if amp != nil {
-            // Widened with the amp itself — a 0.70-scale stack casting the old
-            // 0.55-scale shadow reads as floating.
-            Studio3D.addContactShadow(to: scene.rootNode, width: 3.8, height: 2.8,
-                                      at: SCNVector3(-0.1, 0.02, -0.85), name: "ampRootShadow")
-        }
-        if !pedals.isEmpty {
-            Studio3D.addContactShadow(to: scene.rootNode, width: 3.6, height: 1.6, at: SCNVector3(-0.1, 0.02, 0.4))
-        }
-        // Keeps the same 0.1 forward offset it always had, now measured off the
-        // guitar's base rather than repeated as a literal — a leaning guitar touches
-        // the floor at its lower bout, which is exactly where that base is.
-        Studio3D.addContactShadow(to: scene.rootNode, width: 1.7, height: 1.4,
-                                  at: SCNVector3(guitarBase.x, 0.02, guitarBase.y + 0.1),
-                                  name: "guitarRootShadow")
 
         // Natural 3/4 "living-room" view, pulled back a touch so the full amp
         // (head included) fits. Horizontal projection makes the fov span the

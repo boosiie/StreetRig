@@ -71,7 +71,17 @@ struct LoadingView: View {
 
     @State private var messageIndex = Int.random(in: 0..<messages.count)
     @State private var isBreathing = false
+    /// How long the splash holds. Lives HERE rather than in `ContentView` because
+    /// the progress bar has to fill over exactly this long — a bar animating to a
+    /// duration the view does not own is a bar that lies the moment either number
+    /// moves. `ContentView` reads this instead of keeping its own copy.
+    ///
+    /// When the hold is eventually driven by real warmup rather than a timer, this
+    /// becomes the fallback and the bar takes the real fraction.
+    public static let splashDuration: Duration = .seconds(4)
+
     private let rotation = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
+    @State private var progress: CGFloat = 0
 
     var body: some View {
         ZStack {
@@ -158,9 +168,7 @@ struct LoadingView: View {
     /// because a short landscape viewport has no vertical room to spare between
     /// the wordmark and the bottom edge.
     private var statusChrome: some View {
-        HStack(spacing: 10) {
-            CSpinnerView(size: 22, lineWidth: 2.5)
-
+        VStack(spacing: 14) {
             ZStack {
                 // Every message, stacked and hidden, sizes this box to the
                 // LONGEST line and to exactly one line's height. That is the
@@ -178,27 +186,61 @@ struct LoadingView: View {
                     .id(messageIndex)               // new identity → flip transition
                     .transition(.flipDown)
             }
+
+            // A determinate bar, not the spinner that used to sit beside the text.
+            // The splash is a fixed hold, so a bar that fills over it is honest —
+            // and it reads as the amp coming up rather than as the app being busy.
+            // `amber` and not `amberChrome`: this is a lit indicator, closer to a
+            // meter than to a painted control, and light is where saturation belongs.
+            ZStack(alignment: .leading) {
+                Capsule().fill(RigTheme.hairline)
+                Capsule().fill(RigTheme.amber)
+                    .frame(width: 150 * progress)
+                    .shadow(color: RigTheme.amber.opacity(0.7), radius: 5)
+            }
+            .frame(width: 150, height: 3)
         }
+        .task {
+            withAnimation(.linear(duration: Self.splashSeconds)) { progress = 1 }
+        }
+    }
+
+    /// `splashDuration` as a `TimeInterval`, for the bar's animation.
+    private static var splashSeconds: Double {
+        Double(splashDuration.components.seconds)
+            + Double(splashDuration.components.attoseconds) / 1e18
     }
 
     /// One status line, typeset. Shared by the visible line and the hidden
     /// sizers so they cannot drift apart.
     private func statusLine(_ message: String) -> some View {
-        Text(message)
-            .font(.system(.callout, design: .rounded).weight(.medium))
-            .tracking(0.5)
+        // Uppercase and properly tracked. Sentence case at 0.03em read as a caption
+        // under a logo; caps at legend tracking read as a status line on a device,
+        // which is what it is.
+        Text(message.uppercased())
+            .rigLegend(12, weight: .semibold)
             .lineLimit(1)
             .multilineTextAlignment(.center)
     }
 
     // MARK: - Decoration
 
-    /// Dark amp backdrop (tolex gradient).
+    /// Dark amp backdrop.
+    ///
+    /// RADIAL, not a top-to-bottom fade. A linear ramp lights the whole top edge
+    /// evenly, which reads as a gradient someone applied; a pool centred slightly
+    /// above the middle reads as a room with one lamp in it, and it puts the
+    /// brightest ground exactly where the mark sits. The centre is at 0.42 rather
+    /// than 0.5 because the wordmark hangs below the mark, so the pair's optical
+    /// centre is above the frame's.
     private var backdrop: some View {
-        LinearGradient(
-            colors: [RigTheme.backgroundLift, RigTheme.background],
-            startPoint: .top,
-            endPoint: .bottom
+        RadialGradient(
+            colors: [RigTheme.backgroundLift,
+                     RigTheme.background,
+                     Color(red: 0.047, green: 0.031, blue: 0.020)],
+            center: UnitPoint(x: 0.5, y: 0.42),
+            startRadius: 0,
+            endRadius: 520
         )
         .ignoresSafeArea()
     }

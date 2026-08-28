@@ -51,14 +51,12 @@ struct CollectionTabView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("MY GEAR")
-                    .font(.caption2.weight(.bold))
-                    .tracking(1.5)
+                    .rigLegend(11)
                     .foregroundStyle(RigTheme.textMuted)
                 // The standing instruction. One line here beats repeating a hint
                 // on all 47 cards, and the rail is only 150pt wide.
                 Text("HOLD TO PLACE")
-                    .font(.system(size: 8, weight: .medium))
-                    .tracking(0.8)
+                    .rigLegend(8, weight: .medium)
                     .foregroundStyle(RigTheme.textMuted.opacity(0.55))
             }
             .padding(.horizontal, 14)
@@ -93,8 +91,12 @@ struct CollectionTabView: View {
             railHintShown = true
         }
         .background(RigTheme.background.opacity(0.55))
+        // THE RAIL'S EDGE. This is one of the app's few real boundaries — the gear
+        // you own on one side, the page you are using it on the other — and it is the
+        // kind of line that earns brass. It was `white.opacity(0.07)`, which on a warm
+        // espresso ground greys out and reads as a seam rather than trim.
         .overlay(alignment: .trailing) {
-            Rectangle().fill(Color.white.opacity(0.07)).frame(width: 1)
+            Rectangle().fill(RigTheme.edgeBrass).frame(width: 1)
         }
         .overlay {
             Rectangle()
@@ -124,8 +126,7 @@ struct CollectionTabView: View {
     private func section(_ title: String, items: [GearItem]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.system(size: 10, weight: .semibold))
-                .tracking(1.2)
+                .rigLegend(10, weight: .semibold)
                 .foregroundStyle(RigTheme.trim.opacity(0.9))
             // Named rather than `$0`: the tour's anchor needs the id a second
             // time, and three `$0.id`s in a row stops reading as one card.

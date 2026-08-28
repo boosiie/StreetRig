@@ -1085,7 +1085,7 @@ private struct ARPedalPicker: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity)
-            .rigCard(cornerRadius: 14,
+            .rigCard(cornerRadius: RigTheme.Radius.control,
                      stroke: boundElsewhere == nil ? RigTheme.surfaceEdge : RigTheme.amber.opacity(0.5))
         }
         .buttonStyle(.plain)
