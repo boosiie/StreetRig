@@ -18,12 +18,22 @@
 //  — but nobody debugs an amp sim, they delete it. So the audio route gets said
 //  first, while it can still prevent something.
 //
-//  EVERY AUDIO CLAIM ON THESE FOUR PAGES IS TRACEABLE, and deliberately no
+//  EVERY AUDIO CLAIM ON THESE FIVE PAGES IS TRACEABLE, and deliberately no
 //  further than that. The 42 dB, the 172/163 ms round trip, the ≈25 ms wired
 //  figure, the speaker compensation and the reason `.allowBluetoothA2DP` stays
 //  on are all written down in `AudioEngineController` as things measured on real
-//  hardware. Nothing here rounds them into a better story. If those numbers are
-//  ever re-measured, this file is the second place to change.
+//  hardware; the −56 dBFS line and the 4:1 slope on the last page are
+//  `DSPKernel`'s own constants. Nothing here rounds them into a better story. If
+//  those numbers are ever re-measured, this file is the second place to change.
+//
+//  WHY THERE IS A FIFTH PAGE ABOUT NOISE. The Bluetooth page exists because the
+//  first minute is where a new player decides the app is broken; the noise page
+//  exists because the first HOUR is. A cranked amp model hisses between notes
+//  and howls if the phone can hear its own speaker, and the reasonable reading
+//  of that is "this thing is badly made". It isn't — it is what the amplifier
+//  we are copying does — but nobody debugs an amp sim, so the page says both
+//  halves of it: the noise is real, and a noise gate is what shuts it. The long
+//  version, including the echo, is `FAQView`.
 //
 //  LANDSCAPE SHAPE: illustration left, prose right, on one row. A stacked card
 //  would put the drawing off the bottom of a 382-point-tall viewport.
@@ -212,11 +222,11 @@ struct SetupGuideView: View {
     }
 }
 
-// MARK: - The four pages
+// MARK: - The five pages
 
 /// One page of the guide: the words, and the drawing that moves beside them.
 ///
-/// Held as data rather than as four `View` cases so the order, the count and the
+/// Held as data rather than as five `View` cases so the order, the count and the
 /// dots are one array — the same reasoning as `AppPage` in the shell.
 struct SetupGuidePage {
     let kicker: String
@@ -228,7 +238,7 @@ struct SetupGuidePage {
     let measuredNote: String?
     let illustrationKind: Kind
 
-    enum Kind { case plugIn, wireless, outputs, levels }
+    enum Kind { case plugIn, wireless, outputs, levels, gate }
 
     @ViewBuilder
     func illustration(_ reduceMotion: Bool) -> some View {
@@ -237,6 +247,7 @@ struct SetupGuidePage {
         case .wireless: WirelessDelayIllustration(reduceMotion: reduceMotion)
         case .outputs:  OutputChoicesIllustration(reduceMotion: reduceMotion)
         case .levels:   LevelsIllustration(reduceMotion: reduceMotion)
+        case .gate:     GateIllustration(reduceMotion: reduceMotion)
         }
     }
 
@@ -293,6 +304,20 @@ struct SetupGuidePage {
             measuredNote: "OUTPUT carries your round-trip latency live — with the "
                         + "word \"wireless\" beside it when it applies.",
             illustrationKind: .levels
+        ),
+        SetupGuidePage(
+            kicker: "5 · WHEN IT ROARS",
+            title: "The noise is the amp. Gate it",
+            paragraphs: [
+                "An amp with the gain up hisses between notes and howls if it can "
+                + "hear its own speaker. We are modelling real amplifiers to the best "
+                + "of our ability, so ours does too — and the fix is the real one: put "
+                + "a noise gate on the board."
+            ],
+            measuredNote: "The rig already pulls anything under −56 dBFS down 4:1, and "
+                        + "raises that line as you raise the gain. A gate pedal is the "
+                        + "rest of it, in the GEAR LIBRARY.",
+            illustrationKind: .gate
         )
     ]
 }

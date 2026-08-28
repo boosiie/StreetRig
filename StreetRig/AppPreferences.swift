@@ -104,6 +104,17 @@ enum AppPreferences {
     /// been shown around.
     static var onboardingCompleted: Bool { flag(onboardingComplete, default: false) }
 
+    // MARK: - Tone presets
+
+    /// The id of the last preset loaded from the TONES page, so reopening it
+    /// lands on the one you last chose rather than back at the top of the list.
+    ///
+    /// "LAST LOADED", NOT "CURRENT" — and the tag on the row says exactly that.
+    /// The moment the player turns one knob the rig is no longer the preset, and
+    /// a page claiming otherwise would be wrong within seconds of being right.
+    /// What this key can honestly remember is which one they pressed.
+    static let lastPresetLoaded = "streetrig.lastPresetLoaded"
+
     // MARK: - Reading (for the non-SwiftUI side)
 
     /// `@AppStorage` is a SwiftUI property wrapper and needs a view to live in;

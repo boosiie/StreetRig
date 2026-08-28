@@ -22,8 +22,8 @@
 //  that none of it works, and then the half that does gets ignored too. The
 //  "Help & guides" section at the bottom shipped for one release as a bare
 //  heading over a single sentence, for exactly this reason: a heading is an
-//  honest promise, a greyed-out button is not. It now holds the three entry
-//  points it promised, and the same rule still applies to anything added next.
+//  honest promise, a greyed-out button is not. It now holds four live entry
+//  points, and the same rule still applies to anything added next.
 //
 //  WHERE THE VALUES GO. Straight into `UserDefaults`, under the keys registered
 //  in `AppPreferences` — including the two audio ones, which the audio engine
@@ -69,6 +69,12 @@ struct PreferencesView: View {
     /// and re-reads the flag. See `onboardingWillReplay`.
     @State private var onboardingResetAt: Date?
 
+    /// The FAQ is a page you go to, not a section you scroll to — the same call
+    /// `ProfileView` makes about this page. It is six long answers; folded into
+    /// the list they would be most of the settings page, and every switch above
+    /// them would end up below a wall of prose.
+    @State private var showingFAQ = false
+
     /// Back to the profile page. Settings is its own page now, so it owns a
     /// title bar and a way out rather than being a column somebody scrolled past.
     var onClose: (() -> Void)?
@@ -87,18 +93,28 @@ struct PreferencesView: View {
     /// headings in the app's small caps. The palette is unchanged, which is what
     /// keeps it StreetRig's settings page rather than a different app's.
     var body: some View {
-        VStack(spacing: 0) {
-            titleBar
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    audioSection
-                    displaySection
-                    privacySection
-                    helpSection
+        ZStack {
+            if showingFAQ {
+                FAQView(onClose: {
+                    withAnimation(.easeInOut(duration: 0.26)) { showingFAQ = false }
+                })
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else {
+                VStack(spacing: 0) {
+                    titleBar
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            audioSection
+                            displaySection
+                            privacySection
+                            helpSection
+                        }
+                        .padding(.bottom, 14)
+                    }
+                    .scrollIndicators(.hidden)
                 }
-                .padding(.bottom, 14)
+                .transition(.move(edge: .leading).combined(with: .opacity))
             }
-            .scrollIndicators(.hidden)
         }
     }
 
@@ -225,7 +241,12 @@ struct PreferencesView: View {
     //
     // THE PROMISE THIS SECTION MADE, KEPT. It shipped as a bare heading over one
     // sentence because a heading is an honest promise and a disabled button is
-    // not; the three entry points it named are now here.
+    // not; the entry points it named are now here, plus the FAQ.
+    //
+    // FOUR ROWS, AND THE FIRST ONE IS NOT A GUIDE. "Common questions" answers
+    // the two things people actually report -- an echo, and a horrible noise
+    // between notes -- and it lands above the guides because somebody with a
+    // noise in their ears is not looking to be walked around the app again.
     //
     // WHY BOTH GUIDES ARE REACHABLE FOREVER. The first-launch chain is skippable
     // at every single step, and it has to be — a landscape-locked tutorial with
@@ -242,6 +263,18 @@ struct PreferencesView: View {
     private var helpSection: some View {
         section("HELP & GUIDES") {
             VStack(spacing: 7) {
+                // FIRST, ahead of both guides. The guides are things you re-run;
+                // this is the one somebody opens WITH A PROBLEM — a noise in
+                // their ears right now — and it is the only row here that
+                // answers a question rather than restarting a walkthrough.
+                actionRow(
+                    title: "Common questions",
+                    note: "The echo, the noise between notes, and the gate that shuts them up.",
+                    symbol: "questionmark.circle"
+                ) {
+                    withAnimation(.easeInOut(duration: 0.26)) { showingFAQ = true }
+                }
+
                 actionRow(
                     title: "Audio setup guide",
                     note: "Interfaces, adapters, and why Bluetooth makes an amp sim feel broken.",
