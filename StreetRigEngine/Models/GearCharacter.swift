@@ -115,8 +115,7 @@ public enum GearCharacter {
         ("chromatic tuner", "Mutes while you tune"),
 
         // ---- Guitar -----------------------------------------------------------
-        ("les paul",        "Humbuckers, thick"),
-        ("strat",           "Single coils, bright")
+        ("preston",         "Humbuckers, thick")
     ]
 
     /// The fallback when a name matches nothing. Deliberately thin: a category line

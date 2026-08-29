@@ -67,6 +67,22 @@ public enum GearCatalog {
         return h
     }
 
+    /// The name the catalog ships for an id, or nil if the id names nothing.
+    ///
+    /// Exists so a matcher that keys off the display name can resolve a RETIRED
+    /// name to the name it became and match that instead. Without it the matcher
+    /// would have to list the retired names as literals, which is exactly what
+    /// `idByRetiredName` is fingerprinted to avoid.
+    public static func currentName(forID id: String) -> String? { nameByID[id] }
+
+    static let nameByID: [String: String] = {
+        var out: [String: String] = [:]
+        for m in RigStore.allModels {
+            if let id = m.catalogID { out[id] = m.name }
+        }
+        return out
+    }()
+
     /// Every id the catalog ships, for the integrity checks in `CatalogCheck`.
     public static var allIDs: [String] { RigStore.allModels.compactMap(\.catalogID) }
 

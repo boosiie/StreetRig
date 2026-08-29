@@ -120,8 +120,8 @@ extension GearModelLoader {
     /// sitting with its base on `target`'s floor.
     ///
     /// Uniform (not per-axis) scaling on purpose — matching all three extents would
-    /// stretch the model to the procedural silhouette's proportions, and a Strat is
-    /// not a Les Paul. Height is the axis that matters: it is what the eye compares
+    /// stretch the model to the procedural silhouette's proportions, and a
+    /// double-cut is not a single-cut. Height is the axis that matters: it is what the eye compares
     /// against the amp, and the guitar is the tallest thing on the stage.
     ///
     /// `yaw` is applied BEFORE measuring, so the fit accounts for the turned

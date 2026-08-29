@@ -943,8 +943,8 @@ enum RigDiorama {
     /// So: tip the guitar until its geometry first meets the stool, by bisection. The
     /// stool is treated as a solid cylinder from the boards up to the seat, and first
     /// contact lands on the rim where a leaning guitar actually rests. Because the
-    /// answer is measured, a different guitar — a Les Paul is a very different
-    /// silhouette from a Strat — comes to rest correctly without retuning anything.
+    /// answer is measured, a different guitar — a single-cut is a very different
+    /// silhouette from a double-cut — comes to rest correctly without retuning anything.
     ///
     /// Yaw alone when there is no stool, or when the guitar is too short to reach it
     /// at `maxGuitarLean`, which stands it up straight — the pose it had before there
@@ -1211,7 +1211,7 @@ enum RigDiorama {
         pedals: [GearItem(name: "Iberon Valve Shrieker", category: .overdrive),
                  GearItem(name: "BRIG Digital Delay", category: .delay),
                  GearItem(name: "BRIG Reverb", category: .reverb)],
-        guitar: GearItem(name: "Les Paul Standard", category: .guitar),
+        guitar: GearItem(name: "Lyle Preston Standard", category: .guitar),
         focused: nil,
         dropArea: RigDropArea(),
         controller: RigDragController()

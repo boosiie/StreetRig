@@ -275,18 +275,26 @@ public enum ParameterMap {
     /// still reads as a BigMitt). Each drive model gets its own circuit voicing in
     /// DrivePedal; modulation picks its algorithm.
     public static func pedalVoicing(name: String, category: GearCategory) -> Int {
-        let n = name.lowercased()
+        // A RETIRED name is matched as the name it became, so a rig restored from
+        // an AUv3 host session keeps the voicing it was saved with -- the same
+        // guarantee `ampProfile` gives amps. Resolving through the id is what lets
+        // the tokens below name only CURRENT models: matching the old names
+        // directly would mean listing the retired makers' model designations as
+        // literals, putting those marks straight back into the binary.
+        let resolved = GearCatalog.retiredID(forName: name)
+            .flatMap { GearCatalog.currentName(forID: $0) } ?? name
+        let n = resolved.lowercased()
         switch category {
         case .overdrive:
             // Specific models first, then generic keywords.
-            if n.contains("shrieker") || n.contains("ts808") || n.contains("ts9") { return voiceValveShrieker }
+            if n.contains("shrieker")                          { return voiceValveShrieker }
             if n.contains("satyr") || n.contains("chiron")     { return voiceChiron }
             if n.contains("duke")                              { return voiceKingOfTone }
             if n.contains("fixation")                          { return voiceFixation }
             if n.contains("blues")                             { return voiceBluesBlazer }  // BLUES BLAZER / blues driver
-            if n.contains("metal") || n.contains("mt-2") || n.contains("mt2") { return voiceMetalRealm }
+            if n.contains("metal")                             { return voiceMetalRealm }
             if n.contains("shrew")                             { return voiceShrew }
-            if n.contains("ds-1") || n.contains("ds1") || n.contains("distortion") { return voiceDS1 }
+            if n.contains("distortion")                        { return voiceDS1 }
             if n.contains("mitt")                              { return voiceBigMitt }
             if n.contains("foundry")                           { return voiceFuzzFoundry }
             if n.contains("fuzz")                              { return voiceFuzzDome }

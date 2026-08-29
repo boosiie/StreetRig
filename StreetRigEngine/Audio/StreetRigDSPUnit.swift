@@ -984,13 +984,13 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
                                     arSlots: nil)
         }
         // Clean Combo — Fandor Deluxe combo, no pedals.
-        let g1 = GearItem(name: "Les Paul Standard", category: .guitar)
+        let g1 = GearItem(name: "Lyle Preston Standard", category: .guitar)
         let combo = GearItem(name: "Fandor Deluxe", category: .comboAmp,
                              values: ["Gain": 3, "Bass": 6, "Mid": 5, "Treble": 6, "Presence": 5, "Master": 5])
         let clean = state(guitar: g1, amp: .combo(comboId: combo.id), gear: [combo], pedals: [])
 
         // British Crunch — ValveShrieker → MSW900 + 4x12 (slot 0 is a DRIVE pedal).
-        let g2 = GearItem(name: "Les Paul Standard", category: .guitar)
+        let g2 = GearItem(name: "Lyle Preston Standard", category: .guitar)
         let jcm = GearItem(name: "Marswell MSW900", category: .amp,
                            values: ["Gain": 6, "Bass": 5, "Mid": 6, "Treble": 6, "Presence": 5, "Master": 6])
         let cab412 = GearItem(name: "Marswell 2415A 4x12", category: .cabinet)
@@ -1000,7 +1000,7 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
                            gear: [jcm, cab412, ts], pedals: [ts.id])
 
         // High-Gain Stack — ValveShrieker + BigMitt → Mesquite Dual Reactor + 4x12.
-        let g3 = GearItem(name: "Les Paul Standard", category: .guitar)
+        let g3 = GearItem(name: "Lyle Preston Standard", category: .guitar)
         let mesquite = GearItem(name: "Mesquite Dual Reactor", category: .amp,
                             values: ["Gain": 8, "Bass": 6, "Mid": 4, "Treble": 6, "Presence": 6, "Master": 5])
         let cabHG = GearItem(name: "Marswell 2415A 4x12", category: .cabinet)
@@ -1016,7 +1016,7 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
         // Character / Variation / Power, so a channel needs no schema of its own.
         // APPENDED, never inserted: a host may have stored `preset.number`, so the
         // three presets above must keep numbers 0, 1 and 2 forever.
-        let g4 = GearItem(name: "Les Paul Standard", category: .guitar)
+        let g4 = GearItem(name: "Lyle Preston Standard", category: .guitar)
         let katCrunch = GearItem(name: "BRIG Kabuto 100", category: .comboAmp,
                                  values: ["Gain": 6, "Bass": 5, "Mid": 6, "Treble": 6,
                                           "Presence": 5, "Volume": 6, "Master": 5,
@@ -1026,7 +1026,7 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
 
         // Brown B at 0.5 W: the power control doing the thing it exists for —
         // output-stage saturation at a level you could rehearse at.
-        let g5 = GearItem(name: "Les Paul Standard", category: .guitar)
+        let g5 = GearItem(name: "Lyle Preston Standard", category: .guitar)
         let katBrown = GearItem(name: "BRIG Kabuto 100", category: .comboAmp,
                                 values: ["Gain": 7, "Bass": 5, "Mid": 6, "Treble": 6,
                                          "Presence": 6, "Volume": 8, "Master": 5,

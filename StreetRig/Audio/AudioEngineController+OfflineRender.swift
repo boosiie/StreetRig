@@ -1236,7 +1236,7 @@ extension AudioEngineController {
     /// the app takes. The cab is then bypassed so the measurement is the amp.
     private func ampPlan(_ name: String, _ category: GearCategory,
                          values: [String: Double]) -> (plan: RigDSPPlan, item: GearItem) {
-        let guitar = GearItem(name: "Les Paul Standard", category: .guitar)
+        let guitar = GearItem(name: "Lyle Preston Standard", category: .guitar)
         var amp = GearItem(name: name, category: category)
         for (k, v) in values { amp.values[k] = v }
         var collection = [guitar, amp]
@@ -1747,7 +1747,7 @@ extension AudioEngineController {
         var savedOK = false, savedDetail = "could not decode the legacy GearItem JSON"
         if let data = oldJSON.data(using: .utf8),
            let oldAmp = try? JSONDecoder().decode(GearItem.self, from: data) {
-            let guitar = GearItem(name: "Les Paul Standard", category: .guitar)
+            let guitar = GearItem(name: "Lyle Preston Standard", category: .guitar)
             let plan = RigGraphCompiler.compile(
                 collection: [guitar, oldAmp],
                 rig: RigConfiguration(guitarId: guitar.id,
@@ -1966,7 +1966,7 @@ extension AudioEngineController {
         let json: [String: Any] = [
             "catalogVersion": 3,
             "collection": [
-                ["id": guitarId.uuidString, "name": "Les Paul Standard",
+                ["id": guitarId.uuidString, "name": "Lyle Preston Standard",
                  "category": "guitar", "values": [String: Double]()],
                 ["id": ampId.uuidString, "name": "BRIG Kabuto 100", "category": "comboAmp",
                  "values": ["Gain": 6, "Bass": 5, "Mid": 5, "Treble": 5, "Presence": 5, "Master": 6]],
@@ -2642,7 +2642,7 @@ extension AudioEngineController {
         var backCompat = false, bcDetail = "could not decode the legacy GearItem JSON"
         if let data = oldJSON.data(using: .utf8),
            let oldAmp = try? JSONDecoder().decode(GearItem.self, from: data) {
-            let guitar = GearItem(name: "Les Paul Standard", category: .guitar)
+            let guitar = GearItem(name: "Lyle Preston Standard", category: .guitar)
             let plan = RigGraphCompiler.compile(
                 collection: [guitar, oldAmp],
                 rig: RigConfiguration(guitarId: guitar.id,
@@ -2866,7 +2866,7 @@ extension AudioEngineController {
         let wrongAmp = KabutoChannelStore.load(channel: 0, ampName: "Marswell MSW900 2140")
         // …and the panels must compile to DIFFERENT chains, or the round-trip
         // would be proving nothing but that a dictionary survives JSON.
-        let guitar = GearItem(name: "Les Paul Standard", category: .guitar)
+        let guitar = GearItem(name: "Lyle Preston Standard", category: .guitar)
         func sig(_ v: [String: Double]) -> String {
             var amp = GearItem(name: ampName, category: .comboAmp)
             for (k, x) in v { amp.values[k] = x }
@@ -2977,7 +2977,7 @@ extension AudioEngineController {
         let blob: [String: Any] = [
             "catalogVersion": 3,
             "collection": [
-                ["id": guitarId.uuidString, "name": "Les Paul Standard",
+                ["id": guitarId.uuidString, "name": "Lyle Preston Standard",
                  "category": "guitar", "values": [String: Double]()],
                 ["id": ampId.uuidString, "name": "BRIG Kabuto 100", "category": "comboAmp",
                  "values": ["Gain": 6, "Bass": 5, "Mid": 5, "Treble": 5, "Presence": 5, "Master": 6,

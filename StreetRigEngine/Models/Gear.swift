@@ -409,7 +409,7 @@ enum PedalSpec {
             if n.contains("chiron") || n.contains("satyr")         { return p(["Gain", "Treble", "Output"]) }
             if n.contains("shrew")                                 { return p(["Distortion", "Filter", "Volume"]) }
             if n.contains("metal")                                 { return p(["Level", "Dist", "Low", "Mid", "Mid Freq", "High"]) }
-            if n.contains("ds-1") || n.contains("ds1") || n.contains("distortion") { return p(["Tone", "Level", "Dist"]) }
+            if n.contains("distortion")                            { return p(["Tone", "Level", "Dist"]) }
             if n.contains("fixation")                              { return p(["Volume", "Drive", "Tone"]) }
             if n.contains("duke")                                  { return p(["Volume", "Tone", "Drive"]) }
             if n.contains("blues")                                 { return p(["Gain", "Tone", "Volume"]) }
