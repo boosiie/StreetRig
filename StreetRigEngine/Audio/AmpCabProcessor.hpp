@@ -11,7 +11,7 @@
 //  ONE AMP IS FIVE SUBSYSTEMS, and three of them arrived with the profile system:
 //  the preamp CASCADE (AnalogAmp), the per-amp voiced tone stack, and the power
 //  amp with its headroom, sag, negative-feedback loop and output transformer.
-//  Which of the five an amp emphasises is what makes a JCM800 not a Twin — see
+//  Which of the five an amp emphasises is what makes a MSW900 not a Tandem — see
 //  AmpProfile.hpp.
 //
 //  MODEL / IR HAND-OFF (the step-1 ready-flag pattern, generalized): the neural
@@ -50,7 +50,7 @@ struct AmpCabParams {
     bool  useNeural = false;   ///< prefer the neural capture when one is loaded
     float drive     = 3.0f;    ///< linear pre-gain into the FIRST preamp stage ("Gain")
     float ampOut    = 1.0f;    ///< post-amp makeup gain (amp "Master")
-    /// Channel volume INTO the power amp. Unity = 1.0. On a real Katana this is
+    /// Channel volume INTO the power amp. Unity = 1.0. On a real Kabuto this is
     /// what decides how hard the character drives the output stage, while Master
     /// sets the room level — which is exactly why players talk about the two
     /// knobs the way they do. Legacy amps leave it at unity.
@@ -68,12 +68,12 @@ struct AmpCabParams {
 ///
 /// WHAT CHANGED WITH PROFILES, and why it matters more than anything else in the
 /// amp path: a real passive TMB network is NOT flat with its knobs at noon. A
-/// Fender scoops ~11 dB at ~400 Hz, a Marshall ~7 dB at ~650 Hz, a Vox barely
+/// Fandor scoops ~11 dB at ~400 Hz, a Marswell ~7 dB at ~650 Hz, a Vane barely
 /// scoops at all and is mid-FORWARD. This stack used to be flat at noon for
 /// every amp, which is precisely why they all sounded the same even before the
 /// gain stages were considered. `ToneBand::noonDB` fixes that, the controls
 /// interact (`bassEatsMid`), a knob can run backwards (negative `rangeScale` —
-/// the Vox Cut), and a band can simply not exist.
+/// the Vane Cut), and a band can simply not exist.
 ///
 /// ALL OF THAT ARITHMETIC IS FREE AT RENDER TIME. It happens inside `recompute()`
 /// on the main thread; the render path still runs the same four biquads. It is
@@ -132,15 +132,15 @@ private:
 ///
 ///     × Volume → NFB shelf → presence shelf → sag → [2× output clip] → OT
 ///
-/// • HEADROOM is where the output valves run out of swing. A Twin's 6L6 pair on
-///   a stiff supply has enormous headroom; an AC30's cathode-biased EL84 quartet
-///   runs out early, and THAT is the AC30. Expressed as `h · shape(x / h)`, so
+/// • HEADROOM is where the output valves run out of swing. A Tandem's 6L6 pair on
+///   a stiff supply has enormous headroom; an HV28's cathode-biased EL84 quartet
+///   runs out early, and THAT is the HV28. Expressed as `h · shape(x / h)`, so
 ///   below `h` the stage is transparent and above it it saturates.
 /// • SAG is the supply drooping under load and recovering with a time constant,
 ///   so a hard chord ducks and blooms back. Tube-rectified amps sag hard; the
-///   JC-120 does not sag at all.
+///   RM-140 does not sag at all.
 /// • THE NEGATIVE-FEEDBACK LOOP reduces gain, tightens the low end and darkens
-///   the top. Marshall and Fender use it heavily; the AC30 has NONE, which is a
+///   the top. Marswell and Fandor use it heavily; the HV28 has NONE, which is a
 ///   large part of why it feels loose.
 /// • PRESENCE IS NOT AN EQ BAND. It is a control inside that feedback loop that
 ///   shunts part of the feedback to ground, so the frequencies it removes from
@@ -153,7 +153,7 @@ private:
 ///   the profile instead of being hard-coded at 6 kHz / ±9 dB for everything.
 /// • THE OUTPUT TRANSFORMER is two first-order rolloffs — enough to separate a
 ///   small EL84 OT (80 Hz / 8 kHz) from a big 6L6 OT (45 Hz / 11 kHz) from the
-///   JC-120's transformerless direct-coupled output (30 Hz / 14 kHz). The
+///   RM-140's transformerless direct-coupled output (30 Hz / 14 kHz). The
 ///   frequency-dependent damping (the true "bloom") needs a speaker impedance
 ///   model in the feedback path and is deliberately deferred.
 ///
@@ -179,7 +179,7 @@ public:
     void configure(const AmpProfile &profile) noexcept;
 
     /// Presence, in dB as the knob sends it; the profile's `presenceScale`
-    /// (which may be NEGATIVE — the Vox Cut — or zero) is applied here. Designs
+    /// (which may be NEGATIVE — the Vane Cut — or zero) is applied here. Designs
     /// into the inactive coefficient set and flips, exactly like ToneStack.
     /// Main thread.
     void setPresenceDB(float dB) noexcept;
@@ -264,7 +264,7 @@ public:
     /// (call inside the reconfigure barrier). Mirrors `PedalChain::configureSlot`.
     void configureAmp(int voicing) noexcept;
     int  activeAmpProfile() const noexcept { return profileId_; }
-    /// Does the active profile model an amp with no speaker (Katana ACOUSTIC)?
+    /// Does the active profile model an amp with no speaker (Kabuto ACOUSTIC)?
     bool profileBypassesCab() const noexcept { return profileBypassCab_; }
 
     /// Atomically install a new neural model (takes ownership). Passing nullptr

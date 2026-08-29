@@ -8,20 +8,20 @@ architecture exists, and what to paste into a fresh Claude Code session to do it
 
 ---
 
-## The headline: do NOT repeat the Katana process
+## The headline: do NOT repeat the Kabuto process
 
-The Katana took three prompts — research → architecture → FX blocks — because it was building the
+The Kabuto took three prompts — research → architecture → FX blocks — because it was building the
 *template*, not an amp. That work is done. **Adding amp number seven is one id, one table row, and
 one name match.** No new class, no parameter address, no signature change, no UI, no migration, no
 `catalogVersion` bump.
 
 If a fresh session starts by proposing a research doc for a new amp, it has misread the situation.
 Point it at `research/amp-profile-implementation-notes.md` §2, which contains the entire diff for
-adding a Plexi 1959.
+adding a Clearpane 1042.
 
 ---
 
-## How the Katana work actually went, in one pass
+## How the Kabuto work actually went, in one pass
 
 Useful mainly as a record of what the three-prompt arc was *for*:
 
@@ -32,15 +32,15 @@ Useful mainly as a record of what the three-prompt arc was *for*:
 2. **Find the precedent already in the repo.** `DrivePedal::Voice` / `voiceFor()` already solved
    this exact problem for pedals. The amp schema is a copy of its shape, not an invention. Look for
    the existing pattern before designing a new one.
-3. **Make the hard case the test case.** The Katana is itself a modeling amp, so its five characters
+3. **Make the hard case the test case.** The Kabuto is itself a modeling amp, so its five characters
    are five different amps in one box — a free stress test. Two schema fields exist *because* it
-   pushed back: `bypassCab` and negative `rangeScale` (which is what lets the Vox Cut work
-   backwards). Both came out general rather than Katana-specific.
-4. **Prove generality by implementing five more amps**, not by asserting it. JCM800, Twin, AC30,
-   JC-120, Bassman shipped alongside the Katana for exactly this reason.
+   pushed back: `bypassCab` and negative `rangeScale` (which is what lets the Vane Cut work
+   backwards). Both came out general rather than Kabuto-specific.
+4. **Prove generality by implementing five more amps**, not by asserting it. MSW900, Tandem, HV28,
+   RM-140, Bassdude shipped alongside the Kabuto for exactly this reason.
 5. **Verify by measurement, not argument.** The offline harness renders through the real AU graph.
    It caught two things reasoning did not: the doc's default `PowerAmpVoicing` silently clipped the
-   Legacy path, and the JC-120's 25 kHz Miller poles sat above Nyquist and rendered the entire amp
+   Legacy path, and the RM-140's 25 kHz Miller poles sat above Nyquist and rendered the entire amp
    as NaN.
 
 ---
@@ -64,13 +64,13 @@ any name the matcher does not recognise, and is bit-exact with the pre-profile e
 
 | id | amp | id | amp |
 |---|---|---|---|
-| 0 | Legacy (fallback) | 7 | Freedman BE-100 |
-| 1 | Marswell JCM800 2203 | 8 | Mesa Boogey Dual Rectifier |
-| 2 | Fandor Twin Reverb | 9 | Tangerine Rockerverb 100 |
-| 3 | Volt AC30 | 10–19 | VOSS Katana 100 (5 characters × A/B) |
-| 4 | Rolund JC-120 | 20 | Marswell DSL40C |
-| 5 | Fandor Bassman '59 | 21+ | **open** |
-| 6 | Marswell Plexi Super Lead 1959 | | |
+| 0 | Legacy (fallback) | 7 | Fremont GX-140 |
+| 1 | Marswell MSW900 2140 | 8 | Mesquite Bootleg Dual Reactor |
+| 2 | Fandor Tandem Reverb | 9 | Tangerine Rumblecrest 100 |
+| 3 | Vane HV28 | 10–19 | BRIG Kabuto 100 (5 characters × A/B) |
+| 4 | Rondell RM-140 | 20 | Marswell VCX45C |
+| 5 | Fandor Bassdude '59 | 21+ | **open** |
+| 6 | Marswell Clearpane Stellar Lead 1042 | | |
 
 A new amp takes **21 or higher**. Ids are append-only and must never be reused — they appear in
 `RigDSPPlan.signature` and a saved rig's amp name resolves to one.
@@ -90,7 +90,7 @@ Voice [AMP NAME] in StreetRig's amp profile system. It is [in the catalog as
 
 Read these first, in order:
 - research/amp-profile-implementation-notes.md — §2 is a complete worked example of
-  adding an amp (the Plexi 1959). Your change should look exactly like it.
+  adding an amp (the Clearpane 1042). Your change should look exactly like it.
 - research/amp-emulation-approaches.md — §2 is the schema field-by-field, §3 has six
   filled-in amps to calibrate against, §11 is the tuning table format.
 - StreetRigEngine/Audio/AmpProfile.hpp and .cpp — the enum and the one auditable table.
@@ -131,7 +131,7 @@ Same as above, but insert before "What the amp needs":
 ```
 This amp likely needs a schema extension: [WHAT IT DOES THAT THE PROFILE CANNOT EXPRESS].
 Design the extension to be GENERAL, not specific to this amp — the precedent is `bypassCab`
-and negative `rangeScale`, both added because the Katana pushed back and both usable by any
+and negative `rangeScale`, both added because the Kabuto pushed back and both usable by any
 amp. Add the field to the struct with a NEUTRAL default so every existing profile is
 unaffected, and prove that with the bit-exact Legacy null test.
 ```
@@ -160,7 +160,7 @@ actually went wrong or was nearly missed:
 ## What still needs ears, for any amp you add
 
 Nothing in the amp system has been heard by anyone yet — every result to date is measured, not
-listened to. The offline harness writes `StreetRig_amp_ab.wav` and `StreetRig_katana_ab.wav` to
+listened to. The offline harness writes `StreetRig_amp_ab.wav` and `StreetRig_kabuto_ab.wav` to
 Documents for A/B on the same DI. §11 of `amp-emulation-approaches.md` is the tuning table: every
 hard-coded value with its plausible range, what to listen for, and a confidence flag, so iRig time
 goes where it pays. Values are all in one table by design — say what sounds wrong and it is a

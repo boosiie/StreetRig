@@ -9,7 +9,7 @@
 //  HOW IT WORKS — the SAME name convention as the icons (see GearIconLoader).
 //  Resolution order for a piece, first hit wins:
 //    1. GearItem.modelName        — an explicit stored override (the original amp seam).
-//    2. <slug(item.name)>.usdz    — the bespoke per-piece model  ("Tube Screamer" → tube-screamer.usdz).
+//    2. <slug(item.name)>.usdz    — the bespoke per-piece model  ("ValveShrieker" → tube-shrieker.usdz).
 //    3. category-<raw>.usdz       — an optional shared per-category model (e.g. category-overdrive.usdz).
 //    4. nil                       — the caller builds the procedural stand-in, exactly as before.
 //
@@ -33,8 +33,10 @@ enum GearModelLoader {
         if let explicit = item.modelName, let node = AmpScene.load(usdzNamed: explicit) {
             return node
         }
-        // 2. Bespoke, per-piece model by slugged name.
-        let slug = GearIconLoader.slug(item.name)
+        // 2. Bespoke, per-piece model, under the same key the icon and the panel
+        //    plate use — the frozen `catalogID`, or a slugged name for gear with
+        //    no catalog entry.
+        let slug = GearCatalog.id(for: item) ?? GearIconLoader.slug(item.name)
         if !slug.isEmpty, let node = AmpScene.load(usdzNamed: slug) {
             return node
         }

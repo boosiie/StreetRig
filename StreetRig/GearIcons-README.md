@@ -14,10 +14,24 @@ existing procedural art, unchanged.
 ## How it works
 
 Every gear icon in the app routes through one SwiftUI view, `GearArtView(item:)`. At
-render time it asks `GearIconLoader` for a custom image. The loader turns the piece's
-**display name** into an **asset name** (a "slug") and looks it up in
-`StreetRig/Assets.xcassets`. If a matching image exists, it wins (fitted, never
-stretched); if not, the built-in procedural art renders as the fallback.
+render time it asks `GearIconLoader` for a custom image. The loader takes the piece's
+**catalog ID** — its permanent identifier, written out beside the name in
+`RigStore.allModels` — and looks that up in `StreetRig/Assets.xcassets`. If a matching
+image exists, it wins (fitted, never stretched); if not, the built-in procedural art
+renders as the fallback.
+
+**The catalog ID, not the display name.** The two look alike, because an ID was
+originally minted by slugging the name it shipped under — but they parted company the
+moment the catalog was renamed. A model's display name can change in any release; its
+ID never does. File art under the ID and it stays attached; file it under a slugged
+name and the next re-badge silently strips the piece back to procedural art, with no
+error and nothing in the build output. The IDs are the first string on each `mk(...)`
+row in `RigStore.allModels`, and that list is the authority.
+
+Gear the app did not ship — anything hand-named — has no ID, and falls back to slugging
+its display name by the rule below. That is also the rule that MINTS an ID for a model
+being added to the catalog for the first time: slug the name once, write the result
+into `allModels`, then leave it alone forever.
 
 Because the Xcode project uses **synchronized file groups**, any valid `.imageset` you
 create on disk under `Assets.xcassets/` is compiled and bundled automatically — no need
@@ -35,23 +49,25 @@ Code (`GearIconLoader.slug`) and this doc must agree exactly:
 
 Regex form: replace `[^a-z0-9]+` with `-`, then trim `-`.
 
-| Display name                    | Asset name (slug)              |
+| Name being slugged              | Asset name (= the catalog ID)  |
 | ------------------------------- | ------------------------------ |
-| `Ibonez Tube Screamer`          | `ibonez-tube-screamer`         |
-| `electro-harmonium BIG MUFF π`  | `electro-harmonium-big-muff`   |
-| `VOSS Chromatic Tuner`          | `voss-chromatic-tuner`         |
-| `Fullstone Deja'Vibe`           | `fullstone-deja-vibe`          |
-| `Marswell JCM800 2203`          | `marswell-jcm800-2203`         |
-| `Marswell 1960A 4x12`           | `marswell-1960a-4x12`          |
-| `Fandor Bassman '59`            | `fandor-bassman-59`            |
+| `Iberon Valve Shrieker`         | `iberon-valve-shrieker`        |
+| `electro-galvanic BIG MITT Ω`  | `electro-galvanic-big-mitt`   |
+| `BRIG Chromatic Tuner`          | `brig-chromatic-tuner`         |
+| `Fullbrook Lucid'Vibe`           | `fullbrook-lucid-vibe`          |
+| `Marswell MSW900 2140`          | `marswell-msw900-2140`         |
+| `Marswell 2415A 4x12`           | `marswell-2415a-4x12`          |
+| `Fandor Bassdude '59`            | `fandor-bassdude-59`            |
 
 ---
 
 ## Add a custom icon (step by step)
 
-1. **Slug the name.** e.g. `ProCon RAT` -> `procon-rat`.
+1. **Find the piece's catalog ID** in `RigStore.allModels` — it is the first string on
+   the model's `mk(...)` row, e.g. `ProForge SHREW` is filed under `proforge-shrew`. For
+   a model being added, mint one with the slug rule above and never change it after.
 2. **Create the imageset folder** on disk:
-   `StreetRig/Assets.xcassets/procon-rat.imageset/`
+   `StreetRig/Assets.xcassets/proforge-shrew.imageset/`
 3. **Add your image** into that folder — either a PNG or a vector PDF.
 4. **Add `Contents.json`** next to it.
 
@@ -59,7 +75,7 @@ Regex form: replace `[^a-z0-9]+` with `-`, then trim `-`.
    ```json
    {
      "images" : [
-       { "filename" : "procon-rat.png", "idiom" : "universal" }
+       { "filename" : "proforge-shrew.png", "idiom" : "universal" }
      ],
      "info" : { "author" : "xcode", "version" : 1 }
    }
@@ -69,7 +85,7 @@ Regex form: replace `[^a-z0-9]+` with `-`, then trim `-`.
    ```json
    {
      "images" : [
-       { "filename" : "procon-rat.pdf", "idiom" : "universal" }
+       { "filename" : "proforge-shrew.pdf", "idiom" : "universal" }
      ],
      "info" : { "author" : "xcode", "version" : 1 },
      "properties" : { "preserves-vector-representation" : true }

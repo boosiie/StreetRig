@@ -3,8 +3,8 @@
 //  StreetRig
 //
 //  Scalable vector art for each gear model — a stylized-but-recognizable
-//  drawing of the real-life unit (Tube Screamer green 3-knob, Big Muff "π",
-//  MXR boxes, Boss compacts with the big tread plate, Cry Baby treadle, a
+//  drawing of the real-life unit (ValveShrieker green 3-knob, BigMitt "π",
+//  KRX boxes, Brig compacts with the big tread plate, WeepingWillow treadle, a
 //  generic head + 4x12, a combo). Derived from the item's name/category so
 //  it works with already-persisted data; unknown items fall back to a
 //  category-appropriate generic. Used on cards, the rig stage, and zoom.
@@ -74,21 +74,20 @@ struct GearArtView: View {
     /// Map a specific model (by name) or a category to a pedal drawing spec.
     private static func spec(name n: String, category: GearCategory)
         -> (tint: Color, knobs: Int, label: String?, treadle: Bool, light: Bool) {
-        if n.contains("tube screamer") { return (.tsGreen, 3, "TS", true, false) }
-        if n.contains("big muff")      { return (.muffGray, 3, "π", false, false) }
-        if n.contains("dyna")          { return (.dynaRed, 2, "DYNA", false, false) }
-        if n.contains("phase")         { return (.phaseOrange, 1, "90", false, false) }
-        if n.contains("carbon copy")   { return (.ccGreen, 3, "CC", false, false) }
-        if n.contains("ditto")         { return (.dittoWhite, 1, "DITTO", true, true) }
-        if n.contains("tu-3")          { return (.tunerGray, 1, "TU-3", true, true) }
-        if n.contains("ce-2")          { return (.chorusBlue, 2, "CE-2", true, false) }
-        if n.contains("rv-6")          { return (.reverbTeal, 3, "RV-6", true, false) }
+        if n.contains("valve shrieker") { return (.shriekerGreen, 3, "VS", true, false) }
+        if n.contains("big mitt")      { return (.mittGray, 3, "Ω", false, false) }
+        if n.contains("damper")        { return (.damperRed, 2, "DAMP", false, false) }
+        if n.contains("swirl")         { return (.swirlOrange, 1, "72", false, false) }
+        // Five more rows used to sit here, badging models this catalog has not
+        // shipped since v2. They matched nothing, and every one of them printed a
+        // real product's designation — so they were the shortest route to a mark
+        // surviving in the binary with no gear behind it. Deleted, not renamed.
 
         switch category {
         case .delay:      return (.delayGreen, 3, nil, false, false)
         case .reverb:     return (.reverbTeal, 3, nil, true, false)
         case .modulation: return (.chorusBlue, 2, nil, true, false)
-        case .compressor: return (.dynaRed, 2, nil, false, false)
+        case .compressor: return (.damperRed, 2, nil, false, false)
         case .tuner:      return (.tunerGray, 1, nil, true, true)
         case .eq:         return (.tunerGray, 3, nil, false, true)
         case .pitch:      return (.chorusBlue, 2, nil, false, false)
@@ -99,7 +98,7 @@ struct GearArtView: View {
     }
 }
 
-// MARK: - Pedal (Boss compact, MXR box, Tube Screamer, Big Muff, generic)
+// MARK: - Pedal (Brig compact, KRX box, ValveShrieker, BigMitt, generic)
 
 private struct PedalArt: View {
     var tint: Color
@@ -255,7 +254,7 @@ private struct ComboArt: View {
     }
 }
 
-// MARK: - Cry Baby wah (rocker treadle)
+// MARK: - WeepingWillow wah (rocker treadle)
 
 private struct WahArt: View {
     var body: some View {
@@ -306,11 +305,11 @@ extension GearArtView {
     /// tapped. The old path fell through to `spec`, whose per-model rules ("ce-2",
     /// "rv-6", "carbon copy") name pedals this catalog no longer ships, so every
     /// pedal landed on a category tint: the delay panel came up green behind a
-    /// white pedal, the Whammy blue behind a red one.
+    /// white pedal, the Slingshot blue behind a red one.
     ///
     /// The wah special-case is gone with it. It hard-coded near-black on the
-    /// grounds that wahs are black castings, which is true of the Cry Baby and the
-    /// V847 and not of the Bad Horsie sitting in a pink chassis.
+    /// grounds that wahs are black castings, which is true of the WeepingWillow and the
+    /// V921 and not of the Wild Pony sitting in a pink chassis.
     static func panelColor(for item: GearItem?) -> Color {
         let category = item?.category ?? .overdrive
         switch category {
@@ -405,11 +404,10 @@ private struct SpeakerCone: View {
 }
 
 private extension Color {
-    static let tsGreen     = Color(red: 0.36, green: 0.55, blue: 0.20)
-    static let muffGray    = Color(red: 0.20, green: 0.20, blue: 0.22)
-    static let dynaRed     = Color(red: 0.70, green: 0.16, blue: 0.14)
-    static let phaseOrange = Color(red: 0.92, green: 0.46, blue: 0.09)
-    static let ccGreen     = Color(red: 0.15, green: 0.32, blue: 0.24)
+    static let shriekerGreen     = Color(red: 0.36, green: 0.55, blue: 0.20)
+    static let mittGray    = Color(red: 0.20, green: 0.20, blue: 0.22)
+    static let damperRed     = Color(red: 0.70, green: 0.16, blue: 0.14)
+    static let swirlOrange = Color(red: 0.92, green: 0.46, blue: 0.09)
     static let dittoWhite  = Color(red: 0.88, green: 0.88, blue: 0.86)
     static let tunerGray   = Color(red: 0.62, green: 0.64, blue: 0.66)
     static let chorusBlue  = Color(red: 0.16, green: 0.40, blue: 0.70)
@@ -418,9 +416,9 @@ private extension Color {
 }
 
 #Preview {
-    let names = ["Ibonez Tube Screamer", "electro-harmonium BIG MUFF π", "MXP dyna comp",
-                 "MXP phase 90", "VOSS Digital Delay", "VOSS Loop Station",
-                 "VOSS Chromatic Tuner", "VOSS Chorus", "VOSS Reverb", "DUNLAP CRY BABY"]
+    let names = ["Iberon Valve Shrieker", "electro-galvanic BIG MITT Ω", "KRX damper comp",
+                 "KRX swirl 72", "BRIG Digital Delay", "BRIG Loop Depot",
+                 "BRIG Chromatic Tuner", "BRIG Chorus", "BRIG Reverb", "DUNRIDGE WEEPING WILLOW"]
     return VStack(alignment: .leading, spacing: 20) {
         // Override vs fallback: every shipped pedal has a bespoke asset, so it
         // renders the supplied image; an unknown name has none (procedural art).
@@ -429,9 +427,9 @@ private extension Color {
                 .font(.caption2.weight(.bold)).foregroundStyle(RigTheme.textMuted)
             HStack(spacing: 24) {
                 VStack {
-                    GearArtView(item: GearItem(name: "Ibonez Tube Screamer", category: .overdrive))
+                    GearArtView(item: GearItem(name: "Iberon Valve Shrieker", category: .overdrive))
                         .frame(width: 40, height: 54)
-                    Text("Tube Screamer\n(custom)").font(.caption2).multilineTextAlignment(.center)
+                    Text("ValveShrieker\n(custom)").font(.caption2).multilineTextAlignment(.center)
                 }
                 VStack {
                     GearArtView(item: GearItem(name: "Unshipped Drive", category: .overdrive))
@@ -444,16 +442,16 @@ private extension Color {
         ScrollView(.horizontal) {
             HStack(spacing: 12) {
                 ForEach(names, id: \.self) { name in
-                    let cat: GearCategory = name == "DUNLAP CRY BABY" ? .wah : .overdrive
+                    let cat: GearCategory = name == "DUNRIDGE WEEPING WILLOW" ? .wah : .overdrive
                     VStack {
                         GearArtView(item: GearItem(name: name, category: cat))
                             .frame(width: 40, height: 54)
                         Text(name).font(.caption2)
                     }
                 }
-                GearArtView(item: GearItem(name: "Marswell JCM800 2203", category: .amp))
+                GearArtView(item: GearItem(name: "Marswell MSW900 2140", category: .amp))
                     .frame(width: 84, height: 41)
-                GearArtView(item: GearItem(name: "Marswell 1960A 4x12", category: .cabinet))
+                GearArtView(item: GearItem(name: "Marswell 2415A 4x12", category: .cabinet))
                     .frame(width: 52, height: 60)
             }
         }

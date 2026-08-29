@@ -6,8 +6,8 @@
 //
 //      pre-emphasis (voicing HP + optional pre-clip mid)
 //        → 4× OVERSAMPLED nonlinear clip (soft / hard / fuzz, per-model asymmetry,
-//          optional 2-stage cascade for Big-Muff-style sustain)
-//        → optional post-clip mid (Muff / Metal-Zone scoop)
+//          optional 2-stage cascade for Big-Mitt-style sustain)
+//        → optional post-clip mid (Mitt / Metal-Zone scoop)
 //        → DC block → post tone low-pass → output level × per-model trim
 //
 //  WHY oversample (requirement 1 + 6): a static nonlinearity manufactures harmonics
@@ -15,11 +15,11 @@
 //  a windowed-sinc FIR up and down band-limits those images before decimation. Only
 //  the clip is oversampled; the linear voicing biquads do not alias.
 //
-//  Each pedal MODEL is a `Voicing` (Tube Screamer, RAT, Big Muff, Klon, …). The
+//  Each pedal MODEL is a `Voicing` (ValveShrieker, SHREW, BigMitt, Chiron, …). The
 //  chain compiler picks it from the model name (ParameterMap.pedalVoicing) and it is
 //  applied at SETUP time (configure, under the reconfigure barrier). `Voicing`
 //  chooses the pre/post filters, clip shape, asymmetry, drive scaling, cascade and
-//  output trim — so a Tube Screamer, a RAT and a Big Muff sound like different
+//  output trim — so a ValveShrieker, a SHREW and a BigMitt sound like different
 //  circuits, not one waveshaper with three presets. Drive / tone / level stay
 //  CONTINUOUS knobs pushed live and de-zippered here.
 //
@@ -51,9 +51,9 @@ public:
     /// compat); models are 3+. MUST match ParameterMap.voice* (Swift).
     enum Voicing : int {
         GenericSoft = 0, GenericHard = 1, GenericFuzz = 2,
-        TubeScreamer = 3, Bluesbreaker = 4, Klon = 5, KingOfTone = 6, OCD = 7,
-        DS1 = 8, MetalZone = 9, RAT = 10, BigMuff = 11, FuzzFace = 12,
-        FuzzFactory = 13, CleanBoost = 14
+        ValveShrieker = 3, BluesBlazer = 4, Chiron = 5, KingOfTone = 6, FIXATION = 7,
+        DS1 = 8, MetalRealm = 9, SHREW = 10, BigMitt = 11, FuzzDome = 12,
+        FuzzFoundry = 13, CleanBoost = 14
     };
 
     void prepare(double sampleRate, int numChannels);
@@ -80,7 +80,7 @@ private:
         float  asym = 0.15f;                             // clip bias (even harmonics)
         float  driveScale = 1.0f;                        // extra gain into the clip
         float  outTrim = 1.0f;                           // level match across models
-        bool   twoStage = false;                         // Big-Muff cascade
+        bool   twoStage = false;                         // Big-Mitt cascade
     };
     static Voice voiceFor(int voicing) noexcept;
 
@@ -88,7 +88,7 @@ private:
     double sampleRate_ = 48000.0;
     double osRate_ = 192000.0;
     int    numChannels_ = 1;
-    int    voicing_ = TubeScreamer;
+    int    voicing_ = ValveShrieker;
     bool   ready_ = false;
     float  smoothCoeff_ = 0.0f;
     Voice  v_;
@@ -96,7 +96,7 @@ private:
     struct ChannelState {
         Biquad pre;                         // voicing high-pass
         Biquad preMid;                      // pre-clip mid / treble emphasis
-        Biquad postMid;                     // post-clip mid scoop (Muff / Metal Zone)
+        Biquad postMid;                     // post-clip mid scoop (Mitt / MetalRealm)
         float upHist[kPhaseTaps] = {};
         int   upPos = 0;
         float downHist[kFirTaps] = {};

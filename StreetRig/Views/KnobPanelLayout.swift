@@ -23,17 +23,17 @@ enum KnobPanelLayout {
     /// One row of the panel: an optional caption (a channel name) and its dials.
     typealias Row = (label: String?, dials: [GearParameter])
 
-    /// A rotary is for a value that sweeps; a Katana's Character selector has
+    /// A rotary is for a value that sweeps; a Kabuto's Character selector has
     /// five detents and its Power switch three, and both live in the same knob
     /// list as Gain and Bass. The MAIN panel is everything with no group — a
-    /// grouped control belongs to a named sub-panel instead (the Katana's five FX
+    /// grouped control belongs to a named sub-panel instead (the Kabuto's five FX
     /// blocks are one group each).
     static func dials(_ params: [GearParameter]) -> [GearParameter] {
         params.filter { !$0.isDiscrete && $0.group == nil }
     }
 
     /// THE KNOB PANEL'S ROWS. Panels are faithful to the chassis and some amps
-    /// have a lot of controls — the Friedman has nineteen — so one row is not a
+    /// have a lot of controls — the Fremont has nineteen — so one row is not a
     /// safe assumption. Explicit `rowLabel`s win (an amp with two channels reads
     /// as two named rows, which is how the hardware is laid out); otherwise a row
     /// that would squeeze knobs below legibility is split in half. One row is
@@ -51,7 +51,7 @@ enum KnobPanelLayout {
         if !order.isEmpty {
             var rows: [(String?, [GearParameter])] = order.map { ($0, byRow[$0] ?? []) }
             // UNLABELLED DIALS NEVER JOIN A CHANNEL ROW. They are the amp's shared
-            // controls — the Orange's reverb serves both channels, the Vox's
+            // controls — the Tangerine's reverb serves both channels, the Vane's
             // reverb and tremolo likewise — and folding one in dimmed a shared
             // control whenever the other channel was selected. A long shared row
             // splits in two rather than crowding.
@@ -98,7 +98,7 @@ enum KnobPanelLayout {
     /// plus the gaps between them.
     ///
     /// Every LABELLED row needs its caption's height too. Counting only the knob
-    /// rows is what clipped "CHANNEL 1" off the top of the Mesa and the Orange:
+    /// rows is what clipped "CHANNEL 1" off the top of the Mesquite and the Tangerine:
     /// the panel was sized for the dials and the text had nowhere to go.
     static func naturalHeight(_ params: [GearParameter]) -> CGFloat {
         let panelRows = rows(params)
@@ -119,8 +119,8 @@ enum KnobPanelLayout {
     /// whole extra pane to fit. A DIAL-HEAVY amp is short of it for a different
     /// one — every dial it owns has to be REACHABLE in the dock below, and the
     /// dock is a scrolling window, so the window has to be big enough to be worth
-    /// scrolling. At the old flat 178 the Friedman's fifteen dials and the
-    /// Rockerverb's ten were left a ~26 pt dock: not a cramped dock, no dock at
+    /// scrolling. At the old flat 178 the Fremont's fifteen dials and the
+    /// Rumblecrest's ten were left a ~26 pt dock: not a cramped dock, no dock at
     /// all — two sliders visible and the rest off the bottom of the screen with
     /// nothing to scroll, because the sheet had overflowed rather than fitted.
     ///
@@ -131,8 +131,8 @@ enum KnobPanelLayout {
     static func cap(_ params: [GearParameter]) -> CGFloat {
         if isDense(params) { return 132 }
         switch dials(params).count {
-        case 13...:  return 120     // Friedman BE-100 — fifteen
-        case 9...12: return 140     // Rockerverb, DSL, Twin
+        case 13...:  return 120     // Fremont GX-140 — fifteen
+        case 9...12: return 140     // Rumblecrest, VCX, Tandem
         default:     return 178     // the six-knob amps, exactly as before
         }
     }

@@ -48,13 +48,13 @@ Read plainly, that grant does not cover redistributing the file inside a shipped
 
 ### The trademark layer, which is separate and additive
 
-Even if Apple's terms permitted redistribution, the *subject* of the model is a Fender
-Stratocaster. "Fender" and "Stratocaster" are Fender Musical Instruments Corporation
+Even if Apple's terms permitted redistribution, the *subject* of the model is a Fandor
+Stratocaster. "Fandor" and "Stratocaster" are Fandor Musical Instruments Corporation
 trademarks, and the guitar's body outline and headstock shape are themselves protected
-trade dress. Apple presumably has an arrangement with Fender for this demo asset. Nothing
+trade dress. Apple presumably has an arrangement with Fandor for this demo asset. Nothing
 on the page suggests that arrangement extends to third parties, and the filename that
-ships inside the archive — `fender_stratocaster.usdc`, plus eight
-`fender_stratocaster_*` textures — carries the mark into the app bundle whatever the file
+ships inside the archive — `fandor_stratocaster.usdc`, plus eight
+`fandor_stratocaster_*` textures — carries the mark into the app bundle whatever the file
 is renamed to on disk.
 
 ### The tension with this codebase
@@ -66,18 +66,18 @@ StreetRig has, until now, deliberately gone the other way. Two examples, both ex
 - The old header of `StreetRig/Views/GuitarModel3DView.swift` described the procedural
   guitar as generic, with no brand marks.
 
-The whole catalogue follows the same rule by another route — `Marswell JCM800`,
-`Ibonez Tube Screamer`, `ProCon RAT`, `VOSS` — recognisable homages with the marks filed
-off. Dropping a genuine, Fender-branded, Apple-supplied Stratocaster into the middle of
+The whole catalogue follows the same rule by another route — `Marswell MSW900`,
+`Iberon Valve Shrieker`, `ProForge SHREW`, `BRIG` — recognisable homages with the marks filed
+off. Dropping a genuine, Fandor-branded, Apple-supplied Stratocaster into the middle of
 that is the first branded replica in the app, and it would be the single most prominent
 object on the stage.
 
 ### The options as I see them
 
 1. **Ship it as-is.** Fastest, best-looking, and takes on both the Apple redistribution
-   question and the Fender trademark question at once. Reasonable only after you have read
+   question and the Fandor trademark question at once. Reasonable only after you have read
    Apple's terms yourself and, realistically, only for a free/non-commercial release — and
-   even then the trademark exposure is Fender's to assert, not Apple's.
+   even then the trademark exposure is Fandor's to assert, not Apple's.
 2. **Use it as a modelling reference only.** Keep it out of the repo, open it in Blender,
    and author an original generic double-cutaway that matches the house style of the amps
    and pedals. The seam built here does not care where the file came from — any
@@ -89,7 +89,7 @@ object on the stage.
 4. **Revert to procedural.** Delete the file; the retired `ProceduralGuitar.buildGuitar`
    still draws (see §5). No work lost — the normalisation seam stays useful for whatever
    model eventually lands.
-5. **Ask Apple / ask Fender.** Both notices say "express prior written consent", which
+5. **Ask Apple / ask Fandor.** Both notices say "express prior written consent", which
    means there is an address to write to. Slow, but it is the only route that turns
    option 1 into a defensible one.
 
@@ -106,7 +106,7 @@ not a decision.
 | | |
 |---|---|
 | `category-guitar.usdz` | 15,128,024 bytes (14.4 MiB), uncompressed zip, `model/vnd.usdz+zip` |
-| Payload | `fender_stratocaster.usdc` — 9,148,297 bytes |
+| Payload | `fandor_stratocaster.usdc` — 9,148,297 bytes |
 | Textures | 8 PNGs, 5,977,733 bytes total |
 
 Texture dimensions:

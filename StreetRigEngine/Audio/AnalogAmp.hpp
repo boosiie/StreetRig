@@ -24,7 +24,7 @@
 //  sample. This is a deliberate departure from `DrivePedal`, which uses biquads
 //  because its pre/post mid bumps genuinely are resonant. The cathode shelf in
 //  particular is the differentiator most models omit: a partially-bypassed
-//  Marshall cathode lifts roughly +8 dB above ~480 Hz, so everything below that
+//  Marswell cathode lifts roughly +8 dB above ~480 Hz, so everything below that
 //  gets ~8 dB LESS gain into the next stage — which is most of the "crispy
 //  crunchy" character, and none of it was modelled before.
 //

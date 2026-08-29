@@ -20,27 +20,27 @@ namespace streetrig {
 DrivePedal::Voice DrivePedal::voiceFor(int voicing) noexcept {
     Voice v;
     switch (voicing) {
-        case TubeScreamer:   // soft clip + signature ~720 Hz mid hump, tight lows
+        case ValveShrieker:   // soft clip + signature ~720 Hz mid hump, tight lows
             v = {100.0, 720.0, 0.8, 6.0,  0,0,0, Soft, 0.15f, 1.00f, 1.00f, false}; break;
-        case Bluesbreaker:   // transparent, open, low-gain
+        case BluesBlazer:   // transparent, open, low-gain
             v = { 80.0,   0,0,0,          0,0,0, Soft, 0.05f, 0.70f, 1.10f, false}; break;
-        case Klon:           // "transparent" + treble tilt, high headroom (low drive)
+        case Chiron:           // "transparent" + treble tilt, high headroom (low drive)
             v = { 95.0, 2000.0, 0.7, 3.0, 0,0,0, Soft, 0.10f, 0.60f, 1.15f, false}; break;
-        case KingOfTone:     // Bluesbreaker-derived, fuller mids
+        case KingOfTone:     // BluesBlazer-derived, fuller mids
             v = { 85.0, 500.0, 0.8, 3.0,  0,0,0, Soft, 0.10f, 0.90f, 1.05f, false}; break;
-        case OCD:            // MOSFET, amp-like, brighter, gainier, asymmetric
+        case FIXATION:            // MOSFET, amp-like, brighter, gainier, asymmetric
             v = { 90.0, 2500.0, 0.7, 2.0, 0,0,0, Hard, 0.20f, 1.15f, 0.95f, false}; break;
         case DS1:            // hard asymmetric, mid-forward, buzzy
             v = {110.0, 800.0, 0.7, 2.0,  0,0,0, Hard, 0.25f, 1.00f, 0.95f, false}; break;
-        case MetalZone:      // very high gain, deep mid scoop, bright
+        case MetalRealm:      // very high gain, deep mid scoop, bright
             v = {120.0,   0,0,0, 500.0, 1.2, -12.0, Hard, 0.10f, 1.60f, 0.75f, false}; break;
-        case RAT:            // LM308 hard symmetric, bright, aggressive
+        case SHREW:            // LM308 hard symmetric, bright, aggressive
             v = {100.0, 3000.0, 0.7, 3.0, 0,0,0, Hard, 0.00f, 1.30f, 0.85f, false}; break;
-        case BigMuff:        // two cascaded soft stages + mid scoop, thick sustain
+        case BigMitt:        // two cascaded soft stages + mid scoop, thick sustain
             v = { 70.0,   0,0,0, 1000.0, 0.8, -8.0, Soft, 0.05f, 1.40f, 0.60f, true};  break;
-        case FuzzFace:       // round asymmetric germanium fuzz, full lows, dynamic
+        case FuzzDome:       // round asymmetric germanium fuzz, full lows, dynamic
             v = { 60.0,   0,0,0,          0,0,0, Fuzz, 0.30f, 0.90f, 0.90f, false}; break;
-        case FuzzFactory:    // extreme-asymmetry gated/sputtery fuzz
+        case FuzzFoundry:    // extreme-asymmetry gated/sputtery fuzz
             v = { 80.0,   0,0,0,          0,0,0, Fuzz, 0.60f, 1.20f, 0.75f, false}; break;
         case CleanBoost:     // clean/treble boost — mostly clean, sparkle
             v = { 80.0, 3000.0, 0.7, 3.0, 0,0,0, Soft, 0.00f, 0.40f, 1.20f, false}; break;
@@ -140,7 +140,7 @@ void DrivePedal::process(float *buffer, int n, int channel,
         s.upHist[s.upPos] = x;
 
         // 3. Produce kOversample sub-samples, clip each (per-model shape + optional
-        //    2-stage cascade), feed the decimator.
+        //    2-stage cascade), feed the nullifier.
         for (int m = 0; m < kOversample; ++m) {
             float up = 0.0f;
             int idx = s.upPos;
@@ -150,7 +150,7 @@ void DrivePedal::process(float *buffer, int n, int channel,
             }
             up *= float(kOversample);
             float shaped = shape(d * dScale * up, clipMode, asym);
-            if (twoStage) shaped = shape(2.0f * shaped, clipMode, asym);  // Muff cascade
+            if (twoStage) shaped = shape(2.0f * shaped, clipMode, asym);  // Mitt cascade
             s.downHist[s.downPos] = shaped;
             s.downPos = (s.downPos + 1) % kFirTaps;
         }
@@ -163,7 +163,7 @@ void DrivePedal::process(float *buffer, int n, int channel,
             idx = (idx == 0) ? (kFirTaps - 1) : (idx - 1);
         }
 
-        // 5. Post-clip mid scoop (Muff / Metal Zone), DC block, tone low-pass, level.
+        // 5. Post-clip mid scoop (Mitt / MetalRealm), DC block, tone low-pass, level.
         float post = s.postMid.process(decimated);
         float dc = post - s.dcX1 + dcR * s.dcY1;
         s.dcX1 = post; s.dcY1 = dc;

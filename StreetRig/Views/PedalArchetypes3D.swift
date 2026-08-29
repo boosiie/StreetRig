@@ -4,9 +4,9 @@
 //
 //  The pedalboard's ENCLOSURE FAMILIES. Every catalog pedal used to render as
 //  the same 1.1 × 0.42 × 1.45 chamfered box with a different colour on it, which
-//  put a Cry Baby, a Boss compact, a Phase 90 and a Fuzz Face on the hero screen
+//  put a WeepingWillow, a Brig compact, a Swirl72 and a FuzzDome on the hero screen
 //  as four identical bricks — a worse likeness than the app's own 2D art, which
-//  already draws a hinged rocker treadle (`WahArt`) and a Boss tread plate. This
+//  already draws a hinged rocker treadle (`WahArt`) and a Brig tread plate. This
 //  file is the fix: a small set of parametric archetypes chosen from the pedal's
 //  NAME first and its category second, the same dispatch order `GearArt.spec`
 //  and `PedalSpec.parameters` already use — so the 3D stage and the collection
@@ -40,10 +40,10 @@ import UIKit
 /// silhouette comes from, never for a product.
 enum PedalArchetype: String, CaseIterable {
     /// 1590B: small, low, flat top, knobs by the back edge, switch at the front.
-    case mxrBox
+    case krxBox
     /// The compact with the signature big hinged tread plate and a recessed
     /// knob shelf above it.
-    case bossCompact
+    case brigCompact
     /// 1590BB and the oversized fuzz/EQ boxes: wider, longer, controls in two
     /// rows (or a slider bank once there are more than six of them).
     case bigBox
@@ -63,14 +63,14 @@ enum PedalArchetype: String, CaseIterable {
     /// shape they are actually replacing, not from a generic box.
     var representativeItem: GearItem {
         switch self {
-        case .mxrBox:      return GearItem(name: "MXP phase 90", category: .modulation)
-        case .bossCompact: return GearItem(name: "Ibonez Tube Screamer", category: .overdrive)
-        case .bigBox:      return GearItem(name: "VOSS Metal Zone", category: .overdrive)
-        case .wahRocker:   return GearItem(name: "DUNLAP CRY BABY", category: .wah)
-        case .trebleWedge: return GearItem(name: "VOSS FV-500H", category: .volume)
-        case .tunerWedge:  return GearItem(name: "VOSS Chromatic Tuner", category: .tuner)
-        case .roundFuzz:   return GearItem(name: "DALLAS ARBITOR FUZZ FACE", category: .overdrive)
-        case .looperDeck:  return GearItem(name: "VOSS Loop Station", category: .looper)
+        case .krxBox:      return GearItem(name: "KRX swirl 72", category: .modulation)
+        case .brigCompact: return GearItem(name: "Iberon Valve Shrieker", category: .overdrive)
+        case .bigBox:      return GearItem(name: "BRIG Metal Realm", category: .overdrive)
+        case .wahRocker:   return GearItem(name: "DUNRIDGE WEEPING WILLOW", category: .wah)
+        case .trebleWedge: return GearItem(name: "BRIG LV-320H", category: .volume)
+        case .tunerWedge:  return GearItem(name: "BRIG Chromatic Tuner", category: .tuner)
+        case .roundFuzz:   return GearItem(name: "DALTON ARMATURE FUZZ DOME", category: .overdrive)
+        case .looperDeck:  return GearItem(name: "BRIG Loop Depot", category: .looper)
         }
     }
 
@@ -86,7 +86,7 @@ enum PedalKnobLayout {
     case centered
     case row
     case twoRows
-    /// Bowed forward at the edges — a Boss compact's knob shelf.
+    /// Bowed forward at the edges — a Brig compact's knob shelf.
     case arc
     /// Vertical faders. A graphic EQ has bands, not knobs, and drawing eleven
     /// dials on one box is the wrong object.
@@ -123,39 +123,39 @@ enum PedalArchetypes {
         let n = pedal.name.lowercased()
 
         // 1. A `Position` control IS a treadle. `.wah` and `.volume` expose it by
-        //    category, and the Whammy exposes it by name — all three are pedals
+        //    category, and the Slingshot exposes it by name — all three are pedals
         //    you rock with your foot, whatever drawer the catalog files them in.
         if pedal.category == .wah || pedal.category == .volume
             || pedal.parameters.contains(where: { $0.name == "Position" }) {
-            let isWah = pedal.category == .wah || n.contains("wah") || n.contains("cry baby")
+            let isWah = pedal.category == .wah || n.contains("wah")
             return isWah ? .wahRocker : .trebleWedge
         }
         // 2. Models whose enclosure is the famous part.
-        if n.contains("fuzz face") { return .roundFuzz }
+        if n.contains("fuzz dome") { return .roundFuzz }
         for key in oversizedNames where n.contains(key) { return .bigBox }
         // 3. Categories that are a shape rather than an effect.
         if pedal.category == .tuner  { return .tunerWedge }
         if pedal.category == .looper { return .looperDeck }
         // 4. House styles. The catalog's parody brands track real makers, and a
         //    maker's chassis is the most reliable predictor of a shape there is.
-        if n.contains("voss") || n.contains("ibonez")  { return .bossCompact }
-        if n.contains("electro-harmonium")             { return .bigBox }
-        if n.contains("mxp") || n.contains("dunlap")   { return .mxrBox }
+        if n.contains("brig") || n.contains("iberon")  { return .brigCompact }
+        if n.contains("electro-galvanic")              { return .bigBox }
+        if n.contains("krx") || n.contains("dunridge") { return .krxBox }
         // 5. Anything unmatched is a 1590B, because most pedals are.
-        return .mxrBox
+        return .krxBox
     }
 
     /// Models that ship in an oversized box regardless of who made them.
     private static let oversizedNames = [
-        "metal zone", "big muff", "para", "ten band", "king of tone",
-        "centaur", "klon", "procon", "iridium", "deja",
+        "metal realm", "big mitt", "para", "ten band", "duke of drive",
+        "satyr", "chiron", "proforge", "beryllium", "lucid",
     ]
 
     // MARK: How many controls, and where
 
     /// Control count comes from `PedalSpec.parameters(forName:category:)` — the
-    /// researched per-model truth the zoom panel already draws — so a Big Muff
-    /// gets three and a Metal Zone gets its EQ set without a second table to
+    /// researched per-model truth the zoom panel already draws — so a BigMitt
+    /// gets three and a MetalRealm gets its EQ set without a second table to
     /// maintain. The only overrides left are places where the HARDWARE genuinely
     /// disagrees with the control list.
     static func knobCount(for pedal: GearItem, archetype: PedalArchetype) -> Int {
@@ -166,9 +166,9 @@ enum PedalArchetypes {
             break
         }
         let n = pedal.name.lowercased()
-        // Six controls, four shafts: two of a Metal Zone's are dual-concentric.
-        if n.contains("metal zone") { return 4 }
-        // A Loop Station's level knob is hardware, not a saved parameter — the
+        // Six controls, four shafts: two of a MetalRealm's are dual-concentric.
+        if n.contains("metal realm") { return 4 }
+        // A Loop Depot's level knob is hardware, not a saved parameter — the
         // looper category deliberately exposes none.
         if pedal.category == .looper { return 1 }
         return pedal.parameters.count
@@ -178,9 +178,9 @@ enum PedalArchetypes {
         guard knobs > 0 else { return .none }
         switch archetype {
         case .wahRocker, .trebleWedge, .tunerWedge: return .none
-        case .bossCompact: return knobs >= 7 ? .sliders : (knobs == 1 ? .centered : .arc)
+        case .brigCompact: return knobs >= 7 ? .sliders : (knobs == 1 ? .centered : .arc)
         case .bigBox:      return knobs >= 7 ? .sliders : (knobs >= 4 ? .twoRows : (knobs == 1 ? .centered : .row))
-        case .mxrBox:      return knobs >= 4 ? .twoRows : (knobs == 1 ? .centered : .row)
+        case .krxBox:      return knobs >= 4 ? .twoRows : (knobs == 1 ? .centered : .row)
         case .roundFuzz:   return knobs == 1 ? .centered : .row
         case .looperDeck:  return .centered
         }
@@ -198,8 +198,8 @@ enum PedalArchetypes {
         // compact's length, a 1590BB really is about half again as wide).
         let width: CGFloat, length: CGFloat, height: CGFloat
         switch family {
-        case .mxrBox:      width = knobs > 3 ? 1.14 : 1.00; length = knobs > 3 ? 1.42 : 1.30; height = 0.36
-        case .bossCompact: width = 1.14; length = 1.52; height = 0.46
+        case .krxBox:      width = knobs > 3 ? 1.14 : 1.00; length = knobs > 3 ? 1.42 : 1.30; height = 0.36
+        case .brigCompact: width = 1.14; length = 1.52; height = 0.46
         case .bigBox:      width = 1.56; length = 1.66; height = 0.44
         case .wahRocker:   width = 1.20; length = 2.50; height = 0.26
         case .trebleWedge: width = 1.10; length = 2.36; height = 0.24
@@ -223,8 +223,8 @@ enum PedalArchetypes {
         let group = SCNNode()
 
         switch spec.archetype {
-        case .mxrBox:      buildFlatTopBox(spec, into: group)
-        case .bossCompact: buildCompactWithTreadPlate(spec, into: group, display: false)
+        case .krxBox:      buildFlatTopBox(spec, into: group)
+        case .brigCompact: buildCompactWithTreadPlate(spec, into: group, display: false)
         case .tunerWedge:  buildCompactWithTreadPlate(spec, into: group, display: true)
         case .bigBox:      buildFlatTopBox(spec, into: group)
         case .roundFuzz:   buildRoundFuzz(spec, into: group)
@@ -259,7 +259,7 @@ enum PedalArchetypes {
         addLED(e.led, radius: 0.045, at: SCNVector3(0, top + 0.015, Float(e.length) / 2 - 0.60), to: group)
     }
 
-    // MARK: - Boss-style compact (and the tuner, which is the same shell)
+    // MARK: - Brig-style compact (and the tuner, which is the same shell)
 
     /// The distinguishing feature of this whole class is that the top is a big
     /// hinged plate you stand on, with the knobs pushed onto a shelf behind it —
@@ -313,7 +313,7 @@ enum PedalArchetypes {
         plate.name = "treadPlate"
 
         // Rubber bumper under the free edge — the part that actually stops the
-        // plate, and the reason a Boss pedal has a visible gap at the front.
+        // plate, and the reason a Brig pedal has a visible gap at the front.
         let bumper = Studio3D.pbr(UIColor(white: 0.08, alpha: 1), metalness: 0, roughness: 0.9)
         Studio3D.addBox(e.width - 0.30, 0.05, 0.08, chamfer: 0.02, mat: bumper,
                         at: SCNVector3(0, top + 0.02, halfL - 0.13), to: group)
@@ -480,7 +480,7 @@ enum PedalArchetypes {
     /// edges — except on the round fuzz, whose two knobs genuinely do span it.
     /// Knob colours picked against the body they sit on. These were a fixed pale
     /// grey, which was fine while every pedal was a mid-tone but disappears on the
-    /// white Boss delay and the cream OCD now that the finishes match the art.
+    /// white Brig delay and the cream FIXATION now that the finishes match the art.
     /// Same luminance rule as the zoomed-in knob panel, so the two surfaces agree
     /// on what counts as a light pedal.
     private static func knobColors(on body: UIColor) -> (knob: UIColor, pointer: UIColor) {
@@ -532,7 +532,7 @@ enum PedalArchetypes {
         for i in 0..<count {
             let x = -span / 2 + Float(i) * step
             let knob = knobNode(radius: radius, mat: knobMat, pointerMat: pointerMat)
-            // Bow the outer knobs toward the player: a Boss shelf is an arc, and
+            // Bow the outer knobs toward the player: a Brig shelf is an arc, and
             // a dead-straight row on a curved shelf is the tell that it isn't one.
             let curve = span > 0 ? bow * (x / (span / 2)) * (x / (span / 2)) : 0
             knob.position = SCNVector3(x, top + Float(radius) * 0.55, z + curve)

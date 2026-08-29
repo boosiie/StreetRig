@@ -28,7 +28,7 @@ void WahPedal::process(float *buffer, int n, int channel, const float *params) n
     if (!ready_ || !buffer || n <= 0 || channel < 0 || channel >= numChannels_ || !params) return;
 
     const float pos = std::clamp(params[0], 0.0f, 1.0f);
-    // Sweep the resonant peak ~450 Hz → ~1.6 kHz (log), the Cry Baby's range.
+    // Sweep the resonant peak ~450 Hz → ~1.6 kHz (log), the WeepingWillow's range.
     const double fc = 450.0 * std::pow(3.5, (double)pos);
     // High-Q peaking with a big boost is the classic wah voicing (~+16 dB, Q≈2.5).
     const Biquad p = Biquad::peaking(sampleRate_, fc, 2.5, 16.0);

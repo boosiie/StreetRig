@@ -286,9 +286,9 @@ struct GearCardView: View {
 #Preview {
     @Previewable @State var held: GearItem.ID?
     HStack {
-        GearCardView(item: GearItem(name: "Marswell JCM800 2203", category: .amp), held: $held)
-        GearCardView(item: GearItem(name: "Ibonez Tube Screamer", category: .overdrive), held: $held, demoLift: true)
-        GearCardView(item: GearItem(name: "DUNLAP CRY BABY", category: .wah), held: $held)
+        GearCardView(item: GearItem(name: "Marswell MSW900 2140", category: .amp), held: $held)
+        GearCardView(item: GearItem(name: "Iberon Valve Shrieker", category: .overdrive), held: $held, demoLift: true)
+        GearCardView(item: GearItem(name: "DUNRIDGE WEEPING WILLOW", category: .wah), held: $held)
     }
     .frame(width: 460)
     .padding()

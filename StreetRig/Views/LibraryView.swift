@@ -203,8 +203,8 @@ struct LibraryContentView: View {
     /// while every card one tap behind it showed the real thing.
     ///
     /// Asking the catalog rather than naming a slug here keeps this honest
-    /// through a re-badge: the models have been renamed once already (Marshall →
-    /// Marswell, Orange → Tangerine), and a hardcoded "marswell-jcm800-2203"
+    /// through a re-badge: the whole catalog has been renamed twice now, most
+    /// recently off every real mark, and a hardcoded "marswell-msw900-2140"
     /// would have rotted silently into the generic outline it replaced. The
     /// `image(for:)` check is what stops it picking a piece whose art has not
     /// been drawn yet and quietly regressing to the same diagram.

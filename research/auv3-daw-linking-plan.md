@@ -307,7 +307,7 @@ hierarchy. Keep every existing address value stable (the enum is append-only by 
 
 **Trade-off.** A fixed 40-ish-parameter surface shows "Slot 5 · Tone" for slots the user may
 never fill — mild clutter in the host's generic view, and automation is bound to a *slot
-position*, not to "the Tube Screamer" (reorder the board and a lane now drives whatever sits in
+position*, not to "the ValveShrieker" (reorder the board and a lane now drives whatever sits in
 that slot). The alternative — a dynamically rebuilt tree — is **worse**: it breaks host
 automation persistence and is fragile across hosts. Slot-indexed, fixed, and stable is the
 correct plugin idiom, and it maps 1:1 onto the kernel's existing fixed slot pool, so it adds
@@ -378,7 +378,7 @@ size; return a compact and a full config.
 **Trade-off.** SwiftUI in an `AUViewController` inside a *host* process is well-trodden but has
 sharp edges (the view runs in the extension's sandbox; keep it self-contained, no app-only
 singletons). Reusing the 2D `InteractiveKnob`/control views is clean; the **3D stage is
-deliberately excluded** from the plugin editor (cost and complexity, and it is app hero UI, not
+deliberately excluded** from the plugin editor (cost and comclearpanety, and it is app hero UI, not
 a mixing-desk control surface).
 
 ### F. Hosting-model shift — *host supplies input; the same kernel serves both modes*
@@ -542,7 +542,7 @@ runs continuously once Phase 2 lands.
   hosts/presets/automation are unaffected. This is the concrete realization of "instantiate
   in-process, never load your own extension."
 - **Real brand names in `RigStore.catalog` (already flagged by the team).** Gear names
-  ("Marshall JCM800", "Tube Screamer", …) currently used as data would surface **publicly** in a
+  ("Marswell MSW900", "ValveShrieker", …) currently used as data would surface **publicly** in a
   third-party DAW's preset/parameter/plugin browser. This raises the visibility of the existing
   trademark question (see the 3D research doc's §5). Decide whether the plugin uses generic
   archetype names before shipping to hosts. **Product/legal call.**

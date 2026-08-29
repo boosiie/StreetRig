@@ -111,11 +111,11 @@ public enum GearCategory: String, Codable, CaseIterable, Hashable {
     }
 }
 
-/// A tweakable control: a 0–10 Marshall-style dial by default, or — when
+/// A tweakable control: a 0–10 Marswell-style dial by default, or — when
 /// `options` is set — a DISCRETE SELECTOR whose stored value is an index into
 /// those options.
 ///
-/// The distinction is real hardware, not decoration. A Katana's Character is a
+/// The distinction is real hardware, not decoration. A Kabuto's Character is a
 /// five-position rotary and its Power switch has three detents; drawing either as
 /// a 0–10 dial would invite the player to set "Character 6.3", which is not a
 /// thing. `options` lets the same knob list describe both kinds, so every surface
@@ -134,7 +134,7 @@ public struct GearParameter: Codable, Hashable, Identifiable {
     public var options: [String]?
     /// Which SECTION of the panel this control belongs to. `nil` = the main
     /// panel (the knob row and the switch strip, exactly as before). A non-nil
-    /// group is a named sub-panel — the Katana's five FX blocks are one group
+    /// group is a named sub-panel — the Kabuto's five FX blocks are one group
     /// each — so a surface that already iterates `GearItem.parameters` can lay
     /// them out as blocks instead of stringing twenty-six controls across one
     /// row. Adding this changes no saved JSON: the persisted form of a control
@@ -153,11 +153,11 @@ public struct GearParameter: Codable, Hashable, Identifiable {
     /// have two rows of the same six controls with the channel's name between
     /// them, which is how the chassis reads and the only way the duplicate labels
     /// make sense. `nil` = the main, unlabelled row. Distinct from `group`, which
-    /// makes a separate PANE (the Katana's FX blocks); a row is still the one
+    /// makes a separate PANE (the Kabuto's FX blocks); a row is still the one
     /// panel, just stacked.
     public var rowLabel: String? = nil
     /// Dim this control unless the control named here holds one of `activeValues`.
-    /// The JC-120's SPEED and DEPTH do nothing while its effect switch is OFF, and
+    /// The RM-140's SPEED and DEPTH do nothing while its effect switch is OFF, and
     /// a panel that says so is easier to read than one that leaves you guessing.
     public var activeWhen: String? = nil
     public var activeValues: [Int]? = nil
@@ -206,6 +206,25 @@ public struct GearItem: Identifiable, Codable, Hashable, Transferable {
     public var id: UUID
     public var name: String
     public var category: GearCategory
+
+    /// WHAT THIS PIECE *IS*, as opposed to what it is currently called.
+    ///
+    /// Six seams used to key off `name` — the icon, the panel plate, the plate's
+    /// knob sidecar, the DSP amp profile, the per-model knob set and the
+    /// enclosure finish. Every one of them failed SILENTLY on a miss: a renamed
+    /// model showed procedural art, played the wrong voicing or rendered the
+    /// wrong controls, and nothing in the build said so. That is what retired the
+    /// v3 and v4 names and forced a `catalogVersion` bump each time.
+    ///
+    /// So identity moved off the display name. `catalogID` is assigned once in
+    /// `RigStore.allModels` and NEVER changes; the display name is free to. It is
+    /// `nil` for a piece with no catalog entry — anything hand-made, or restored
+    /// from a host session written before ids existed — and `GearCatalog.id(for:)`
+    /// is the one place that decides what to do about that.
+    ///
+    /// Optional so every already-persisted `rig_state.json` still decodes.
+    public var catalogID: String?
+
     /// Current values keyed by parameter name.
     public var values: [String: Double]
 
@@ -227,19 +246,25 @@ public struct GearItem: Identifiable, Codable, Hashable, Transferable {
     /// The knobs to DISPLAY + persist for this specific item: its real per-model
     /// control set when known (PedalSpec), else the generic per-category set.
     /// `values` is passed so a block whose dial set depends on its selected TYPE
-    /// can show the right dials — the Katana's FX blocks gain a Rate only for the
+    /// can show the right dials — the Kabuto's FX blocks gain a Rate only for the
     /// LFO effects. Everything else ignores it.
     public var parameters: [GearParameter] {
-        PedalSpec.parameters(forName: name, category: category, values: values)
+        PedalSpec.parameters(id: GearCatalog.id(for: self), forName: name,
+                             category: category, values: values)
     }
 
-    public init(id: UUID = UUID(), name: String, category: GearCategory,
+    public init(id: UUID = UUID(), catalogID: String? = nil,
+         name: String, category: GearCategory,
          values: [String: Double]? = nil,
          has3DModel: Bool? = nil, modelName: String? = nil) {
         self.id = id
+        self.catalogID = catalogID
         self.name = name
         self.category = category
-        self.values = values ?? Dictionary(uniqueKeysWithValues: PedalSpec.parameters(forName: name, category: category).map { ($0.name, $0.defaultValue) })
+        let resolvedID = catalogID ?? GearCatalog.retiredID(forName: name)
+        self.values = values ?? Dictionary(uniqueKeysWithValues:
+            PedalSpec.parameters(id: resolvedID, forName: name, category: category)
+                .map { ($0.name, $0.defaultValue) })
         self.has3DModel = has3DModel
         self.modelName = modelName
     }
@@ -279,39 +304,124 @@ public struct ARSlot: Codable, Hashable {
     }
 }
 
-/// The REAL control set of each pedal MODEL — so a Big Muff shows Sustain/Tone/
-/// Volume, a Klon shows Gain/Treble/Output, a Metal Zone shows its full semi-
-/// parametric EQ, and so on (see research/pedal-tone-reference.md). Chosen by a
-/// substring match on the model name so it works for the re-badged catalog; falls
-/// back to the generic per-category knobs when the model isn't specially specified.
+/// The REAL control set of each pedal MODEL — so a BigMitt shows Sustain/Tone/
+/// Volume, a Chiron shows Gain/Treble/Output, a MetalRealm shows its full semi-
+/// parametric EQ, and so on (see research/pedal-tone-reference.md). Falls back to
+/// the generic per-category knobs when the model isn't specially specified.
+///
+/// CHOSEN BY `catalogID`, not by name. This is the seam that decides which
+/// controls a piece HAS, and `RigPreset` writes knobs by name — so a model that
+/// lands on the wrong row does not merely look wrong, it starts taking preset
+/// values into keys its panel never draws. It used to substring-match the display
+/// name, which made every rename a chance to do exactly that, silently. The id is
+/// frozen (see `GearCatalog`); the substring pass below now only runs for gear
+/// with no catalog identity at all.
 ///
 /// Which knob drives which DSP role is resolved separately, by ALIAS, in
 /// ParameterMap.pedalParams — so renaming a knob here never breaks the sound.
 enum PedalSpec {
-    static func parameters(forName name: String, category: GearCategory,
+    /// The knob set for a catalog model, keyed on its frozen id.
+    ///
+    /// Deliberately spelled as ids → the same token the substring pass matches,
+    /// so the two tables cannot drift: the token IS the row. A model missing here
+    /// falls through to the name pass and then to the category default, exactly as
+    /// an unknown name always has.
+    static let rowByID: [String: String] = {
+        var out: [String: String] = [:]
+        for (row, ids) in idsByRow { for id in ids { out[id] = row } }
+        return out
+    }()
+
+    /// row token → the catalog ids that take that row. Written out rather than
+    /// derived: the whole point is that a name can move without this moving.
+    private static let idsByRow: [String: [String]] = [
+        // overdrive / distortion / fuzz / boost
+        "mitt":        ["electro-galvanic-big-mitt"],
+        "chiron":      ["chiron-satyr"],
+        "shrew":       ["proforge-shrew"],
+        "metal":       ["brig-metal-realm"],
+        "distortion":  ["brig-distortion"],
+        "fixation":    ["fullbrook-fixation"],
+        "duke":        ["analogue-smith-duke-of-drive"],
+        "blues":       ["marswell-blues-blazer"],
+        "foundry":     ["z-flux-fuzz-foundry"],
+        "fuzz":        ["dalton-armature-fuzz-dome"],
+        "shrieker":    ["iberon-valve-shrieker"],
+        "boost":       ["exalt-preamp-booster"],
+        // compressor
+        "damper":      ["krx-damper-comp"],
+        "leveller":    ["brig-compression-leveller"],
+        "keswick":     ["keswick-compressor"],
+        // eq
+        "ten":         ["krx-ten-band-eq"],
+        "para":        ["emblem-parametric-eq"],
+        "equalizer":   ["brig-equalizer"],
+        // noise gate
+        "nullifier":   ["quell-nullifier-ii"],
+        "kraal":       ["fornax-kraal"],
+        // modulation
+        "swirl 72":    ["krx-swirl-72"],
+        "slate":       ["electro-galvanic-small-slate"],
+        "siren":       ["electro-galvanic-electric-siren"],
+        "flang":       ["krx-flanger"],
+        "trem":        ["brig-tremolo"],
+        "vibe":        ["fullbrook-lucid-vibe"],
+        "mime":        ["electro-galvanic-small-mime"],
+        "chorus":      ["brig-chorus"],
+        // pitch
+        "stack":       ["electro-galvanic-micro-stack"],
+        "octave":      ["brig-octave"],
+        "chorister":   ["brig-chorister"],
+        "slingshot":   ["digivault-slingshot"],
+        // delay
+        "echoreel":    ["dunridge-echoreel"],
+        "reverie":     ["electro-galvanic-reverie-mate"],
+        // reverb
+        "fleece":      ["electro-galvanic-golden-fleece"],
+        // amps and combos
+        "rm-140":      ["rondell-rm-140-velvet-chorus"],
+        "bassdude":    ["fandor-bassdude-59"],
+        "tandem":      ["fandor-tandem-reverb"],
+        "hv28":        ["vane-hv28"],
+        "clearpane":   ["marswell-clearpane-stellar-lead-1042"],
+        "msw900":      ["marswell-msw900-2140"],
+        "reactor":     ["mesquite-bootleg-dual-reactor"],
+        "gx-140":      ["fremont-gx-140"],
+        "vcx":         ["marswell-vcx45c"],
+        "rumblecrest": ["tangerine-rumblecrest-100"],
+        "kabuto":      ["brig-kabuto-100"],
+    ]
+
+    static func parameters(id: String?, forName name: String, category: GearCategory,
                            values: [String: Double]? = nil) -> [GearParameter] {
+        // A catalog piece answers from its id ONLY. An id that names no row means
+        // "this model takes its category's generic knobs" — said in one place,
+        // rather than left to whether its display name happens to contain a token.
+        // The substring pass below is what a piece with NO catalog identity gets,
+        // and is the only reader of `name`.
+        let name = id.map { rowByID[$0] ?? "" } ?? name
         let n = name.lowercased()
         func p(_ names: [String]) -> [GearParameter] { names.map { GearParameter($0) } }
 
         switch category {
         case .overdrive:   // overdrive / distortion / fuzz / boost all live here
-            if n.contains("muff")                                  { return p(["Sustain", "Tone", "Volume"]) }
-            if n.contains("klon") || n.contains("centaur")         { return p(["Gain", "Treble", "Output"]) }
-            if n.contains("rat")                                   { return p(["Distortion", "Filter", "Volume"]) }
-            if n.contains("metal") || n.contains("zone")           { return p(["Level", "Dist", "Low", "Mid", "Mid Freq", "High"]) }
+            if n.contains("mitt")                                  { return p(["Sustain", "Tone", "Volume"]) }
+            if n.contains("chiron") || n.contains("satyr")         { return p(["Gain", "Treble", "Output"]) }
+            if n.contains("shrew")                                 { return p(["Distortion", "Filter", "Volume"]) }
+            if n.contains("metal")                                 { return p(["Level", "Dist", "Low", "Mid", "Mid Freq", "High"]) }
             if n.contains("ds-1") || n.contains("ds1") || n.contains("distortion") { return p(["Tone", "Level", "Dist"]) }
-            if n.contains("ocd")                                   { return p(["Volume", "Drive", "Tone"]) }
-            if n.contains("king")                                  { return p(["Volume", "Tone", "Drive"]) }
+            if n.contains("fixation")                              { return p(["Volume", "Drive", "Tone"]) }
+            if n.contains("duke")                                  { return p(["Volume", "Tone", "Drive"]) }
             if n.contains("blues")                                 { return p(["Gain", "Tone", "Volume"]) }
-            if n.contains("factory")                               { return p(["Volume", "Gate", "Comp", "Drive", "Stab"]) }
-            if n.contains("fuzz") || n.contains("face")            { return p(["Volume", "Fuzz"]) }
-            if n.contains("screamer") || n.contains("tube")        { return p(["Overdrive", "Tone", "Level"]) }
-            if n.contains("boost") || n.contains("booster") || n.contains("ep ") { return p(["Gain"]) }
+            if n.contains("foundry")                               { return p(["Volume", "Gate", "Comp", "Drive", "Stab"]) }
+            if n.contains("fuzz")                                  { return p(["Volume", "Fuzz"]) }
+            if n.contains("shrieker") || n.contains("valve")       { return p(["Overdrive", "Tone", "Level"]) }
+            if n.contains("boost") || n.contains("booster")        { return p(["Gain"]) }
             return p(["Drive", "Tone", "Level"])
         case .compressor:
-            if n.contains("dyna")                                  { return p(["Sensitivity", "Output"]) }
-            if n.contains("cs-3") || n.contains("cs3") || n.contains("sustainer") { return p(["Level", "Tone", "Attack", "Sustain"]) }
-            if n.contains("keeley") || n.contains("keenly")        { return p(["Sustain", "Level", "Blend", "Tone"]) }
+            if n.contains("damper")                                { return p(["Sensitivity", "Output"]) }
+            if n.contains("cs-3") || n.contains("cs3") || n.contains("leveller") { return p(["Level", "Tone", "Attack", "Sustain"]) }
+            if n.contains("keswick")                               { return p(["Sustain", "Level", "Blend", "Tone"]) }
             return p(["Sustain", "Level"])
         case .eq:
             if n.contains("10") || n.contains("ten")               { return p(["31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k", "Volume"]) }
@@ -319,37 +429,37 @@ enum PedalSpec {
             if n.contains("ge-7") || n.contains("ge7") || n.contains("equalizer") { return p(["100", "200", "400", "800", "1.6k", "3.2k", "6.4k", "Level"]) }
             return p(["Low", "Mid", "High"])
         case .noiseGate:
-            if n.contains("decimator")                             { return p(["Threshold"]) }
-            if n.contains("zuul")                                  { return p(["Threshold", "Hold", "Release"]) }
+            if n.contains("nullifier")                             { return p(["Threshold"]) }
+            if n.contains("kraal")                                 { return p(["Threshold", "Hold", "Release"]) }
             return p(["Threshold", "Decay"])
         case .modulation:
-            if n.contains("phase 90") || n.contains("phase90")     { return p(["Speed"]) }
-            if n.contains("stone")                                 { return p(["Rate", "Color"]) }
-            if n.contains("mistress")                              { return p(["Rate", "Range", "Color"]) }
+            if n.contains("swirl 72") || n.contains("swirl72")     { return p(["Speed"]) }
+            if n.contains("slate")                                 { return p(["Rate", "Color"]) }
+            if n.contains("siren")                                 { return p(["Rate", "Range", "Color"]) }
             if n.contains("flang")                                 { return p(["Manual", "Width", "Speed", "Regen"]) }
             if n.contains("trem")                                  { return p(["Rate", "Wave", "Depth"]) }
             if n.contains("vibe")                                  { return p(["Volume", "Intensity", "Speed"]) }
-            if n.contains("clone")                                 { return p(["Rate", "Depth"]) }
+            if n.contains("mime")                                  { return p(["Rate", "Depth"]) }
             if n.contains("ce-2") || n.contains("ce2") || n.contains("chorus") { return p(["Rate", "Depth"]) }
             return p(["Rate", "Depth", "Mix"])
         case .pitch:
-            if n.contains("pog")                                   { return p(["Dry", "Sub", "Octave Up"]) }
+            if n.contains("stack")                                 { return p(["Dry", "Sub", "Octave Up"]) }
             if n.contains("oc-5") || n.contains("oc5") || n.contains("octave") { return p(["Direct", "+1 Oct", "-1 Oct", "-2 Oct"]) }
-            if n.contains("harmonist") || n.contains("ps-6")       { return p(["Balance", "Shift", "Key"]) }
-            if n.contains("whammy")                                { return p(["Position"]) }
+            if n.contains("chorister")                             { return p(["Balance", "Shift", "Key"]) }
+            if n.contains("slingshot")                             { return p(["Position"]) }
             return p(["Shift", "Mix"])
         case .delay:
-            if n.contains("echoplex") || n.contains("ep-3") || n.contains("ep103") { return p(["Volume", "Sustain", "Delay"]) }
-            if n.contains("memory")                                { return p(["Blend", "Feedback", "Delay", "Depth", "Rate"]) }
+            if n.contains("echoreel")                              { return p(["Volume", "Sustain", "Delay"]) }
+            if n.contains("reverie")                               { return p(["Blend", "Feedback", "Delay", "Depth", "Rate"]) }
             return p(["Time", "Feedback", "Mix"])
         case .reverb:
-            if n.contains("holy") || n.contains("grail")           { return p(["Reverb"]) }
+            if n.contains("fleece")                                { return p(["Reverb"]) }
             return p(["Decay", "Tone", "Mix"])
         // AMPS. The shared six knobs are the fallback, but an amp's panel is as
         // model-specific as a pedal's, and the per-item mechanism that already
         // handles that for pedals handles it here with no new machinery.
         case .amp, .comboAmp:
-            // The Katana's real panel: the shared EQ, plus a Volume that drives
+            // The Kabuto's real panel: the shared EQ, plus a Volume that drives
             // the power section (distinct from Master, which is the room level),
             // plus two DISCRETE selectors. Character and Variation choose the
             // voicing PROFILE — a structural change.
@@ -364,35 +474,35 @@ enum PedalSpec {
             // they want is the Character and Gain, not a power rating.
             //
             // The power-amp VOICING stays: headroom, sag, feedback and output
-            // compression are per-profile and are most of what separates a Twin
-            // from a Plexi. What is gone is asking the player to dial the wattage.
+            // compression are per-profile and are most of what separates a Tandem
+            // from a Clearpane. What is gone is asking the player to dial the wattage.
             // `SRParamAmpPower` also stays (addresses are append-only, and host
             // sessions carry it) — it is simply pinned to full power now.
             // EVERY AMP GETS ITS OWN PANEL, because they do not share one. Checked
             // model by model rather than assumed; the shared six were a placeholder
             // and several of them were simply wrong.
             //
-            //   • Fender Twin Reverb / Bassman — NO presence on the Twin. The panel
+            //   • Fandor TandemReverb / Bassdude — NO presence on the Tandem. The panel
             //     is Volume / Treble / Middle / Bass plus Reverb; presence belongs
-            //     to the Bassman, which really does have one.
-            //   • Vox AC30 — the control is CUT, not Presence, and it works
+            //     to the Bassdude, which really does have one.
+            //   • Vane HV28 — the control is CUT, not Presence, and it works
             //     backwards (turning it up removes top end). The DSP already models
             //     it as a negative presence scale; only the LABEL was wrong.
-            //   • Roland JC-120 — no presence, no gain. It is Volume / Treble /
+            //   • Rondell RM-140 — no presence, no gain. It is Volume / Treble /
             //     Middle / Bass with the chorus, and it never distorts by design.
-            //   • Marshall JCM800 2203 — a master-volume head: Presence, Bass,
+            //   • Marswell MSW900 2140 — a master-volume head: Presence, Bass,
             //     Middle, Treble, Master Volume and PREAMP volume. "Gain" is the
             //     modern name for the preamp control.
-            //   • Marshall DSL40C — the hardware also has RESONANCE, a low-end
+            //   • Marswell VCX45C — the hardware also has RESONANCE, a low-end
             //     feedback control that mirrors presence. It is NOT here: there is
             //     no DSP behind it (the power amp models one NFB shelf, not two),
             //     and a knob that does nothing is the thing this codebase already
             //     refuses to draw. It goes in when the power amp grows a low shelf.
-            //   • Orange Rockerverb — Gain / Bass / Middle / Treble / Master, plus
+            //   • Tangerine Rumblecrest — Gain / Bass / Middle / Treble / Master, plus
             //     its reverb. No presence knob on the dirty channel.
-            // ROLAND JC-120 — two channels; channel 2 carries the distortion, the
+            // RONDELL RM-140 — two channels; channel 2 carries the distortion, the
             // reverb and the chorus/vibrato that the amp is named for.
-            if n.contains("jc-120") || n.contains("jc120") || n.contains("jazz chorus") {
+            if n.contains("rm-140") || n.contains("rm140") || n.contains("velvet chorus") {
                 return [GearParameter("CHANNEL", options: ["CHANNEL 1", "CHANNEL 2"], defaultIndex: 0),
                         GearParameter("BRIGHT",   options: ["OFF", "ON"], defaultIndex: 0, isDisabled: true),
                         GearParameter("BRIGHT 2", options: ["OFF", "ON"], defaultIndex: 0,
@@ -415,11 +525,11 @@ enum PedalSpec {
                         GearParameter("DEPTH", rowLabel: "CHANNEL 2",
                                       activeWhen: "EFFECT", activeValues: [0, 2])]
             }
-            // FENDER BASSMAN — a tweed 5F6-A: presence and the tone stack, then a
+            // FANDOR BASSDUDE — a tweed 5F6-A: presence and the tone stack, then a
             // volume for EACH input, bright and normal. No master, no gain knob;
             // the input volume IS the gain.
-            if n.contains("bassman") || n.contains("bassdude") {
-                // Four jacks like the Plexi — two BRIGHT, two NORMAL — and a
+            if n.contains("bassdude") {
+                // Four jacks like the Clearpane — two BRIGHT, two NORMAL — and a
                 // volume for each pair, jumpered together the same way.
                 return [GearParameter("PATCH", options: ["BRIGHT", "NORMAL", "JUMPERED"],
                                       defaultIndex: 2, isDisabled: true),
@@ -430,9 +540,9 @@ enum PedalSpec {
                         GearParameter("Gain",     shortName: "VOL BRIGHT"),
                         GearParameter("Volume",   shortName: "VOL NORMAL")]
             }
-            // FENDER TWIN REVERB — two channels, and the reverb and vibrato live
+            // FANDOR TANDEM REVERB — two channels, and the reverb and vibrato live
             // on the Vibrato one only, which is why that row is longer.
-            // THE PANEL IS THE DELUXE its faceplate is drawn as, not the Twin the
+            // THE PANEL IS THE DELUXE its faceplate is drawn as, not the Tandem the
             // name suggests: NORMAL is Volume / Treble / Bass, VIBRATO adds
             // Reverb, Speed and Intensity, and there is no MIDDLE on either
             // channel and no master volume. Nine knobs, which is what the artwork
@@ -442,7 +552,7 @@ enum PedalSpec {
             // Dropping MIDDLE and MASTER is audible: the mid band sits flat and
             // the master at unity, which is exactly what an amp without those
             // controls does.
-            if n.contains("twin") {
+            if n.contains("tandem") {
                 return [GearParameter("CHANNEL", options: ["NORMAL", "VIBRATO"], defaultIndex: 0),
                         GearParameter("Gain",     shortName: "VOLUME", rowLabel: "NORMAL"),
                         GearParameter("Treble",   shortName: "TREBLE", rowLabel: "NORMAL"),
@@ -454,11 +564,11 @@ enum PedalSpec {
                         GearParameter("SPEED",     rowLabel: "VIBRATO"),
                         GearParameter("INTENSITY", rowLabel: "VIBRATO")]
             }
-            // VOX AC30 — the Normal channel is one volume and nothing else; Top
+            // VANE HV28 — the Normal channel is one volume and nothing else; Top
             // Boost is the tone channel. CUT and MASTER VOLUME are the amp's
             // global pair, and Cut runs backwards (the profile's negative
             // presenceScale is what does that).
-            if n.contains("ac30") {
+            if n.contains("hv28") {
                 // Per the manual: NORMAL is a single volume, TOP BOOST adds the
                 // tone pair (and only TREBLE and BASS — there is no middle), while
                 // REVERB, TREMOLO and the MASTER pair serve BOTH channels and so
@@ -475,13 +585,13 @@ enum PedalSpec {
                         GearParameter("Cut",    shortName: "TONE CUT"),
                         GearParameter("Master", shortName: "MASTER VOLUME")]
             }
-            // MARSHALL JCM800 / PLEXI — a master-volume head reads right to left
+            // MARSWELL MSW900 / CLEARPANE — a master-volume head reads right to left
             // on the chassis, and these are the six it actually has.
-            // PLEXI — no master volume. Four jacks (two channels, high and low
+            // CLEARPANE — no master volume. Four jacks (two channels, high and low
             // sensitivity each) and two LOUDNESS controls; the patch lead from one
             // channel's spare jack into the other is how both preamps end up
             // feeding the same signal, which is the sound people are after.
-            if n.contains("plexi") || n.contains("plaxi") || n.contains("super lead") {
+            if n.contains("clearpane") || n.contains("stellar lead") {
                 return [GearParameter("PATCH", options: ["HIGH TREBLE", "NORMAL", "JUMPERED"],
                                       defaultIndex: 2, isDisabled: true),
                         GearParameter("Presence", shortName: "PRESENCE"),
@@ -491,7 +601,7 @@ enum PedalSpec {
                         GearParameter("Gain",     shortName: "LOUDNESS I"),
                         GearParameter("Volume",   shortName: "LOUDNESS II")]
             }
-            if n.contains("jcm800") || n.contains("2203") {
+            if n.contains("msw900") || n.contains("2140") {
                 return [GearParameter("Presence", shortName: "PRESENCE"),
                         GearParameter("Bass", shortName: "BASS"),
                         GearParameter("Mid", shortName: "MIDDLE"),
@@ -499,11 +609,11 @@ enum PedalSpec {
                         GearParameter("Master", shortName: "MASTER VOLUME"),
                         GearParameter("Gain", shortName: "PRE-AMP VOLUME")]
             }
-            // MESA DUAL RECTIFIER — two channels of the same six, one row each
+            // MESQUITE DUAL REACTOR — two channels of the same six, one row each
             // with the channel named between them, and the two mode switches to
             // the left. CHANNEL 2's set is stored under suffixed keys because a
             // values dictionary cannot hold two knobs called BASS.
-            if n.contains("rectifier") || n.contains("ractifier") || n.contains("recto") {
+            if n.contains("reactor") {
                 func ch(_ suffix: String, _ row: String) -> [GearParameter] {
                     [("Master", "MASTER"), ("Presence", "PRESENCE"), ("Bass", "BASS"),
                      ("Mid", "MID"), ("Treble", "TREBLE"), ("Gain", "GAIN")].map {
@@ -521,7 +631,7 @@ enum PedalSpec {
                      + ch("",   "CHANNEL 1")
                      + ch(" 2", "CHANNEL 2")
             }
-            // THE FRIEDMAN BE-100, LEFT TO RIGHT, exactly as its front panel reads.
+            // THE FREMONT GX-140, LEFT TO RIGHT, exactly as its front panel reads.
             //
             // NINE KNOBS, NOT FIFTEEN. This used to model BE and HBE as two full
             // six-knob channels, which the amp does not have: BE and HBE SHARE one
@@ -545,7 +655,7 @@ enum PedalSpec {
             //
             // SYSTEM VOL and THUMP go with the second channel: neither is on the
             // front panel this is drawn from.
-            if n.contains("be-100") || n.contains("be100") {
+            if n.contains("gx-140") || n.contains("gx140") {
                 /// A VOICING SWITCH, drawn shaded. FAT, C45, SAT, VOICE and BRIGHT are
                 /// real switches on a real amp and none of them reaches the DSP —
                 /// this engine takes the amp's voicing from its profile, which comes
@@ -584,11 +694,11 @@ enum PedalSpec {
                     k("Clean Bass",   "BASS",         on: clean, disabled: true),
                 ]
             }
-            // MARSHALL DSL — two gain channels, a shared tone stack, and its own
+            // MARSWELL VCX — two gain channels, a shared tone stack, and its own
             // reverb per channel. RESONANCE is real on this amp and is drawn here,
             // though the power amp models a single feedback shelf so it does
             // nothing yet.
-            // MARSHALL DSL — the two gain channels are a BLOCK ON THE LEFT, each a
+            // MARSWELL VCX — the two gain channels are a BLOCK ON THE LEFT, each a
             // short row of its own controls, with everything shared sitting to
             // their right. Stacking them full-width under the amp made two tiny
             // rows floating in a lot of nothing.
@@ -602,7 +712,7 @@ enum PedalSpec {
             // Each channel's REVERB rides with its channel, so it dims when the
             // other one is selected — the amp has a reverb level per channel and
             // that is what makes them per-channel rather than one control.
-            if n.contains("dsl") {
+            if n.contains("vcx") {
                 return [GearParameter("CHANNEL", options: ["ULTRA GAIN", "CLASSIC GAIN"],
                                       defaultIndex: 0),
                         GearParameter("CLEAN/CRUNCH", options: ["CLEAN", "CRUNCH"], defaultIndex: 1,
@@ -624,7 +734,7 @@ enum PedalSpec {
                         GearParameter("Master",   shortName: "MASTER 1"),
                         GearParameter("Master 2", shortName: "MASTER 2", isDisabled: true)]
             }
-            // THE ROCKERVERT, LEFT TO RIGHT off its own faceplate. Two corrections
+            // THE RUMBLECREST, LEFT TO RIGHT off its own faceplate. Two corrections
             // to what was here: the clean channel has no MIDDLE — Volume, Treble
             // and Bass is the whole of it — and the amp HAS an attenuator, which
             // this did not. So the clean mid goes and the attenuator arrives,
@@ -632,7 +742,7 @@ enum PedalSpec {
             //
             // ATTENUATOR is drawn disabled: the power amp models one output stage
             // and has nothing to attenuate into yet.
-            if n.contains("rockerver") {
+            if n.contains("rumblecrest") {
                 return [GearParameter("CHANNEL", options: ["DIRTY", "CLEAN"], defaultIndex: 0),
                         GearParameter("ATTENUATOR", shortName: "ATTENUATOR", isDisabled: true),
                         GearParameter("REVERB", shortName: "REVERB"),
@@ -645,7 +755,7 @@ enum PedalSpec {
                         GearParameter("Bass 2",   shortName: "BASS",   rowLabel: "CLEAN"),
                         GearParameter("Volume 2", shortName: "VOLUME", rowLabel: "CLEAN")]
             }
-            if n.contains("katana") || n.contains("ketana") {
+            if n.contains("kabuto") {
                 var p: [GearParameter] = [
                     // PRESENCE IS BACK. It was taken off as a knob carried over
                     // from the shared six by mistake — but the faceplate prints
@@ -671,10 +781,10 @@ enum PedalSpec {
                 // enable an AR footswitch stomp uses, so toggling a block never
                 // rebuilds the chain), and the block's own dial(s).
                 //
-                // Every default is "Off", so a Katana loaded from a rig saved
+                // Every default is "Off", so a Kabuto loaded from a rig saved
                 // before this existed compiles to exactly the chain it did
                 // before — no keys, no slots, no change.
-                for block in ParameterMap.katanaFXBlocks {
+                for block in ParameterMap.kabutoFXBlocks {
                     p.append(GearParameter(block.name, options: block.options, defaultIndex: 0,
                                            group: block.name, shortName: "Type"))
                     p.append(GearParameter("\(block.name) On", options: ["Off", "On"], defaultIndex: 1,
@@ -689,12 +799,12 @@ enum PedalSpec {
                 }
                 return p
             }
-            // The JC-120 genuinely has no presence control, so its profile sets
+            // The RM-140 genuinely has no presence control, so its profile sets
             // `presenceScale = 0` and the knob is not offered. Showing an inert
             // dial would be worse than showing none. (The real amp has a Bright
             // switch instead; whether to model that is a product decision, not a
             // DSP one — see research/amp-emulation-approaches.md §13 Q5.)
-            if n.contains("jc-120") || n.contains("jc120") || n.contains("jazz chorus") {
+            if n.contains("rm-140") || n.contains("rm140") || n.contains("velvet chorus") {
                 return p(["Gain", "Bass", "Mid", "Treble", "Master"])
             }
             return category.parameters

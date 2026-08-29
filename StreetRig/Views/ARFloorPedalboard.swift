@@ -522,9 +522,9 @@ struct ARFloorPedalboardPreview: UIViewRepresentable {
 
 #Preview("Board · three pedals") {
     ARFloorPedalboardPreview(pedals: [
-        GearItem(name: "Ibonez Tube Screamer", category: .overdrive),
-        GearItem(name: "VOSS Digital Delay", category: .delay),
-        GearItem(name: "VOSS Reverb", category: .reverb),
+        GearItem(name: "Iberon Valve Shrieker", category: .overdrive),
+        GearItem(name: "BRIG Digital Delay", category: .delay),
+        GearItem(name: "BRIG Reverb", category: .reverb),
     ])
     .background(RigTheme.background)
     .preferredColorScheme(.dark)
@@ -532,9 +532,9 @@ struct ARFloorPedalboardPreview: UIViewRepresentable {
 
 #Preview("Board · foot hovering slot 1") {
     ARFloorPedalboardPreview(pedals: [
-        GearItem(name: "Ibonez Tube Screamer", category: .overdrive),
-        GearItem(name: "VOSS Digital Delay", category: .delay),
-        GearItem(name: "VOSS Reverb", category: .reverb),
+        GearItem(name: "Iberon Valve Shrieker", category: .overdrive),
+        GearItem(name: "BRIG Digital Delay", category: .delay),
+        GearItem(name: "BRIG Reverb", category: .reverb),
     ], hovered: 1, engaged: [false, false, true])
     .background(RigTheme.background)
     .preferredColorScheme(.dark)
@@ -542,9 +542,9 @@ struct ARFloorPedalboardPreview: UIViewRepresentable {
 
 #Preview("Board · one slot empty") {
     ARFloorPedalboardPreview(pedals: [
-        GearItem(name: "Ibonez Tube Screamer", category: .overdrive),
+        GearItem(name: "Iberon Valve Shrieker", category: .overdrive),
         nil,
-        GearItem(name: "VOSS Reverb", category: .reverb),
+        GearItem(name: "BRIG Reverb", category: .reverb),
     ])
     .background(RigTheme.background)
     .preferredColorScheme(.dark)

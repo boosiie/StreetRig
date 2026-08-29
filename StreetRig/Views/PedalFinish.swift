@@ -26,73 +26,86 @@ enum PedalFinish {
     ///
     /// Where the biggest area of an icon was a treadle, a label plate or lettering
     /// rather than the chassis, the value was read off the icon by eye instead:
-    /// Bad Horsie (white treadle over a pink box), the Whammy (black treadle over
-    /// red), and the Holy Grail and Keenly (silver footswitch on a black box).
+    /// Wild Pony (white treadle over a pink box), the Slingshot (black treadle over
+    /// red), and the GoldenFleece and Keswick (silver footswitch on a black box).
     static let byModel: [String: (r: Double, g: Double, b: Double)] = [
     // Tuner
-    "voss chromatic tuner"                  : (1.00, 1.00, 1.00),
+    "brig chromatic tuner"            : (1.00, 1.00, 1.00),
     // Wah / filter
-    "dunlap cry baby"                       : (0.27, 0.27, 0.20),
-    "volt v847"                             : (0.20, 0.27, 0.27),
-    "morlee bad horsie"                     : (0.73, 0.47, 0.53),
+    "dunridge weeping willow"         : (0.27, 0.27, 0.20),
+    "vane v921"                       : (0.20, 0.27, 0.27),
+    "mordant wild pony"               : (0.73, 0.47, 0.53),
     // Compressor
-    "mxp dyna comp"                         : (0.93, 0.07, 0.13),
-    "voss compression sustainer"            : (0.00, 0.40, 0.73),
-    "keenly compressor"                     : (0.13, 0.13, 0.13),
+    "krx damper comp"                 : (0.93, 0.07, 0.13),
+    "brig compression leveller"       : (0.00, 0.40, 0.73),
+    "keswick compressor"              : (0.13, 0.13, 0.13),
     // Overdrive / distortion / fuzz / boost
-    "voss distortion"                       : (0.93, 0.47, 0.13),
-    "ibonez tube screamer"                  : (0.33, 0.80, 0.33),
-    "procon rat"                            : (0.13, 0.13, 0.13),
-    "voss metal zone"                       : (0.27, 0.27, 0.33),
-    "chiron centaur"                        : (0.67, 0.20, 0.20),
-    "analogue.man king of tone"             : (0.53, 0.27, 0.47),
-    "marswell blues breaker"                : (0.13, 0.13, 0.13),
-    "fullstone ocd"                         : (0.87, 0.87, 0.73),
-    "electro-harmonium big muff π"          : (0.87, 0.80, 0.80),
-    "dallas arbitor fuzz face"              : (0.80, 0.07, 0.07),
-    "z.hex fuzz factory"                    : (0.73, 0.80, 0.80),
-    "exotiq ep booster"                     : (0.13, 0.13, 0.13),
-    "strymo iridium"                        : (0.07, 0.07, 0.07),
+    "brig distortion"                 : (0.93, 0.47, 0.13),
+    "iberon valve shrieker"           : (0.33, 0.80, 0.33),
+    "proforge shrew"                  : (0.13, 0.13, 0.13),
+    "brig metal realm"                : (0.27, 0.27, 0.33),
+    "chiron satyr"                    : (0.67, 0.20, 0.20),
+    "analogue.smith duke of drive"    : (0.53, 0.27, 0.47),
+    "marswell blues blazer"           : (0.13, 0.13, 0.13),
+    "fullbrook fixation"              : (0.87, 0.87, 0.73),
+    "electro-galvanic big mitt ω"     : (0.87, 0.80, 0.80),
+    "dalton armature fuzz dome"       : (0.80, 0.07, 0.07),
+    "z.flux fuzz foundry"             : (0.73, 0.80, 0.80),
+    "exalt preamp booster"            : (0.13, 0.13, 0.13),
+    "strider beryllium"               : (0.07, 0.07, 0.07),
     // EQ
-    "voss equalizer"                        : (0.93, 0.93, 0.87),
-    "mxp ten band eq"                       : (0.80, 0.87, 0.87),
-    "empriss paraeq"                        : (0.00, 0.53, 0.93),
+    "brig equalizer"                  : (0.93, 0.93, 0.87),
+    "krx ten band eq"                 : (0.80, 0.87, 0.87),
+    "emblem parametric eq"            : (0.00, 0.53, 0.93),
     // Noise gate
-    "voss noise suppressor"                 : (0.87, 0.87, 0.87),
-    "itp decimator ii"                      : (0.67, 0.67, 0.67),
-    "fortis zuul"                           : (0.27, 0.27, 0.27),
+    "brig noise silencer"             : (0.87, 0.87, 0.87),
+    "quell nullifier ii"              : (0.67, 0.67, 0.67),
+    "fornax kraal"                    : (0.27, 0.27, 0.27),
     // Modulation
-    "voss chorus"                           : (0.13, 0.67, 0.80),
-    "mxp phase 90"                          : (1.00, 0.53, 0.07),
-    "mxp flanger"                           : (0.47, 0.47, 0.53),
-    "voss tremolo"                          : (0.00, 0.53, 0.60),
-    "electro-harmonium small clone"         : (0.13, 0.13, 0.13),
-    "electro-harmonium small stone"         : (0.73, 0.73, 0.73),
-    "electro-harmonium electric mistress"   : (0.07, 0.07, 0.07),
-    "fullstone deja'vibe"                   : (0.73, 0.73, 0.73),
+    "brig chorus"                     : (0.13, 0.67, 0.80),
+    "krx swirl 72"                    : (1.00, 0.53, 0.07),
+    "krx flanger"                     : (0.47, 0.47, 0.53),
+    "brig tremolo"                    : (0.00, 0.53, 0.60),
+    "electro-galvanic small mime"     : (0.13, 0.13, 0.13),
+    "electro-galvanic small slate"    : (0.73, 0.73, 0.73),
+    "electro-galvanic electric siren" : (0.07, 0.07, 0.07),
+    "fullbrook lucid'vibe"            : (0.73, 0.73, 0.73),
     // Pitch / octave
-    "voss octave"                           : (0.20, 0.13, 0.13),
-    "voss harmonist"                        : (0.13, 0.47, 0.67),
-    "electro-harmonium micro pog"           : (0.87, 0.07, 0.07),
-    "digitek whammy"                        : (0.80, 0.33, 0.33),
+    "brig octave"                     : (0.20, 0.13, 0.13),
+    "brig chorister"                  : (0.13, 0.47, 0.67),
+    "electro-galvanic micro stack"    : (0.87, 0.07, 0.07),
+    "digivault slingshot"             : (0.80, 0.33, 0.33),
     // Delay
-    "voss digital delay"                    : (1.00, 0.93, 0.87),
-    "dunlap echoplex"                       : (0.13, 0.13, 0.13),
-    "electro-harmonium memory man"          : (0.07, 0.07, 0.07),
+    "brig digital delay"              : (1.00, 0.93, 0.87),
+    "dunridge echoreel"               : (0.13, 0.13, 0.13),
+    "electro-galvanic reverie mate"   : (0.07, 0.07, 0.07),
     // Reverb
-    "voss reverb"                           : (0.20, 0.20, 0.20),
-    "electro-harmonium holy grail"          : (0.13, 0.13, 0.13),
+    "brig reverb"                     : (0.20, 0.20, 0.20),
+    "electro-galvanic golden fleece"  : (0.13, 0.13, 0.13),
     // Volume
-    "voss fv-500h"                          : (0.20, 0.20, 0.20),
-    "ernie bell vp jr"                      : (0.07, 0.07, 0.07),
+    "brig lv-320h"                    : (0.20, 0.20, 0.20),
+    "errol brass swell mini"          : (0.07, 0.07, 0.07),
     // Looper / sustain
-    "voss loop station"                     : (0.80, 0.07, 0.07),
-    "electro-harmonium freeze"              : (0.93, 0.93, 0.93),
+    "brig loop depot"                 : (0.80, 0.07, 0.07),
+    "electro-galvanic frost"          : (0.93, 0.93, 0.93),
     ]
 
     static func rgb(for item: GearItem) -> (r: Double, g: Double, b: Double)? {
-        byModel[item.name.lowercased()]
+        if let id = GearCatalog.id(for: item), let c = byID[id] { return c }
+        return byModel[item.name.lowercased()]
     }
+
+    /// The same table, keyed by frozen `catalogID` — what actually resolves a
+    /// shipped pedal. `byModel` above stays as the fallback for gear with no
+    /// catalog entry, and as the readable record of which name each colour was
+    /// sampled off.
+    static let byID: [String: (r: Double, g: Double, b: Double)] = {
+        var out: [String: (r: Double, g: Double, b: Double)] = [:]
+        for m in RigStore.allModels {
+            if let id = m.catalogID, let c = byModel[m.name.lowercased()] { out[id] = c }
+        }
+        return out
+    }()
 
     /// Whether a finish is light enough that labels and knobs on it must go dark.
     /// Derived from the colour itself rather than a hand-set flag, so a model

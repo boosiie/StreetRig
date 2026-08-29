@@ -75,7 +75,7 @@ bar, which costs zero layout height. Specified per direction below.
 ## Part 1 — What makes professional amp-sim UI read as professional
 
 Mechanisms, not vibes. Drawn from Neural DSP Archetype, Positive Grid BIAS FX 2 / Spark, IK
-AmpliTube 5, IK ToneX, Line 6 Helix Native, Fender Tone, Logic Pro Amp Designer, GarageBand's amp
+AmpliTube 5, IK ToneX, Line 6 Helix Native, Fandor Tone, Logic Pro Amp Designer, GarageBand's amp
 view, and Apple's own Logic/Music iPad apps.
 
 ### 1.1 What a professional button actually does
@@ -638,7 +638,7 @@ surface in a *complementary* family instead and the interaction disappears.
 direction — nothing on screen is warm except `amber` and the gear's own paint. "Burnt Tan" as an
 identity does not survive. What is bought: `amber` becomes the only warm thing on screen, so it
 reads *louder while being used less*, and the 47 pedals' real finishes (`PedalFinish.swift` —
-Tube Screamer green, Big Muff white, RAT black, Phase 90 orange) sit on a neutral ground that does
+ValveShrieker green, BigMitt white, SHREW black, Swirl72 orange) sit on a neutral ground that does
 not tint them.
 
 | Token | Hex | R,G,B | Hue | Role |
@@ -1099,7 +1099,7 @@ branded amp standing over anonymous coloured bricks. That inconsistency is the g
 **The change, in three moves.**
 
 1. **Keep the geometry.** Enclosure family, chamfer and footprint are unchanged. The wah treadle,
-   the round Fuzz Face and the Boss tread plate were the point of that file and they stay.
+   the round FuzzDome and the Brig tread plate were the point of that file and they stay.
 2. **Map the artwork** onto the enclosure's **top face**: `GearIconLoader.uiImage(for:)` as
    `diffuse.contents` — the same asset, resolved by the same slug, that already dresses the cards.
 3. **Clear coat** over it: `.physicallyBased`, roughness **0.18**, metalness **0.0**,
@@ -1107,7 +1107,7 @@ branded amp standing over anonymous coloured bricks. That inconsistency is the g
    bevel in the app. Flat vector art becomes painted enamel under a stage light.
 
 **THE TRAP — the artwork already draws the controls.** Every catalogue PNG is a top-down
-illustration that *includes* its own knobs, LED and tread plate (verified: `ibonez-tube-screamer.png`
+illustration that *includes* its own knobs, LED and tread plate (verified: `iberon-tube-shrieker.png`
 is 228×330 with Drive/Tone/Level knobs, a red LED and a tread plate drawn in). Mapping it onto an
 archetype that still builds procedural knobs yields two sets, one floating over the other. So move 2
 must **also suppress the archetype's top-face detail geometry** — knob cylinders, switch plate, LED
@@ -1218,7 +1218,7 @@ specular band (`white 0.55 → clear` over 0…17%), then a 2pt **horizontal bru
 control plate is linished; vertical grain would fight the 0° overhead key light. Applies everywhere
 the cream appears: top nav, control panel, the component-detail knob strip, and the section bands.
 
-Precedent worth noting: the app's own `marswell-jcm800-2203` artwork already draws a gold-anodised
+Precedent worth noting: the app's own `marswell-msw900-2140` artwork already draws a gold-anodised
 control plate. This brings the chrome into agreement with the gear it frames.
 
 **4. The slider thumb is a knurled fader cap, not a circle.** A circle carries no orientation, so it
@@ -1522,7 +1522,7 @@ itself with real metadata — not that a catalogue must be a table.
 
 **Why the grid is right here.** A catalogue of gear is a catalogue of **objects**. Every piece has
 bespoke artwork already resolving through `GearIconLoader`, and the eye lands on a picture faster
-than it reads a name — a player looking for their Big Muff recognises it before they parse the word.
+than it reads a name — a player looking for their BigMitt recognises it before they parse the word.
 A table throws that away and makes the artwork a 20pt afterthought.
 
 **What was actually wrong with the old tile.** It carried a picture, a name and a category, and then

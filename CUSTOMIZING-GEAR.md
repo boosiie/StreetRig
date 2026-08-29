@@ -40,7 +40,7 @@ Three seams, one rule:
 
 `lowercase`, replace every run of non-`[a-z0-9]` with a single `-`, trim `-`.
 
-`"Ibonez Tube Screamer"` → `ibonez-tube-screamer` · `"ProCon RAT"` → `procon-rat` · `"Marswell 1960A 4x12"` → `marswell-1960a-4x12`
+`"Iberon Valve Shrieker"` → `iberon-tube-shrieker` · `"ProForge SHREW"` → `proforge-shrew` · `"Marswell 2415A 4x12"` → `marswell-2415a-4x12`
 
 ## Fallback chain (first hit wins)
 
@@ -121,9 +121,9 @@ the panel's rounded corners and edge stroke stay live views on top, because the 
 Paint colour, metal, tolex, branding, screws, wear — not knobs.
 
 **Each amp bakes its own faceplate**, not a shared cream one: gold on the Marswells, silver
-on the Fandor Twin, copper on the Volt, gunmetal on the Mesa, matte black on the Freedman,
-the DSL40C and the Katana (told apart by their trim), orange on the Tangerine, tweed on the
-Bassman. The table is [`Faceplate.swift`](StreetRig/Views/Faceplate.swift), matched by
+on the Fandor Tandem, copper on the Vane, gunmetal on the Mesquite, matte black on the Fremont,
+the VCX45C and the Kabuto (told apart by their trim), orange on the Tangerine, tweed on the
+Bassdude. The table is [`Faceplate.swift`](StreetRig/Views/Faceplate.swift), matched by
 substring on the model name. It also decides whether the plate is **light** — knob captions
 go dark on a light panel and light on a dark one — so a repaint that flips a plate's
 brightness needs `isLight` flipped with it.
@@ -132,7 +132,7 @@ brightness needs `isLight` flipped with it.
   lands exactly, author at another aspect and the overflow is trimmed off the edges.
 - **A plate can place its own knobs.** Drop a `<slug>-panel.json` beside it naming each
   knob's centre and diameter as fractions of the plate, and the panel pins the knobs to
-  the wells you painted instead of spacing them evenly — that is how the JCM800's six sit
+  the wells you painted instead of spacing them evenly — that is how the MSW900's six sit
   inside their printed scales. See the [PanelArt README](StreetRig/PanelArt/README.md).
   A piece with a sidecar is never re-baked by the exporter, `=force` included — and its
   artwork is **never cropped**: the panel divides its own width by the plate's aspect and
@@ -168,14 +168,14 @@ only decides the *shape*.
 
 | Archetype | Real-world class | Catalog examples | What makes it that shape |
 |---|---|---|---|
-| `mxrBox` | 1590B compact | `MXP phase 90`, `MXP dyna comp`, `Fullstone OCD`, `FORTIS ZUUL`, `DUNLAP ECHOPLEX` | Small, low, flat top; knobs by the back edge; footswitch at the front |
-| `bossCompact` | Compact with a tread plate | every `VOSS *` pedal, `Ibonez Tube Screamer` | Big hinged tread plate over the front, knobs recessed on a shelf above it, no separate footswitch |
-| `bigBox` | 1590BB / oversized fuzz + EQ | `VOSS Metal Zone`, `electro-harmonium BIG MUFF π`, `EMPRISS ParaEq`, `Chiron CENTAUR`, `ProCon RAT`, all `electro-harmonium *` | Wider and longer; two rows of knobs, or a slider bank past six controls |
-| `wahRocker` | Wah | `DUNLAP CRY BABY`, `VOLT V847`, `MORLEE BAD HORSIE` | Long tapered chassis, side rails, a ridged treadle **hinged at the heel** |
-| `trebleWedge` | Volume / expression treadle | `VOSS FV-500H`, `ERNIE BELL VP JR`, `DigiTek WHAMMY` | The same rocker with nothing on top and a steeper heel |
-| `tunerWedge` | Compact tuner | `VOSS Chromatic Tuner` | Compact shell whose back half is a dark display with a lit needle |
-| `roundFuzz` | Fuzz Face | `DALLAS ARBITOR FUZZ FACE` | The one **round** enclosure; two widely-spaced knobs |
-| `looperDeck` | Loop station | `VOSS Loop Station`, `electro-harmonium FREEZE` | Wide deck with **two footswitches** side by side and a readout |
+| `krxBox` | 1590B compact | `KRX swirl 72`, `KRX damper comp`, `Fullbrook FIXATION`, `FORNAX KRAAL`, `DUNRIDGE ECHOREEL` | Small, low, flat top; knobs by the back edge; footswitch at the front |
+| `brigCompact` | Compact with a tread plate | every `BRIG *` pedal, `Iberon Valve Shrieker` | Big hinged tread plate over the front, knobs recessed on a shelf above it, no separate footswitch |
+| `bigBox` | 1590BB / oversized fuzz + EQ | `BRIG Metal Realm`, `electro-galvanic BIG MITT Ω`, `EMBLEM Parametric EQ`, `Chiron SATYR`, `ProForge SHREW`, all `electro-galvanic *` | Wider and longer; two rows of knobs, or a slider bank past six controls |
+| `wahRocker` | Wah | `DUNRIDGE WEEPING WILLOW`, `VANE V921`, `MORDANT WILD PONY` | Long tapered chassis, side rails, a ridged treadle **hinged at the heel** |
+| `trebleWedge` | Volume / expression treadle | `BRIG LV-320H`, `ERROL BRASS SWELL MINI`, `DigiVault SLINGSHOT` | The same rocker with nothing on top and a steeper heel |
+| `tunerWedge` | Compact tuner | `BRIG Chromatic Tuner` | Compact shell whose back half is a dark display with a lit needle |
+| `roundFuzz` | FuzzDome | `DALTON ARMATURE FUZZ DOME` | The one **round** enclosure; two widely-spaced knobs |
+| `looperDeck` | Looper deck | `BRIG Loop Depot`, `electro-galvanic FROST` | Wide deck with **two footswitches** side by side and a readout |
 
 Two things every archetype guarantees, because shipped features look them up by name:
 
@@ -208,7 +208,7 @@ The procedural models bake to real files you can open in Blender:
    i.e. the box your replacement has to land in — rather than clean primitive geometry.
    It is also much the slowest and heaviest of them to write.
 3. Refine in Blender → export a clean `.usdz` → rename it to the target slug
-   (e.g. `marswell-jcm800-2203.usdz`, or `guitar-stand.usdz`) → drop it in **`StreetRig/GearModels/`**.
+   (e.g. `marswell-msw900-2140.usdz`, or `guitar-stand.usdz`) → drop it in **`StreetRig/GearModels/`**.
    It loads automatically.
 
 The baked amp baseline is the *plain* procedural stack (head 3.4 × 1.15 × 1.25 at

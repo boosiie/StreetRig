@@ -2,15 +2,15 @@
 //  DynamicsPedal.hpp
 //  StreetRig
 //
-//  The dynamics family — a COMPRESSOR (.compressor: Dyna Comp / CS-3 / Keeley)
-//  and a NOISE GATE / downward expander (.noiseGate: NS-2 / Zuul / Decimator).
+//  The dynamics family — a COMPRESSOR (.compressor: DamperComp / CS-3 / Keswick)
+//  and a NOISE GATE / downward expander (.noiseGate: NS-2 / Kraal / Nullifier).
 //  Both are the same machine — an envelope follower driving a gain — so one
 //  block serves both, switched by `mode` at configure time. The slot picks the
 //  mode from its Type (Compressor vs Gate), so a single preallocated instance
 //  per slot covers whichever the user drops in.
 //
 //  COMPRESSOR: feed-forward, peak-detected, program-dependent. Fast attack,
-//  medium release (Dyna-Comp-ish limiter feel). Sustain lowers the threshold and
+//  medium release (Damper-Comp-ish limiter feel). Sustain lowers the threshold and
 //  raises the ratio; a gentle auto-makeup + the Level knob restore volume.
 //  GATE: below threshold the gain falls to silence with a fast attack (opens
 //  instantly) and a knob-set release ("Decay"); above it, unity. Kills hiss/hum
