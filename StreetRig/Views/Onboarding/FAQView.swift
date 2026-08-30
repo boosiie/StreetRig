@@ -3,7 +3,7 @@
 //  StreetRig
 //
 //  THE PAGE FOR THE TWO COMPLAINTS THIS APP ACTUALLY GETS: "there's an echo"
-//  and "there's a horrible noise". Reached from Settings → Help & guides, and
+//  and "there's a horrible noise". Reached from PROFILE → Help & guides, and
 //  written for somebody who is holding a guitar and is about to decide the app
 //  is broken.
 //
@@ -249,9 +249,15 @@ enum FAQ {
 // MARK: - View
 
 struct FAQView: View {
-    /// Back to the settings list. Settings is a page you came from, so this page
-    /// owns a title bar and a way out — the same contract `PreferencesView` has
-    /// with the profile page.
+    /// What the back button names. It is a parameter rather than the constant
+    /// "Settings" it used to be, because this page moved: Help & guides now lives
+    /// on the PROFILE page, and a back button that named the wrong screen was a
+    /// small lie of exactly the kind the rest of this app refuses to tell.
+    var backLabel: String = "Profile"
+
+    /// Back to wherever you came from — a page, not a sheet, so this one owns a
+    /// title bar and a way out rather than a drag handle. The same contract
+    /// `PreferencesView` has with the profile page.
     var onClose: (() -> Void)?
 
     @State private var selection = 0
@@ -285,14 +291,14 @@ struct FAQView: View {
                     HStack(spacing: 3) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 12, weight: .bold))
-                        Text("Settings")
+                        Text(backLabel)
                             .font(.system(size: 13, weight: .medium))
                     }
                     .foregroundStyle(RigTheme.amber)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Back to settings")
+                .accessibilityLabel("Back to \(backLabel.lowercased())")
             }
             Spacer(minLength: 0)
             Text("COMMON QUESTIONS")
