@@ -61,9 +61,13 @@ import StreetRigEngine
 /// from, rather than present-but-useless.
 struct ARPedalSetupView: View {
     @EnvironmentObject private var drag: RigDragController
+    /// Whether the pager is currently showing this page — see `ARCameraView.isActive`.
+    /// Defaults true so the play page, which hosts the content directly and is only
+    /// ever on screen when it is the thing being looked at, needs to say nothing.
+    var isActive: Bool = true
 
     var body: some View {
-        ARPedalContentView()
+        ARPedalContentView(isActive: isActive)
             .environment(\.rigDrag, drag)
     }
 }
@@ -71,6 +75,11 @@ struct ARPedalSetupView: View {
 // MARK: - Shared content
 
 struct ARPedalContentView: View {
+    /// See `ARCameraView.isActive`. Only the camera feed reads it — the overlays are
+    /// already cheap, and blanking them off-page would make a swipe show an empty
+    /// board sliding away instead of the board.
+    var isActive: Bool = true
+
     @EnvironmentObject var store: RigStore
     @StateObject private var detector = CameraStompDetector.shared
 
@@ -94,14 +103,15 @@ struct ARPedalContentView: View {
     /// stopped moving does not.
     @State private var calibrationHeight: Float?
 
-    /// The wah's one control, and the span of its dial. Both named here rather than
-    /// inlined so the mapping from "foot height" to "knob value" is one readable line.
-    private static let wahParameter = "Position"
-    private static let wahRange: Double = 10        // GearParameter's default 0–10 dial
-
     /// Room the banner needs at the top, so an anchored slot can never be clamped up
     /// underneath it.
     private static let bannerReserve: CGFloat = 54
+
+    /// Which of the three switches currently hold a rocker. The detector needs this
+    /// to stop a rocking foot from throwing phantom stomps at the pedals beside it.
+    private var treadleSlotSet: Set<Int> {
+        Set((0..<3).filter { store.arPedal($0)?.isTreadle == true })
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -152,9 +162,18 @@ struct ARPedalContentView: View {
                 FloorPedalsDriver(layout: detector.layout,
                                   pedals: floorPedals,
                                   hovered: detector.hoveredSlot)
+                if anchored, let pad = detector.layout.switchPad {
+                    SwitchPadView(pad: pad,
+                                  armed: detector.treadleArmedSlot == pad.slot,
+                                  turningOn: !store.arSlots[pad.slot].isOn,
+                                  name: store.arPedal(pad.slot)?.name ?? "")
+                        .position(pad.point)
+                }
                 if anchored {
                     FloorSlotChrome(layout: detector.layout,
                                     viewport: geo.size,
+                                    armedSlot: detector.treadleArmedSlot,
+                                    armProgress: detector.treadleArmProgress,
                                     onAssign: { picking = SlotIndex(id: $0) })
                 }
 
@@ -214,22 +233,52 @@ struct ARPedalContentView: View {
                 .environmentObject(store)
         }
         .onAppear {
-            // THE WAH TREADLE. The detector reports a foot's height over a slot; what
+            // THE TREADLE. The detector reports a foot's height over a slot; what
             // that MEANS is decided here, because this is the layer that knows what
-            // kind of pedal is in the slot. On a wah it is the rocker position; on
+            // kind of pedal is in the slot. On a rocker it is the treadle angle; on
             // anything else a foot riding high over a pedal means nothing at all, and
             // silently driving some other pedal's first knob with it would be a
             // genuinely baffling bug to chase.
+            //
+            // Every pedal with a rocker answers to this — the wahs, both volume
+            // pedals and the pitch treadle — because `isTreadle` asks the pedal for its
+            // controls rather than naming categories. It read `category == .wah`
+            // when only the wahs had art for it, which left a player standing on a
+            // volume pedal watching nothing happen.
             //
             // Gated on the pedal being ON, exactly as the hardware is: a bypassed wah
             // does not sweep, and a player resting a foot on a pedal they have not
             // switched on should not be changing its tone.
             detector.onTreadle = { slot, position in
-                guard let pedal = store.arPedal(slot), pedal.category == .wah,
+                guard let pedal = store.arPedal(slot), pedal.isTreadle,
                       store.arSlots[slot].isOn else { return }
-                store.setARSlotParameter(slot, Self.wahParameter, position * Self.wahRange)
+                store.setARSlotParameter(slot, GearItem.treadleParameter,
+                                         position * pedal.treadleMax)
+            }
+            // A STOMP DOES NOT SWITCH A TREADLE PEDAL. On a footswitch pedal the
+            // stamp IS the switch and this is the whole feature. On a rocker the foot
+            // LIVES on the pedal — rocking it heel-to-toe is the normal way to play
+            // one — and every press of the toe down reads to the tracker exactly like
+            // a stamp. Left wired up, sweeping a wah switched it off mid-phrase.
+            //
+            // Vision cannot tell the two apart: it reports the ANKLE, and the toe
+            // press that works a real wah's switch barely moves the ankle at all. So
+            // the switch moves to a control the player aims at deliberately — the
+            // switch pad out on the empty floor — and the foot means
+            // only "sweep", which is the one thing it can say unambiguously.
+            // THE ROCKER'S OWN SWITCH. Push the toe past the end of the sweep and the
+            // pedal flips — the pedal is split in two, the inner travel doing the
+            // sweeping and the far end doing the switching, exactly as the casting of
+            // a real wah is. The side button stays for setting a pedal up by hand,
+            // but it needs a HAND, and a player standing behind a guitar has only
+            // feet to spare.
+            detector.onTreadleSwitch = { slot in
+                guard store.arPedal(slot)?.isTreadle == true else { return }
+                withAnimation(.easeInOut(duration: 0.15)) { store.toggleARSlot(slot) }
+                floorPedals.burst(slot: slot, engaged: store.arSlots[slot].isOn)
             }
             detector.onStomp = { slot in
+                guard store.arPedal(slot)?.isTreadle != true else { return }
                 withAnimation(.easeInOut(duration: 0.15)) { store.toggleARSlot(slot) }
                 // AFTER the toggle, so the burst shows the state the pedal ended up
                 // in rather than the one it was leaving. Fired here rather than from
@@ -237,7 +286,13 @@ struct ARPedalContentView: View {
                 // CHANGING — a stamp the store declined must light nothing up.
                 floorPedals.burst(slot: slot, engaged: store.arSlots[slot].isOn)
             }
+            detector.treadleSlots = treadleSlotSet
             detector.start()
+        }
+        .onChange(of: treadleSlotSet) { _, slots in
+            // The rig can change under the AR page (the board and these switches are
+            // the same three pedals now), so this cannot be set once at start-up.
+            detector.treadleSlots = slots
         }
         .onDisappear {
             detector.stop()
@@ -290,6 +345,7 @@ struct ARPedalContentView: View {
             // twice. Two nearly-identical viewports is how a stomp lands on the
             // wrong slot.
             ARCameraView(session: detector.session,
+                         isActive: isActive,
                          onGeometry: { detector.setViewGeometry(orientation: $0, size: $1) },
                          onView: {
                              detector.attach(feedView: $0)
@@ -394,8 +450,12 @@ struct ARPedalContentView: View {
             return auto ? "Placing your pedals…" : "Tap the floor to place your pedals"
         case .locked:                      return "Locked in · stomp a slot to toggle"
         case .lost:
-            return auto ? "Phone moved — set it down and it will re-place"
-                        : "Phone moved — tap the floor to re-place"
+            // NAMES THE REASON. "Phone moved" was hardcoded and is one of seven
+            // things that end a lock; saying it for all of them sent a player
+            // chasing a phone that had not moved.
+            let why = detector.lastUnlockReason ?? "phone moved"
+            return auto ? "Lost the board (\(why)) — set it down and it will re-place"
+                        : "Lost the board (\(why)) — tap the floor to re-place"
         default:
             // .idle / .unsupported / .denied / .running: nothing is being placed, so
             // the banner goes back to being the page's instructions.
@@ -501,13 +561,20 @@ private struct ARTapRipple: View {
 private struct FloorSlotChrome: View {
     @ObservedObject var layout: ARSlotLayout
     let viewport: CGSize
+    /// Which treadle the foot is standing on the switch half of, if any, and how far
+    /// through the hold it has got.
+    let armedSlot: Int?
+    let armProgress: Double
     let onAssign: (Int) -> Void
 
     var body: some View {
         if let points = layout.slots, points.count == 3 {
             ForEach(0..<3, id: \.self) { index in
                 if visible(points[index]) {
-                    ARFloorSlotView(index: index, onAssign: { onAssign(index) })
+                    ARFloorSlotView(index: index,
+                                    armed: armedSlot == index,
+                                    armProgress: armProgress,
+                                    onAssign: { onAssign(index) })
                         .position(points[index])
                 }
             }
@@ -531,6 +598,10 @@ private struct FloorSlotChrome: View {
 private struct ARFloorSlotView: View {
     @EnvironmentObject private var store: RigStore
     let index: Int
+    /// Foot is on this pedal's switch half — hold it there and the pedal flips.
+    var armed: Bool = false
+    /// 0…1 through the hold that commits the switch.
+    var armProgress: Double = 0
     let onAssign: () -> Void
 
     @State private var targeted = false
@@ -539,6 +610,13 @@ private struct ARFloorSlotView: View {
     var body: some View {
         let pedal = store.arPedal(index)
         let on = store.arSlots[index].isOn && pedal != nil
+        // A rocker has NO switch on its own chrome — its on/off is the pad out on the
+        // empty floor beside the board. A footswitch pedal's is the whole label,
+        // tapped anywhere.
+        let treadle = pedal?.isTreadle == true
+        // 0…1 for the bar. The store is the one place the foot's readings land, so
+        // reading it back here means the bar cannot disagree with what the DSP got.
+        let position = (pedal?.values[GearItem.treadleParameter] ?? 0) / (pedal?.treadleMax ?? 10)
 
         VStack(spacing: 8) {
             if let pedal {
@@ -569,8 +647,29 @@ private struct ARFloorSlotView: View {
                         .font(.system(size: on ? 20 : 17, weight: .heavy, design: .rounded))
                         .foregroundStyle(on ? Color.black.opacity(0.82) : Color(white: 0.62))
                 }
-                .frame(width: 62, height: 62)
+                .frame(width: treadle ? 0 : 62, height: treadle ? 0 : 62)
+                .opacity(treadle ? 0 : 1)
                 .animation(.easeOut(duration: 0.14), value: on)
+                // THE SWITCH, MOVED OUT OF THE FOOT'S WAY.
+                //
+                // A rocker pedal is played with the foot ON it, so the space directly
+                // above it — where this lamp sits for every other pedal — is exactly
+                // where the player's boot and shin are. Leaving the switch there gave
+                // it two ways to fire by accident: a stray tap while lining the foot
+                // up, and the stomp detector reading a toe press as a stamp (now
+                // suppressed; see `onStomp`). Pushed to the trailing edge it is a
+                // deliberate reach sideways, away from the pedal, which is the whole
+                // point — switching a wah on is a decision, not something that should
+                // happen because you rested your foot.
+                //
+                // Trailing for all three slots rather than mirrored outward, because
+                // a control you hit mid-song wants to be in the SAME place every
+                // time more than it wants to be symmetrical. If it turns out to fall
+                // under the strumming hand, the alternative is one `Spacer` swap.
+                // NO LAMP ON A ROCKER. Its on/off is the pad out on the empty floor,
+                // and a second switch on the pedal itself was two controls for one
+                // fact — the pad already shows the state, in the same amber.
+
 
                 Text(pedal.name)
                     .font(.system(size: 15, weight: .bold))
@@ -582,6 +681,20 @@ private struct ARFloorSlotView: View {
                     .padding(.vertical, 6)
                     .background(Capsule().fill(.black.opacity(0.68)))
                     .overlay(Capsule().strokeBorder(targeted ? RigTheme.amber : .clear, lineWidth: 2))
+
+                // WHERE THE TREADLE IS. Without it the sweep is invisible: the foot
+                // is doing something continuous and the only feedback is the sound,
+                // so there is no way to tell "my foot is not moving the pedal" from
+                // "the pedal is moving and I cannot hear it" — which is exactly the
+                // pair that had to be told apart to find the band was mistuned.
+                //
+                // Only while the pedal is ON, because that is the only time the foot
+                // is actually driving it (`onTreadle` is gated the same way). A bar
+                // tracking a bypassed pedal would promise control that is not there.
+                if treadle {
+                    TreadlePositionBar(position: position, armed: armed,
+                                       armProgress: armProgress, live: on)
+                }
             } else {
                 // An empty switch has a ring on the floor but nothing above it, so
                 // the invitation has to be here — and at the same scale as the rest,
@@ -600,7 +713,225 @@ private struct ARFloorSlotView: View {
         .contentShape(Rectangle())
         .arSlotInteraction(index: index, pedal: pedal, cornerRadius: 22,
                            ringInsets: EdgeInsets(top: -8, leading: 8, bottom: 16, trailing: 8),
-                           held: $held, targeted: $targeted, onAssign: onAssign)
+                           held: $held, targeted: $targeted,
+                           // A rocker keeps its switch on the side button alone. Tap
+                           // anywhere on the chrome and nothing happens, which is
+                           // what makes the button "deliberate" rather than merely
+                           // "also available". The HOLD still lifts the pedal off.
+                           togglesOnTap: !treadle,
+                           onAssign: onAssign)
+    }
+}
+
+/// The rocker's switch, standing on the empty floor beside the board.
+///
+/// WHY IT IS NOT ON THE PEDAL. Three earlier versions carved the switch out of the
+/// pedal's own travel — past the toe, behind the heel, past the toe again with a
+/// hold — and each traded one failure for another, because the sweep and the switch
+/// were competing for the same few centimetres of foot movement. Past the toe it
+/// fired during ordinary playing; behind the heel it was unreachable, the floor
+/// being in the way.
+///
+/// Sideways is not scarce. The board projects small, there is floor either side of it
+/// doing nothing, and a foot that steps off the pedal onto that floor is
+/// unambiguously not sweeping. So the switch is its own PLACE, and stamping it is an
+/// ordinary stomp — the gesture this whole page was built around in the first place.
+private struct SwitchPadView: View {
+    let pad: SwitchPad
+    /// A foot is standing on it.
+    let armed: Bool
+    let turningOn: Bool
+    let name: String
+
+    private static let size: CGFloat = 88
+    private static let lineWidth: CGFloat = 8
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                // The target, drawn whether or not a foot is near it: a switch you
+                // cannot see is one the player has to remember the location of.
+                // AMBER WHEN THE PEDAL IS ON, dark when it is off — the same word
+                // this page uses everywhere else for "this pedal is engaged", so the
+                // switch reads as the pedal's own state rather than as a button that
+                // happens to sit near it. `turningOn` is what the NEXT stomp will do,
+                // so the pedal is currently on exactly when it is false.
+                let lit = !turningOn
+                Circle()
+                    .fill(lit ? RigTheme.amber.opacity(armed ? 0.95 : 0.85)
+                              : .black.opacity(armed ? 0.5 : 0.35))
+                    .shadow(color: lit ? RigTheme.amber.opacity(0.7) : .clear, radius: 16)
+                    .overlay(Circle().strokeBorder(lit ? .white.opacity(0.5)
+                                                       : .white.opacity(armed ? 0.35 : 0.18),
+                                                   lineWidth: 2))
+                if armed {
+                    // A full ring, not a filling one. There is nothing to wait out
+                    // now — stepping on the pad IS the switch — so a progress arc
+                    // would be animating a commitment that already happened.
+                    Circle()
+                        .stroke(lit ? Color.black.opacity(0.75) : RigTheme.amber,
+                                style: StrokeStyle(lineWidth: Self.lineWidth))
+                        .shadow(color: lit ? .clear : RigTheme.amber.opacity(0.9), radius: 12)
+                }
+                VStack(spacing: 2) {
+                    Text(armed ? "SWITCHED" : "SWITCH")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(0.9)
+                        .foregroundStyle(lit ? .black.opacity(0.7) : RigTheme.textMuted)
+                    Text(turningOn ? "OFF" : "ON")
+                        .font(.system(size: 22, weight: .heavy, design: .rounded))
+                        .foregroundStyle(lit ? .black.opacity(0.85)
+                                             : (armed ? RigTheme.amber : RigTheme.textPrimary))
+                        .lineLimit(1).minimumScaleFactor(0.6)
+                }
+                .shadow(color: lit ? .clear : .black, radius: 4)
+                .padding(.horizontal, 10)
+            }
+            .frame(width: Self.size, height: Self.size)
+            .scaleEffect(armed ? 1.06 : 1)
+
+            if !name.isEmpty {
+                Text(name)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(RigTheme.textPrimary)
+                    .lineLimit(1).minimumScaleFactor(0.6)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Capsule().fill(.black.opacity(0.68)))
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: armed)
+        .allowsHitTesting(false)
+    }
+}
+
+/// The hold that switches a rocker, drawn big enough to read from where the player
+/// is actually standing.
+///
+/// A RING, not a bar: it is reporting a COMMITMENT rather than a position, and the
+/// page already spends its horizontal vocabulary on the sweep. A ring closing on
+/// itself says "this is filling up and then something happens", which is the whole
+/// message, and it says it from across a room.
+///
+/// It also names the OUTCOME — TURNING ON versus TURNING OFF — because at the moment
+/// the ring is filling, that is the one thing the player still has time to change
+/// their mind about.
+private struct TreadleChargeRing: View {
+    let armed: Bool
+    /// 0…1 through the hold.
+    let progress: Double
+    /// Which way this press will flip the pedal.
+    let turningOn: Bool
+
+    private static let size: CGFloat = 132
+    private static let lineWidth: CGFloat = 11
+
+    var body: some View {
+        if armed {
+            let p = min(1, max(0, progress))
+            ZStack {
+                Circle()
+                    .stroke(Color.black.opacity(0.55), lineWidth: Self.lineWidth)
+                Circle()
+                    .trim(from: 0, to: p)
+                    .stroke(RigTheme.amber,
+                            style: StrokeStyle(lineWidth: Self.lineWidth, lineCap: .round))
+                    // Starts at the top and closes clockwise, which is the direction
+                    // a filling thing is read in.
+                    .rotationEffect(.degrees(-90))
+                    .shadow(color: RigTheme.amber.opacity(0.9), radius: 12)
+
+                VStack(spacing: 2) {
+                    Text(turningOn ? "TURNING" : "TURNING")
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.2)
+                        .foregroundStyle(RigTheme.textMuted)
+                    Text(turningOn ? "ON" : "OFF")
+                        .font(.system(size: 30, weight: .heavy, design: .rounded))
+                        .foregroundStyle(RigTheme.amber)
+                }
+                .shadow(color: .black, radius: 4)
+            }
+            .frame(width: Self.size, height: Self.size)
+            // Swells as it fills, so the commitment is legible from the corner of an
+            // eye without reading the number.
+            .scaleEffect(0.86 + 0.14 * p)
+            .transition(.opacity)
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+/// Where the treadle is sitting, 0 (heel) to 1 (toe).
+///
+/// Sized to be read from standing height like everything else on this page — a
+/// hairline progress view would be invisible at the distance this is used from. The
+/// fill is the same amber as the ON lamp because they are describing the same pedal.
+private struct TreadlePositionBar: View {
+    /// 0…1. Clamped rather than trusted: it is a knob value divided by a range, and
+    /// a bar that draws outside its own track on an unexpected value is a worse
+    /// failure than one that saturates.
+    let position: Double
+    /// The foot is pressed past the toe end, on the switch. Drawn as a cap on the
+    /// RIGHT of the track, because that is where it is on the floor: the bar IS the
+    /// pedal seen side-on, heel at the left, toe at the right, and the switch sits
+    /// past the toe where only a deliberate press-and-hold reaches.
+    let armed: Bool
+    /// 0…1 through the hold. Drawn as the cap filling, so the player can see the
+    /// commit coming and step off it if they did not mean it.
+    let armProgress: Double
+    /// Whether the pedal is switched on. The bar stays visible either way — knowing
+    /// where the treadle is sitting is how you decide whether to switch it on — but
+    /// a bypassed pedal's sweep is dimmed, because the foot is not driving anything.
+    let live: Bool
+
+    private static let width: CGFloat = 132
+    private static let height: CGFloat = 11
+    private static let cap: CGFloat = 22
+
+    var body: some View {
+        let fill = min(1, max(0, position))
+        VStack(spacing: 4) {
+            HStack(spacing: 3) {
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(.black.opacity(0.72))
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 1))
+                    Capsule()
+                        .fill(RigTheme.amber)
+                        .shadow(color: RigTheme.amber.opacity(live ? 0.7 : 0), radius: 6)
+                        .frame(width: max(Self.height, Self.width * fill))
+                        .opacity(live ? 1 : 0.35)
+                }
+                .frame(width: Self.width, height: Self.height)
+
+                // The switch, PAST the toe — rightmost, matching the floor.
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color(white: 0.20))
+                        .overlay(Capsule().strokeBorder(armed ? .white.opacity(0.9)
+                                                              : .white.opacity(0.22),
+                                                        lineWidth: armed ? 2 : 1))
+                    if armed {
+                        Capsule()
+                            .fill(RigTheme.amber)
+                            .shadow(color: RigTheme.amber.opacity(0.9), radius: 10)
+                            .frame(width: max(3, Self.cap * min(1, max(0, armProgress))))
+                    }
+                }
+                .frame(width: Self.cap, height: Self.height)
+            }
+            Text(armed ? "HOLD TO SWITCH" : "HEEL \(Int((fill * 100).rounded()))% TOE   SWITCH →")
+                .font(.system(size: 9, weight: .bold))
+                .tracking(0.8)
+                .foregroundStyle(armed ? RigTheme.amber : RigTheme.textMuted)
+                .shadow(color: .black, radius: 2)
+        }
+        // The value changes at the tracker's rate; animating each step would put the
+        // bar permanently behind the foot it is reporting on. The ARM is a discrete
+        // event a couple of times per press, so that one does animate.
+        .animation(nil, value: fill)
+        .animation(nil, value: armProgress)   // the hold IS the timer; do not lag it
+        .animation(.easeOut(duration: 0.12), value: armed)
     }
 }
 
@@ -708,10 +1039,12 @@ extension View {
     func arSlotInteraction(index: Int, pedal: GearItem?, cornerRadius: CGFloat,
                            ringInsets: EdgeInsets, held: Binding<Bool>,
                            targeted: Binding<Bool>,
+                           togglesOnTap: Bool = true,
                            onAssign: @escaping () -> Void) -> some View {
         modifier(ARSlotInteraction(index: index, pedal: pedal, cornerRadius: cornerRadius,
                                    ringInsets: ringInsets, held: held,
-                                   targeted: targeted, onAssign: onAssign))
+                                   targeted: targeted, togglesOnTap: togglesOnTap,
+                                   onAssign: onAssign))
     }
 }
 
@@ -737,6 +1070,9 @@ private struct ARSlotInteraction: ViewModifier {
     let ringInsets: EdgeInsets
     @Binding var held: Bool
     @Binding var targeted: Bool
+    /// Whether tapping the chrome flips the pedal. False for a treadle, whose switch
+    /// is the pad on the floor beside the board.
+    var togglesOnTap: Bool = true
     let onAssign: () -> Void
 
     /// Parked out of reach until the pedal is held, so this gesture never claims a
@@ -758,11 +1094,18 @@ private struct ARSlotInteraction: ViewModifier {
     @State private var charged = false
     @State private var pressing = false
 
-    func body(content: Content) -> some View {
-        content
-            .scaleEffect(1 - 0.04 * charge)     // animates with `charge`, no second curve
-            .overlay { holdRing }
-            .onTapGesture {
+    /// The chrome-wide tap, attached ONLY when it has work to do.
+    ///
+    /// Not merely guarded-and-inert for a treadle: an `.onTapGesture` on the
+    /// ancestor is still a gesture competing for the touch, and the treadle's
+    /// switch is a `Button` INSIDE this view. Relying on the child winning that
+    /// race would be betting the one control that turns a wah on against SwiftUI's
+    /// gesture-resolution order, on a page that cannot be exercised anywhere but a
+    /// real device. Not attaching it at all is not a bet.
+    @ViewBuilder
+    private func chromeTap(_ view: some View) -> some View {
+        if tapDoesSomething {
+            view.onTapGesture {
                 guard !held else { return }
                 if pedal == nil {
                     onAssign()
@@ -770,6 +1113,20 @@ private struct ARSlotInteraction: ViewModifier {
                     withAnimation(.easeInOut(duration: 0.15)) { store.toggleARSlot(index) }
                 }
             }
+        } else {
+            view
+        }
+    }
+
+    /// Whether a tap on the chrome as a whole has anything to do. An empty slot
+    /// opens the picker; an occupied footswitch pedal flips. A treadle has neither
+    /// job — its switch is the button off to the side.
+    private var tapDoesSomething: Bool { pedal == nil || togglesOnTap }
+
+    func body(content: Content) -> some View {
+        chromeTap(content
+            .scaleEffect(1 - 0.04 * charge)     // animates with `charge`, no second curve
+            .overlay { holdRing })
             // Only an OCCUPIED slot can be lifted: there is nothing to carry off an
             // empty one, and arming the gesture there would just make its tap late.
             .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 10) {
@@ -1056,13 +1413,15 @@ private struct ARPedalPicker: View {
         let boundElsewhere = store.arSlots.firstIndex { $0.pedalId == pedal.id && $0.pedalId != nil }
             .flatMap { $0 == index ? nil : $0 }
 
+        let artFrame = GearArtFrame.size(for: pedal, base: pedal.category.artSize)
+
         return Button {
             store.setARSlot(index, pedalId: pedal.id)
             dismiss()
         } label: {
             VStack(spacing: 8) {
                 GearArtView(item: pedal)
-                    .frame(width: pedal.category.artSize.width, height: pedal.category.artSize.height)
+                    .frame(width: artFrame.width, height: artFrame.height)
                     .frame(height: 58)
                 Text(pedal.name)
                     .font(.caption.weight(.medium))

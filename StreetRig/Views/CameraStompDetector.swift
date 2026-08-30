@@ -59,6 +59,16 @@ final class ARSlotLayout: ObservableObject {
     /// on lock and on anchor refinement, so it costs nothing to keep beside the
     /// 30 Hz points.
     @Published var floor: ARFloorPose?
+
+    /// The rocker's switch pad — a patch of empty floor beside the board that toggles
+    /// it. Nil when no rocker is on the row.
+    @Published var switchPad: SwitchPad?
+}
+
+/// Where the switch pad is, and which slot it switches.
+struct SwitchPad: Equatable {
+    let slot: Int
+    let point: CGPoint
 }
 
 // MARK: - The detector
@@ -179,6 +189,29 @@ final class CameraStompDetector: ObservableObject {
     /// them wants. Same reasoning as `ARSlotLayout` existing at all.
     var onTreadle: ((Int, Double) -> Void)?
 
+    /// Fired on the main thread when the foot pushes past the toe end of a treadle
+    /// into its switch zone — one call per press. This is a rocker's on/off.
+    var onTreadleSwitch: ((Int) -> Void)?
+
+    /// Which treadle's switch zone the foot is standing in, or nil, and how far
+    /// through the hold it is (0…1). Published because the UI has to draw the hold
+    /// filling — that is the whole point of it.
+    /// Why the last lock ended, in the coordinator's own words. Shown in the banner
+    /// so a lock that drops for a reason other than a nudge says so.
+    @Published private(set) var lastUnlockReason: String?
+    @Published private(set) var treadleArmedSlot: Int?
+    @Published private(set) var treadleArmProgress: Double = 0
+
+    /// Which slots hold rocker pedals, so the coordinator can stop a rocking foot
+    /// from throwing phantom stomps at the pedals either side of it. Set from the
+    /// page whenever the rig changes.
+    var treadleSlots: Set<Int> = [] {
+        didSet {
+            guard treadleSlots != oldValue else { return }
+            coordinator?.setTreadleSlots(treadleSlots, on: sessionQueue)
+        }
+    }
+
     let session = ARSession()
 
     /// ARKit delivers delegate callbacks on the MAIN queue when `delegateQueue` is
@@ -234,6 +267,29 @@ final class CameraStompDetector: ObservableObject {
             onTreadle: { [weak self] slot, value in
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated { self?.onTreadle?(slot, value) }
+                }
+            },
+            onUnlockReason: { [weak self] reason in
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.lastUnlockReason = reason } }
+            },
+            onTreadleArm: { [weak self] slot, progress in
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        self?.treadleArmedSlot = slot
+                        self?.treadleArmProgress = progress
+                    }
+                }
+            },
+            onTreadleSwitch: { [weak self] slot in
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated { self?.onTreadleSwitch?(slot) }
+                }
+            },
+            onSwitchPad: { [weak self] slot, point in
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        self?.layout.switchPad = point.map { SwitchPad(slot: slot ?? 0, point: $0) }
+                    }
                 }
             })
         session.delegate = coordinator

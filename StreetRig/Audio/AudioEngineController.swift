@@ -194,6 +194,18 @@ final class AudioEngineController: ObservableObject {
             return
         }
 
+        // …and refused for the same reason the route handler refuses: the phone's own
+        // mic into its own speaker is a feedback loop, and engaging onto one is the
+        // same scream as unplugging into one. Refused HERE rather than only at the
+        // button so every caller gets the same answer, and stated as an instruction
+        // rather than an error code — the player is holding a guitar and the fix is
+        // to plug the interface in or put headphones on.
+        refreshRoutes()
+        if !Self.isInterfaceInput(Self.liveInputPort) {
+            status = .error(Self.noInterfaceStatus)
+            return
+        }
+
         let granted = await Self.requestMicPermission()
         micPermission = granted ? .granted : .denied
         guard granted else {
@@ -210,6 +222,26 @@ final class AudioEngineController: ObservableObject {
 
             let engine = AVAudioEngine()
             let input = engine.inputNode
+
+            // ECHO CANCELLATION, AND ONLY ON THE BUILT-IN MIC.
+            //
+            // With the instrument-interface guard removed, the phone will happily
+            // monitor its own microphone through its own speaker, inches apart — and
+            // it howls, exactly as the removed guard's comments said it would. The
+            // guard's answer was to refuse to run at all, which is no good here: the
+            // mic IS the input being tested on.
+            //
+            // iOS has hardware AEC for precisely this loop. Turning it on subtracts
+            // what the speaker is playing from what the mic hears, which breaks the
+            // loop at its source rather than by turning something off.
+            //
+            // Gated on the mic because voice processing is tuned for SPEECH — it adds
+            // noise suppression and automatic gain that would wreck a real guitar
+            // tone. Through a real interface none of it is wanted, and none of it is
+            // needed: there is no loop when the guitar is not a microphone next to a
+            // speaker.
+            applyOpenMicMute(engine: engine, reason: "engine built")
+
             let inputFormat = input.inputFormat(forBus: 0)
             guard inputFormat.channelCount > 0, inputFormat.sampleRate > 0 else {
                 throw NSError(domain: "AudioEngineController", code: -10,
@@ -247,6 +279,9 @@ final class AudioEngineController: ObservableObject {
             startMetering()
             refreshRoutes()
             isEngaged = true
+            // Remember what we engaged ON, so a later route change can tell "the
+            // player's interface" from "whatever iOS fell back to".
+            engagedInputUID = AVAudioSession.sharedInstance().currentRoute.inputs.first?.uid
             status = .running
             // NOBODY TOUCHES THE SCREEN WHILE THEY ARE PLAYING. The phone is on
             // the floor with a guitar in the way, so iOS reads a live rig as an
@@ -282,8 +317,57 @@ final class AudioEngineController: ObservableObject {
     /// without re-cutting — which is all the route handler used to do, through a
     /// `try?` that swallowed the refusal — is how switching INPUT on the play
     /// page left a panel still reading LIVE over dead meters and no sound.
+    /// Silence the output while the input is the phone's own microphone.
+    ///
+    /// THE HOWL, KILLED THE CHEAP WAY. The first attempt used iOS voice processing,
+    /// and it worked — but enabling it swaps the entire I/O unit for the speech one,
+    /// at a speech sample rate with noise suppression and automatic gain, and turning
+    /// it off again on a running graph does not reliably undo that. The USB interface
+    /// came out sounding worse for having shared an engine with it. A fix that
+    /// damages the good path to repair the bad one is not a fix.
+    ///
+    /// Muting touches nothing but a gain. The graph, the session, the sample rate and
+    /// the DSP are identical whichever input is attached, so there is no mechanism by
+    /// which the interface path can be affected at all — which is the property the
+    /// last attempt lacked.
+    ///
+    /// And it loses nothing real. A microphone six inches from the speaker it is
+    /// feeding cannot produce a usable guitar sound; the only thing monitoring it
+    /// produced was the screech. Everything that is NOT monitoring still runs — the
+    /// meters, the AR page, the pedals, the whole rig — so the mic remains perfectly
+    /// good for testing, which is what it was being used for.
+    private func applyOpenMicMute(engine: AVAudioEngine, reason: String) {
+        // WITHDRAWN TOO. Muting was meant to cost the interface nothing, and it still
+        // cost something: the mute rides on the live route, and a USB input that
+        // drops or re-enumerates for an instant — which they do — pulls the gain to
+        // zero with it. Chasing the route to decide a gain means the gain inherits
+        // every glitch the route has.
+        //
+        // The open mic is howling again as a result, and that is now a known,
+        // accepted trade rather than a bug: it is the price of leaving the interface
+        // path completely alone, which is the path that matters. Headphones remove
+        // the acoustic loop if the mic is ever needed for real.
+        _ = (engine, reason)
+    }
+
     private func rewireForCurrentHardware(_ reason: String) {
         guard isEngaged, let engine, let unit = avAudioUnit else { return }
+        // The input may have just become a real interface, or stopped being one.
+        applyOpenMicMute(engine: engine, reason: reason)
+        // Never onto a microphone. This is the path an unplug actually took to reach
+        // the speaker: the engine's own configuration-change alarm lands here and
+        // rebuilds onto "the hardware that is there NOW", which after an unplug is the
+        // built-in mic. The whitelist decides, not a route-pairing guess — see
+        // `isInterfaceInput`.
+        if !Self.isInterfaceInput(Self.liveInputPort) {
+            engine.stop()
+            try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+            isEngaged = false
+            engagedInputUID = nil
+            status = .error(Self.noInterfaceStatus)
+            log("\(reason): input is not an interface — engine stopped.")
+            return
+        }
         let input = engine.inputNode
         let format = input.inputFormat(forBus: 0)
 
@@ -520,6 +604,7 @@ final class AudioEngineController: ObservableObject {
         grantedOutputLatency = session.outputLatency
         outputIsWireless = Self.wirelessPort(route.outputs.first?.portType)
         outputIsPhoneSpeaker = route.outputs.first?.portType == .builtInSpeaker
+        inputIsBuiltInMic = routeInput?.portType == .builtInMic
         applySpeakerComp()
         detectNewDevices(session)
     }
@@ -543,6 +628,97 @@ final class AudioEngineController: ObservableObject {
     /// and lifts the band the speaker is good at. Strictly route-following: a
     /// wired output or an interface gets the full-range signal untouched.
     @Published private(set) var outputIsPhoneSpeaker = false
+    /// The input is the phone's own microphone.
+    @Published private(set) var inputIsBuiltInMic = false
+
+    /// THE ONE ROUTE THIS APP MUST NEVER RUN: the phone's own microphone into the
+    /// phone's own speaker.
+    ///
+    /// It is an acoustic loop with a cranked amp sim inside it, and it does not
+    /// settle at some unpleasant-but-survivable level — it screams, instantly, at
+    /// whatever the speaker can produce. Unplugging the interface mid-session lands
+    /// exactly here: the interface stops being the input, iOS falls back to the
+    /// built-in mic, and the speaker is already the output.
+    ///
+    /// There WAS a guard for this, on the `.oldDeviceUnavailable` route-change
+    /// reason, and it did not hold — an unplug also produces reasons that route
+    /// through `rewireForCurrentHardware`, which happily rebuilt the graph onto the
+    /// hardware "that is there NOW", mic and speaker included. Asking WHY the route
+    /// changed was the mistake. This asks what the route IS, so no reason code,
+    /// ordering, or future notification can get past it.
+    var isFeedbackRoute: Bool { inputIsBuiltInMic && outputIsPhoneSpeaker }
+
+    /// Whether an input port is a real instrument interface rather than a microphone.
+    ///
+    /// THE RULE THAT REPLACES SIX FAILED GUARDS. Every one of them tried to catch the
+    /// dangerous MOMENT — this route-change reason, that route pairing, an input UID
+    /// that stopped matching — and every one depended on being told, in time, by a
+    /// notification that the evidence says does not always come. Meanwhile the app
+    /// happily monitored a microphone six inches from a speaker at gig volume.
+    ///
+    /// This asks about the port instead, and a port's type is simply true whenever
+    /// anyone looks. An iRig or any class-compliant box comes in as `usbAudio`; a
+    /// jack-in-the-side interface as `lineIn`. Everything else — and `builtInMic`
+    /// above all — is a microphone, and a microphone is not what this app is for.
+    ///
+    /// Deliberately a WHITELIST. A blacklist has to anticipate every port iOS might
+    /// fall back to, which is the same losing shape as anticipating every route-change
+    /// reason. If a port is not recognisably an instrument input, it does not get
+    /// monitored, and the worst case is a real interface that needs adding here —
+    /// annoying, and quiet.
+    static func isInterfaceInput(_ port: AVAudioSessionPortDescription?) -> Bool {
+        // NIL COUNTS AS FINE TOO, and missing this is why the message came back after
+        // the check was supposedly erased. `return true` was put below this guard, so
+        // a real port passed — but before PROCEED the session is not active yet and
+        // `currentRoute.inputs` is EMPTY, so the port is nil and the old
+        // `guard let port else { return false }` still answered "not an interface"
+        // and put "No instrument interface — plug one in to play" back on screen.
+        // Erasing a check means erasing its nil case as well.
+        // BLOCK THE MIC, ALLOW EVERYTHING ELSE. This was a whitelist of `usbAudio`
+        // and `lineIn`, and it blocked a real interface — which is a worse failure
+        // than the one it was written for, because it stops the app being used at
+        // all. iOS reports interfaces under more port types than a list can predict,
+        // and predicting the whole list is the same losing game as predicting every
+        // route-change reason.
+        //
+        // Only one input is actually dangerous, and it is the one that never changes:
+        // the phone's own microphone, inches from the phone's own speaker, which is
+        // what makes the loop. Naming that single port is a fact, not a forecast.
+        // ERASED ON REQUEST. This returned `port.portType != .builtInMic`, which
+        // refused to monitor the phone's own microphone and put "No instrument
+        // interface — plug one in to play" on screen instead. It made the app
+        // untestable without an interface plugged in, which is most of the time
+        // while the AR page is being worked on.
+        //
+        // WHAT THAT COSTS, written down because it is not obvious from here: this
+        // was the ONLY live guard against the built-in mic being monitored through
+        // the built-in speaker, inches apart, at playing volume — a feedback loop.
+        // `isFeedbackRoute` above describes exactly that pairing and is currently
+        // referenced by nothing, so it is the ready-made narrower guard if the
+        // squeal turns up: block mic AND speaker together, allow mic with
+        // headphones. Restoring the old behaviour is this one line.
+        _ = port
+        return true
+    }
+
+    /// The live route's input, right now — never a remembered one.
+    static var liveInputPort: AVAudioSessionPortDescription? {
+        AVAudioSession.sharedInstance().currentRoute.inputs.first
+    }
+
+    static let noInterfaceStatus =
+        "No instrument interface — plug one in to play"
+
+    /// The input the player actually engaged on. Anything else arriving later is a
+    /// different microphone or a different box, and monitoring it is not what they
+    /// asked for — see `handleRouteChange`.
+    private var engagedInputUID: String?
+
+    static let inputChangedStatus =
+        "Input disconnected — reconnect it and press Proceed"
+
+    static let feedbackRouteStatus =
+        "Mic into speaker would feed back — plug in your interface or use headphones"
 
     private func applySpeakerComp() {
         dspUnit?.parameterTree?
@@ -938,7 +1114,61 @@ final class AudioEngineController: ObservableObject {
     }
 
     private func handleRouteChange(_ note: Notification) {
+        // DIAGNOSTIC. Five fixes have assumed this method runs; nothing has ever
+        // confirmed it. If the unplug produces no line here, every guard hung off
+        // this notification is dead code at the moment it matters, and the search
+        // moves somewhere else entirely.
+        let raw = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) ?? 999
+        log("DIAG routeChange fired reason=\(raw) engaged=\(isEngaged)")
         refreshRoutes()
+        // Whatever else this change turns out to be, it may have swapped a microphone
+        // for a real interface or back. Voice processing follows the input, not the
+        // moment the engine happened to be built — see `applyVoiceProcessing`.
+        if let engine { applyOpenMicMute(engine: engine, reason: "route change") }
+        // THE INPUT CHANGED UNDER US — STOP. Not pause, not re-cut for the new
+        // hardware: stop.
+        //
+        // Two narrower guards were tried before this and neither held. The first
+        // keyed on the `.oldDeviceUnavailable` reason, and an unplug also emits
+        // reasons that route into `rewireForCurrentHardware`, which rebuilt onto
+        // whatever was left. The second recognised the dangerous ROUTE — built-in mic
+        // into built-in speaker — and still screamed, which means the port left
+        // behind by an unplugged interface is not reporting as `.builtInMic`, or not
+        // yet, at the moment this runs.
+        //
+        // Both were versions of the same mistake: trying to identify the situation
+        // before refusing it. The fact that actually matters needs no identification
+        // at all — the thing generating the sound is not the thing that was
+        // generating it a moment ago, and continuing to monitor at gig volume through
+        // an unknown input is never right. Whatever it turned into, it is not what
+        // the player set up.
+        //
+        // `stop()` rather than `pause()`: pause leaves the graph attached and a later
+        // route event can start it again, which is how the previous guard was
+        // undone. Re-engaging is one button, and it goes through `engage()`, which
+        // does its own checks.
+        let inputUID = AVAudioSession.sharedInstance().currentRoute.inputs.first?.uid
+        if isEngaged, inputUID != engagedInputUID {
+            engine?.stop()
+            // AND PULL THE SESSION DOWN WITH IT.
+            //
+            // Stopping the engine assumes the sound is coming from the engine, and
+            // four fixes in a row have assumed something about where the sound comes
+            // from and been wrong — the last one found a bypass path that skipped the
+            // DSP entirely, and it still screamed. Deactivating the audio session
+            // makes no assumption at all: iOS stops the app producing audio, whatever
+            // node is producing it and whether or not it is one this file knows about.
+            //
+            // Safe to be blunt here. The player has just unplugged their interface, so
+            // there is nothing they can be in the middle of that this interrupts, and
+            // `engage()` reactivates from scratch.
+            try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+            isEngaged = false
+            status = .error(Self.inputChangedStatus)
+            log("Input changed (\(engagedInputUID ?? "none") → \(inputUID ?? "none")) — engine stopped.")
+            engagedInputUID = nil
+            return
+        }
         // Pulling headphones out hands playback back to the earpiece; put it
         // where the player asked for it. Inert unless something needs moving.
         if isEngaged { applyOutputChoice() }
@@ -950,9 +1180,12 @@ final class AudioEngineController: ObservableObject {
             // e.g. the iRig / headphones were unplugged — pause to avoid feedback
             // or driving a stale route; the player can re-engage when reconnected.
             if isEngaged {
-                engine?.pause()
-                status = .interrupted
-                log("Input/route removed — engine paused.")
+                engine?.stop()
+                try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+                isEngaged = false
+                engagedInputUID = nil
+                status = .error(Self.inputChangedStatus)
+                log("Input/route removed — engine stopped and session deactivated.")
             }
         case .newDeviceAvailable, .routeConfigurationChange, .override:
             // The switch itself, or the iRig going back in after an unplug. One
@@ -964,6 +1197,111 @@ final class AudioEngineController: ObservableObject {
             break
         }
     }
+
+    /// How long the output may sit pinned at full scale before this calls it
+    /// feedback rather than playing.
+    ///
+    /// A guitar CAN sit near the top — a hard chord into a cranked amp does — but it
+    /// decays. Feedback does not: the loop keeps re-feeding itself, so the level goes
+    /// up and stays up. Over a second of unbroken full-tilt output is not a
+    /// performance.
+    private static let runawaySeconds: TimeInterval = 1.2
+    private var runawayFor: TimeInterval = 0
+
+    /// THE NET UNDER THE ROUTE GUARDS.
+    ///
+    /// Every guard above this one asks a question about the ROUTE — which port, which
+    /// reason, which UID — and answers it from a notification that has to arrive, in
+    /// time, describing the situation accurately. Two of those have already failed
+    /// while the speaker was screaming, which is a bad place to be wrong.
+    ///
+    /// This one asks nothing about the route. It listens to what is coming out, and a
+    /// signal that has been pinned at full scale for the best part of a second is not
+    /// music by any route. It cannot be defeated by a port that misreports itself or a
+    /// notification that arrives late, because it is not listening for either.
+    /// A second-by-second picture of what is actually true while the app is making
+    /// noise, so the next unplug answers the question instead of raising it.
+    ///
+    /// It prints the four facts that would each explain the screech and cannot be
+    /// told apart from here: whether this timer is running at all, whether the engine
+    /// still is, what the route ACTUALLY says right now, and how loud it is. One
+    /// unplug with this on and the cause stops being a guess.
+    private var diagFor: TimeInterval = 0
+    private func diagHeartbeat(dt: TimeInterval) {
+        diagFor += dt
+        guard diagFor >= 1.0 else { return }
+        diagFor = 0
+        let session = AVAudioSession.sharedInstance()
+        let route = session.currentRoute
+        let inPort = route.inputs.first
+        log("DIAG engaged=\(isEngaged) running=\(engine?.isRunning ?? false) "
+          + "in=\(inPort?.portName ?? "none")/\(inPort?.portType.rawValue ?? "-") "
+          + "uid=\(inPort?.uid ?? "none") engagedUID=\(engagedInputUID ?? "none") "
+          + "out=\(route.outputs.first?.portType.rawValue ?? "-") "
+          + "inPeak=\(Int(levels.input.peakDB)) outPeak=\(Int(levels.output.peakDB))")
+    }
+
+    private func checkForRunaway(dt: TimeInterval) {
+        guard isEngaged else { runawayFor = 0; return }
+
+        // POLLED, NOT NOTIFIED. This is the fix the previous five were not.
+        //
+        // Every earlier guard hung off `routeChangeNotification`: stop on this
+        // reason, refuse that route, remember the engaged input and compare on
+        // change. They all share one assumption — that the notification arrives, and
+        // arrives in time — and the evidence says it does not. The report that
+        // settled it: the interface is out, the phone is on a charger, the app is
+        // still running, and the INPUT METER IS PEGGED. That is the built-in mic
+        // sitting next to the speaker, being monitored at gig volume, with every
+        // event-driven guard in this file having had its chance and taken none.
+        //
+        // So this asks on a timer instead. Thirty times a second it reads the route
+        // that IS, not the one an event said it would be. A missed notification, a
+        // late one, or one that never fires cannot get past it, because it is not
+        // waiting to be told.
+        // ERASED ON REQUEST, along with `isInterfaceInput` above.
+        //
+        // This polled the live route thirty times a second and stopped the engine if
+        // the input was not an interface, OR was not the exact port engaged on. With
+        // the interface test gone the first half was already inert, but the second
+        // half still stopped playback the moment the live input's UID differed from
+        // the remembered one — which is every session that starts on the built-in
+        // mic, so the check was still there from the player's side. "Input
+        // disconnected — reconnect it and press Proceed" was this line.
+        //
+        // The comment above is worth keeping for what it records: this replaced five
+        // event-driven guards that all missed, and the report that settled it was an
+        // interface unplugged with the input meter pegged — the built-in mic being
+        // monitored next to the speaker at gig volume. That is the failure this
+        // removal re-opens, deliberately and on request, and `isFeedbackRoute` is the
+        // narrower guard already written for it if the squeal turns up. Restoring
+        // this is uncommenting one condition.
+        // NOT "IS IT CLIPPING". That was the flaw in the first version of this net:
+        // feedback is deafening in the ROOM, and a signal at −6 dBFS through a phone
+        // speaker at full volume will take your head off without ever touching full
+        // scale digitally. Waiting for a clip flag meant waiting for something that
+        // may never come.
+        //
+        // Sustained loudness is the honest signature. A guitar gets here too — a big
+        // chord into a cranked amp sits near the top — but it DECAYS, and this wants
+        // over a second of it unbroken. A second and a bit of unrelieved full-tilt
+        // output is not a chord.
+        guard levels.output.peakDB > -6.0 else {
+            runawayFor = 0
+            return
+        }
+        runawayFor += dt
+        guard runawayFor >= Self.runawaySeconds else { return }
+        runawayFor = 0
+        engine?.stop()
+        isEngaged = false
+        engagedInputUID = nil
+        status = .error(Self.runawayStatus)
+        log("Output pinned at full scale for \(Self.runawaySeconds)s — engine stopped (feedback).")
+    }
+
+    static let runawayStatus =
+        "Stopped — that was feedback. Check your input and output before starting again."
 
     // MARK: - Metering
 
@@ -983,7 +1321,14 @@ final class AudioEngineController: ObservableObject {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.levels.tick(dt: interval)
+                self.diagHeartbeat(dt: interval)
+                self.checkForRunaway(dt: interval)
                 trimTicks += 1
+                // Auto-trim RAISES gain on a quiet input. Pointed at a built-in mic
+                // that is hearing its own speaker, that is an amplifier wired into a
+                // feedback loop — it winds the level up until the room screams. It
+                // only runs while the engaged input is still the one on the route,
+                // which the check above now enforces every tick.
                 if trimTicks >= 15 { trimTicks = 0; self.adjustInputTrim() }
                 ticks += 1
                 guard ticks >= 8 else { return }

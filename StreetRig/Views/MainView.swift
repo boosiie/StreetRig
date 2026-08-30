@@ -213,7 +213,9 @@ struct MainView: View {
                             .tag(AppPage.library)
                         RigStageView(focused: $focused, onFindAmp: showAmpLibrary)
                             .tag(AppPage.main)
-                        ARPedalSetupView()
+                        // `isActive` so the camera feed idles while the pager is
+                        // showing something else — see ARCameraView.isActive.
+                        ARPedalSetupView(isActive: page == .ar)
                             .tag(AppPage.ar)
                         ProfileView()
                             .tag(AppPage.profile)
@@ -706,12 +708,12 @@ struct DragGhostView: View {
 
     var body: some View {
         if let item = drag.item {
+            let frame = GearArtFrame.size(for: item, base: item.category.artSize)
             GearArtView(item: item)
-                // Per-category, exactly as the rail card frames it. A fixed size
+                // Per-piece, exactly as the rail card frames it. A fixed size
                 // here squashed wide gear (an amp is 74x50, not 44x56) and the
                 // art's own clipShape then cropped what spilled out.
-                .frame(width: item.category.artSize.width,
-                       height: item.category.artSize.height)
+                .frame(width: frame.width, height: frame.height)
                 .frame(width: 74, height: 56)   // uniform ghost box, art centred
                 .padding(8)
                 // Literally in the air: the `lifted` shadow, and an amber edge that

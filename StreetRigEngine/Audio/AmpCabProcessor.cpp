@@ -507,6 +507,20 @@ void AmpCabProcessor::processPowerAmp(float *buffer, int n, int channel, const A
     // than after it: the convolver is linear, so the two placements are
     // mathematically identical, and keeping it put is what lets the Legacy
     // voicing null bit-exactly against the pre-profile engine.
+    //
+    // AND IT IS THE OUTPUT AUTHORITY, which is worth stating because the obvious
+    // reading of this function is that it is not. The power amp above is driven
+    // by ampVolume, not by Master; Master is applied AFTER the saturation as a
+    // plain multiply, so it scales a finished signal and cannot change how hard
+    // the valves are working. With `ParameterMap.ampMaster` now reaching 0.0 at
+    // knob zero, `buffer[i] *= a` takes the whole rig to silence no matter where
+    // Volume, the FX blocks or the boost are set.
+    //
+    // MOVING IT LATER WAS CONSIDERED AND REJECTED. The only stage it does not
+    // already govern is the POST pedal span, which is empty in every stock rig;
+    // relocating it there would buy that one case and cost the bit-exact Legacy
+    // null above. If a POST-span pedal ever ships with makeup gain of its own,
+    // revisit — that is the case that would justify the move.
     float a = smAmpOut_[channel];
     for (int i = 0; i < n; ++i) {
         a = p.ampOut + (a - p.ampOut) * smoothCoeff_;

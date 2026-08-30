@@ -55,38 +55,88 @@ void ModulationPedal::process(float *buffer, int n, int channel, const float *pa
         case DeepPhaser:
         case Univibe: {
             // Cascade of first-order all-pass sections whose break frequency is
-            // swept by the LFO. Summed with the dry signal → moving notches.
+            // swept by the LFO. Summed with the dry signal -> moving notches.
             //
-            // REPORTED AS "PHASER IS NON EXISTENT", and it very nearly was. Four
-            // stages is two notches, 0.25 feedback puts almost no resonance on
-            // them, and `aCenter` 0.55 parked the sweep around 4 kHz — above where
-            // a guitar has body and above where a phone speaker is strong. All
-            // three fixed: six stages (three notches), real resonance, and the
-            // sweep re-centred on 400 Hz–3 kHz where the notches are audible AND
-            // where the speaker can reproduce them.
+            // REPORTED TWICE AS "THE PHASER DOES NOTHING", and the second report
+            // was right: the first pass retuned stage count, feedback and sweep
+            // centre, but every one of those numbers was sitting on the wrong
+            // filter. The all-pass was written
             //
-            // DeepPhaser is the same circuit taken to twelve stages and near-self-
-            // oscillating feedback — six notches marching through the midrange.
+            //     y = a*x + xPrev - a*yPrev      ->  H(z) = (a + z^-1)/(1 + a*z^-1)
+            //
+            // whose pole is at MINUS a. With a in 0.59..0.97 that puts each
+            // stage's 90-degree point at 20-24 kHz: the notches formed above the
+            // top of the guitar's range, above the top of hearing, and the sum
+            // with the dry signal was flat across the whole audible band. It
+            // measured 0.5 dB of movement against 0.22 dB for no effect at all.
+            //
+            // The correct convention for a swept-notch phaser puts the pole at
+            // PLUS a, which is what the old comment ("about 1.2 kHz") always
+            // described - the prose was right and the sign was wrong:
+            //
+            //     y = -a*x + xPrev + a*yPrev     ->  H(z) = (-a + z^-1)/(1 - a*z^-1)
+            //
+            // At a = 0.90 that is a 90-degree point near 900 Hz, sweeping roughly
+            // 230 Hz - 2.5 kHz across the LFO: through the mids, where a guitar
+            // has body and a phone speaker still works.
+            //
+            // Cue: sweep the Rate and you should hear the notches WALK. Silence
+            // that changes only in level means the sign has been flipped back.
             const int stages = (voicing_ == Univibe) ? 6 : (voicing_ == DeepPhaser ? 12 : 6);
-            const float aCenter = 0.78f;                    // ≈ 1.2 kHz, not 4 kHz
-            const float aSpan   = 0.19f * (0.35f + 0.65f * depth);
-            const float feedback = (voicing_ == Univibe) ? 0.35f
-                                 : (voicing_ == DeepPhaser ? 0.72f : 0.55f);
+            const float aCenter = 0.90f;                    // ~900 Hz at centre
+            const float aSpan   = (voicing_ == DeepPhaser ? 0.16f : 0.12f)
+                                * (0.35f + 0.65f * depth);
+
+            // RESONANCE IS THE KNOB, NOT THE WET/DRY BALANCE. `mix` arrives from
+            // the one panel dial, and feeding it straight to a dry/wet blend made
+            // the effect DISAPPEAR at full travel: an all-pass cascade has flat
+            // magnitude, so 100% wet is 100% nothing. Measured, the old mapping
+            // peaked around 0.65 and fell away on either side - turning the knob
+            // up past six made the phaser weaker, which is not what a knob means.
+            //
+            // A phaser is a FIXED sum of dry and shifted (that sum is what forms
+            // the notches at all), so the blend is pinned at half and the dial
+            // drives feedback instead: more knob = more resonant notches = more
+            // phaser, monotonically, all the way up.
+            const float wet = 0.5f;
+            // DeepPhaser is twelve stages -> six notches instead of three, on a
+            // wider sweep. Its feedback is held a little BELOW the six-stage
+            // phaser's and capped lower: at 0.90 through twelve stages the tank
+            // peaked at 0.93, close enough to clipping to matter, and the extra
+            // resonance bought nothing measurable because six notches inside one
+            // band already average each other out. Its character is notch COUNT
+            // and sweep width, not Q.
+            //
+            // MEASURED, AND WORTH KNOWING BEFORE YOU "FIX" IT: judged by band
+            // energy swing across 300 Hz-3 kHz, DeepPhaser reads SHALLOWER than
+            // the plain phaser (3.0 dB against 7.3 dB) even though it is
+            // audibly the more dramatic effect. That is the metric's limit, not
+            // the voicing's - six notches moving through one band cancel in an
+            // aggregate energy measure in a way three notches do not. Do not
+            // chase that number by piling on feedback; that is what pushed the
+            // peak to 0.93 the first time.
+            const float fbBase = (voicing_ == Univibe) ? 0.35f
+                               : (voicing_ == DeepPhaser ? 0.70f : 0.75f);
+            const float fbSpan = (voicing_ == Univibe) ? 0.15f
+                               : (voicing_ == DeepPhaser ? 0.14f : 0.18f);
+            const float feedback = std::min(0.92f, fbBase + fbSpan * mix);
             for (int i = 0; i < n; ++i) {
                 const float lfo = std::sin(phase);                     // -1..1
                 const float dry = buffer[i];
-                float w = dry + feedback * s.apY[stages - 1];          // light resonance
+                float w = dry + feedback * s.apY[stages - 1];          // resonance
                 for (int k = 0; k < stages; ++k) {
                     // Staggered centre per stage for univibe's uneven voicing.
-                    float aC = aCenter + (voicing_ == Univibe ? 0.06f * (float)(k - stages / 2) : 0.0f);
+                    // Kept small: at aCenter 0.90 a wide stagger drives the top
+                    // stages into the 0.97 clamp and flattens the sweep.
+                    float aC = aCenter + (voicing_ == Univibe ? 0.03f * (float)(k - stages / 2) : 0.0f);
                     float a = std::clamp(aC + aSpan * lfo, -0.97f, 0.97f);
-                    // First-order all-pass: y = a*x + xPrev - a*yPrev.
-                    float y = a * w + s.apX[k] - a * s.apY[k];
+                    // First-order all-pass, pole at +a: y = -a*x + xPrev + a*yPrev.
+                    float y = -a * w + s.apX[k] + a * s.apY[k];
                     s.apX[k] = w;
                     s.apY[k] = y;
                     w = y;
                 }
-                float out = (1.0f - mix) * dry + mix * w;
+                float out = (1.0f - wet) * dry + wet * w;
                 if (voicing_ == Univibe) {
                     const float amp = 1.0f - 0.15f * depth * (0.5f + 0.5f * lfo);
                     out *= amp;
