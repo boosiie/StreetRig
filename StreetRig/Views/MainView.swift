@@ -67,7 +67,7 @@ enum AppPage: Int, CaseIterable, Hashable {
         }
     }
 
-    /// Whether the floating TONES square sits on this page's right edge.
+    /// Whether the floating PRESETS square sits on this page's right edge.
     ///
     /// THE RIG PAGE ONLY, and written as an exhaustive switch for the same
     /// reason `remembersGearDrawer` is: a fifth page should be a compile error
@@ -79,7 +79,7 @@ enum AppPage: Int, CaseIterable, Hashable {
     /// effect happens somewhere you cannot see — and on AR the header is already
     /// explicit that every point of chrome is a point of floor a propped phone
     /// cannot show.
-    var showsTonePresets: Bool {
+    var showsPresets: Bool {
         switch self {
         case .main:                    return true
         case .library, .ar, .profile:  return false
@@ -149,7 +149,7 @@ struct MainView: View {
     }
     @State private var showCredits = false
 
-    /// The TONES page, over the shell rather than inside the pager — see
+    /// The PRESETS page, over the shell rather than inside the pager — see
     /// `PresetsView`'s header for why it is not a fifth `AppPage`.
     @State private var showingPresets = false
 
@@ -255,7 +255,7 @@ struct MainView: View {
                     // in this app has. Two controls on two edges that behave
                     // differently should not look the same.
                     .overlay(alignment: .trailing) {
-                        if page.showsTonePresets { tonePresetsTab }
+                        if page.showsPresets { presetsTab }
                     }
                     // The trash lives HERE — top-left of the centre area, just
                     // past the MY GEAR rail — so it is somewhere you drag TO,
@@ -514,19 +514,25 @@ struct MainView: View {
     /// The 44pt minimum a target has to be to be worth aiming at.
     private static let drawerTabHitWidth: CGFloat = 44
 
-    /// THE TONES SQUARE — the way into `PresetsView`, floating at the vertical
+    /// THE PRESETS SQUARE — the way into `PresetsView`, floating at the vertical
     /// centre of the rig page's trailing edge.
     ///
     /// LABELLED, NOT JUST DRAWN. A lone glyph on an edge is a guess, and the one
     /// guess a knob icon invites here is "this opens the amp's controls", which
-    /// is the tap the player already has (the amp itself). Four letters under it
+    /// is the tap the player already has (the amp itself). One word under it
     /// costs nine points and removes the guess.
+    ///
+    /// THE WORD SHRANK RATHER THAN GOT SHORTENED. "PRESETS" is two letters longer
+    /// than the "TONES" that used to be here and does not fit the 50pt square at
+    /// 7pt; the font came down to 6.5 instead of the label becoming "PRSTS" or
+    /// "SAVED", because an abbreviation on a control this small is a second guess
+    /// to make and the whole point of the label is removing the first one.
     ///
     /// IT CLEARS THE ZOOM FIRST. Tapping a pedal opens `ComponentDetailView` over
     /// this whole area; leaving that up under a full-screen presets page would
     /// mean closing the presets and finding a zoomed pedal nobody asked to still
     /// be there.
-    private var tonePresetsTab: some View {
+    private var presetsTab: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.24)) {
                 focused = nil
@@ -537,9 +543,9 @@ struct MainView: View {
                 Image(systemName: "dial.medium.fill")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(RigTheme.amber)
-                Text("TONES")
-                    .font(.system(size: 7, weight: .bold))
-                    .tracking(0.8)
+                Text("PRESETS")
+                    .font(.system(size: 6.5, weight: .bold))
+                    .tracking(0.5)
                     .foregroundStyle(RigTheme.textMuted)
             }
             .frame(width: Self.presetsTabSide, height: Self.presetsTabSide)
@@ -548,8 +554,8 @@ struct MainView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Tone presets")
-        .accessibilityHint("Loads a whole rig — amp, cabinet, pedals and knob settings")
+        .accessibilityLabel("Presets")
+        .accessibilityHint("Load a whole rig — amp, cabinet, pedals and knob settings — or save the one you have")
     }
 
     /// 50, not 44. The minimum is the floor for something you have to AIM at;
@@ -733,6 +739,7 @@ struct DragGhostView: View {
     MainView()
         .environmentObject(RigStore.preview)
         .environmentObject(ProfileStore.preview)
+        .environmentObject(UserPresetStore.preview)
         .environmentObject(RigDragController())
         .environmentObject(ARSlotLift())
         .environmentObject(OnboardingCoordinator())
@@ -749,6 +756,7 @@ struct DragGhostView: View {
     return MainView()
         .environmentObject(store)
         .environmentObject(ProfileStore.preview)
+        .environmentObject(UserPresetStore.preview)
         .environmentObject(drag)
         .environmentObject(ARSlotLift())
         .environmentObject(OnboardingCoordinator())

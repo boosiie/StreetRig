@@ -20,10 +20,16 @@
 //  EVERY SWITCH ON THIS PAGE DOES SOMETHING. There are no placeholders here and
 //  none should be added — a settings page that is half inert teaches the player
 //  that none of it works, and then the half that does gets ignored too. The
-//  "Help & guides" section at the bottom shipped for one release as a bare
-//  heading over a single sentence, for exactly this reason: a heading is an
-//  honest promise, a greyed-out button is not. It now holds four live entry
-//  points, and the same rule still applies to anything added next.
+//  "Help & guides" section shipped for one release as a bare heading over a
+//  single sentence, for exactly this reason: a heading is an honest promise, a
+//  greyed-out button is not. The rule outlived the section and still applies to
+//  anything added next.
+//
+//  HELP & GUIDES IS NO LONGER HERE. It sits on the PROFILE page itself now, one
+//  swipe away and behind no button — see `HelpGuidesPanel`, which carries the
+//  reasoning. What is left on this page is switches, which is what it is for:
+//  none of those four rows changed a value, and the people who needed them were
+//  the least likely to go looking at the bottom of a settings list.
 //
 //  WHERE THE VALUES GO. Straight into `UserDefaults`, under the keys registered
 //  in `AppPreferences` — including the two audio ones, which the audio engine
@@ -58,23 +64,6 @@ struct PreferencesView: View {
     /// feedback reads as broken.
     @State private var hintsResetAt: Date?
 
-    /// The tutorial, so this panel can start either guide and clear the flag —
-    /// the three things "Help & guides" promised. Unlike the audio preferences
-    /// (see `AppPreferences`), this one IS an environment object: it is a piece
-    /// of UI state that already has to be shared between `ContentView` and
-    /// `MainView`, so reading it here adds nothing to its lifetime.
-    @EnvironmentObject private var onboarding: OnboardingCoordinator
-
-    /// Bumped when "run it all again" is pressed, purely so the row re-renders
-    /// and re-reads the flag. See `onboardingWillReplay`.
-    @State private var onboardingResetAt: Date?
-
-    /// The FAQ is a page you go to, not a section you scroll to — the same call
-    /// `ProfileView` makes about this page. It is six long answers; folded into
-    /// the list they would be most of the settings page, and every switch above
-    /// them would end up below a wall of prose.
-    @State private var showingFAQ = false
-
     /// Back to the profile page. Settings is its own page now, so it owns a
     /// title bar and a way out rather than being a column somebody scrolled past.
     var onClose: (() -> Void)?
@@ -93,28 +82,17 @@ struct PreferencesView: View {
     /// headings in the app's small caps. The palette is unchanged, which is what
     /// keeps it StreetRig's settings page rather than a different app's.
     var body: some View {
-        ZStack {
-            if showingFAQ {
-                FAQView(onClose: {
-                    withAnimation(.easeInOut(duration: 0.26)) { showingFAQ = false }
-                })
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-            } else {
-                VStack(spacing: 0) {
-                    titleBar
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            audioSection
-                            displaySection
-                            privacySection
-                            helpSection
-                        }
-                        .padding(.bottom, 14)
-                    }
-                    .scrollIndicators(.hidden)
+        VStack(spacing: 0) {
+            titleBar
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    audioSection
+                    displaySection
+                    privacySection
                 }
-                .transition(.move(edge: .leading).combined(with: .opacity))
+                .padding(.bottom, 14)
             }
+            .scrollIndicators(.hidden)
         }
     }
 
@@ -237,120 +215,6 @@ struct PreferencesView: View {
         }
     }
 
-    // MARK: - Help & guides
-    //
-    // THE PROMISE THIS SECTION MADE, KEPT. It shipped as a bare heading over one
-    // sentence because a heading is an honest promise and a disabled button is
-    // not; the entry points it named are now here, plus the FAQ.
-    //
-    // FOUR ROWS, AND THE FIRST ONE IS NOT A GUIDE. "Common questions" answers
-    // the two things people actually report -- an echo, and a horrible noise
-    // between notes -- and it lands above the guides because somebody with a
-    // noise in their ears is not looking to be walked around the app again.
-    //
-    // WHY BOTH GUIDES ARE REACHABLE FOREVER. The first-launch chain is skippable
-    // at every single step, and it has to be — a landscape-locked tutorial with
-    // no visible way out is the fastest way to make somebody resent an app. That
-    // is only a fair trade if skipping costs nothing, which means the way back
-    // in cannot be "reinstall".
-    //
-    // "SHOW ME AROUND" NEEDS NO NAVIGATION, which is worth stating because it
-    // looks like it should. This panel is not a screen: it is the right-hand
-    // column of the PROFILE page, which is page four of the shell the tour
-    // points at. The player is already standing on the live `MainView`; the
-    // tour's first step asks for the rig page and the shell pages over to it.
-
-    private var helpSection: some View {
-        section("HELP & GUIDES") {
-            VStack(spacing: 7) {
-                // FIRST, ahead of both guides. The guides are things you re-run;
-                // this is the one somebody opens WITH A PROBLEM — a noise in
-                // their ears right now — and it is the only row here that
-                // answers a question rather than restarting a walkthrough.
-                actionRow(
-                    title: "Common questions",
-                    note: "The echo, the noise between notes, and the gate that shuts them up.",
-                    symbol: "questionmark.circle"
-                ) {
-                    withAnimation(.easeInOut(duration: 0.26)) { showingFAQ = true }
-                }
-
-                actionRow(
-                    title: "Audio setup guide",
-                    note: "Interfaces, adapters, and why Bluetooth makes an amp sim feel broken.",
-                    symbol: "cable.connector"
-                ) { onboarding.replaySetupGuide() }
-
-                actionRow(
-                    title: "Show me around",
-                    note: "The walkthrough over the app itself — the rail, the rig, the panel, all four pages.",
-                    symbol: "hand.point.up.left"
-                ) { onboarding.replayTour() }
-
-                actionRow(
-                    title: "Run it all again next launch",
-                    note: onboardingWillReplay
-                        ? "Armed. Both guides run on the next launch, as they do for a new player."
-                        : "Clears the flag that says you have been shown around.",
-                    symbol: onboardingWillReplay ? "checkmark.circle.fill" : "arrow.counterclockwise",
-                    tint: onboardingWillReplay ? RigTheme.signal : RigTheme.amberChrome
-                ) {
-                    onboarding.resetCompletionFlag()
-                    withAnimation(.easeOut(duration: 0.2)) { onboardingResetAt = Date() }
-                }
-            }
-        }
-    }
-
-    /// Mirrors the flag rather than the button press, so the row tells the truth
-    /// after a replay has quietly set it again — an "Armed" label sitting over a
-    /// flag that is back on is exactly the kind of small lie that teaches a
-    /// player to stop believing the settings page.
-    private var onboardingWillReplay: Bool {
-        _ = onboardingResetAt          // re-read when the button is pressed
-        return !onboarding.hasCompletedOnboarding
-    }
-
-    /// One tappable row: name, one line of what it does, and where it takes you.
-    /// Same card, same rhythm and the same 12/9 padding as `toggleRow`, so the
-    /// section does not read as a different list bolted under the others.
-    private func actionRow(title: String,
-                           note: String,
-                           symbol: String,
-                           tint: Color = RigTheme.amberChrome,
-                           action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(alignment: .center, spacing: 10) {
-                Image(systemName: symbol)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(tint)
-                    .frame(width: 18)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(RigTheme.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(note)
-                        .font(.system(size: 9.5))
-                        .foregroundStyle(RigTheme.textMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: Self.textMeasure, alignment: .leading)
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(RigTheme.textMuted.opacity(0.6))
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
-            .contentShape(Rectangle())
-            .overlay(alignment: .bottom) { rowRule }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(title). \(note)")
-    }
-
     // MARK: - Pieces
 
     private func section<Content: View>(_ title: String,
@@ -426,7 +290,6 @@ struct PreferencesView: View {
 
 #Preview {
     PreferencesView()
-        .environmentObject(OnboardingCoordinator())
         .frame(width: 340, height: 250)
         .padding(16)
         .background(RigTheme.background)

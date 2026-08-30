@@ -28,6 +28,12 @@
 //  rule ever changes in the compiler, it changes here in the same commit, or the
 //  preset page starts quietly lying about the amp.
 //
+//  THAT RULE NOW LIVES IN `AmpHeadline` (UserPreset.swift) RATHER THAN IN THIS
+//  FILE, because a user's saved slot has to print the same six numbers off the
+//  same amp and a second copy of the expression is exactly the divergence the
+//  paragraph above warns about. `ampHeadline` below is one line for that reason;
+//  the reasoning stayed here, where the reader of a preset will look for it.
+//
 //  EVERY NAME IN HERE IS LOAD-BEARING. Models are matched against
 //  `RigStore.catalog` by exact name, so a typo or a model that gets withheld
 //  makes the whole preset refuse to load rather than half-load — see
@@ -119,27 +125,12 @@ public struct RigPreset: Identifiable, Hashable {
     /// rather than printed at a guessed value, because the honest answer for it
     /// is "whatever that amp's panel defaults to", which is not a number this
     /// screen knows.
+    ///
+    /// The rule itself is `AmpHeadline.resolve`, shared with `UserPreset` so the
+    /// nine presets and the player's four cannot describe the same amp
+    /// differently.
     public var ampHeadline: [(label: String, value: Double)] {
-        let onChannelTwo = (ampValues["CHANNEL"] ?? 0) >= 0.5
-        func role(_ keys: [String]) -> Double? {
-            if onChannelTwo {
-                for key in keys { if let v = ampValues[key + " 2"] { return v } }
-            }
-            for key in keys { if let v = ampValues[key] { return v } }
-            return nil
-        }
-        var out: [(String, Double)] = []
-        if let v = role(["Gain", "GAIN"])     { out.append(("GAIN", v)) }
-        if let v = role(["Bass", "BASS"])     { out.append(("BASS", v)) }
-        if let v = role(["Mid", "MIDDLE"])    { out.append(("MID", v)) }
-        if let v = role(["Treble", "TREBLE"]) { out.append(("TREBLE", v)) }
-        // CUT and PRESENCE are the same destination under two names (the HV28
-        // prints CUT and it runs backwards); print whichever the panel shows.
-        if let v = role(["Cut"])              { out.append(("CUT", v)) }
-        else if let v = role(["Presence"])    { out.append(("PRESENCE", v)) }
-        if let v = role(["Master"])           { out.append(("MASTER", v)) }
-        if let v = role(["Volume"])           { out.append(("VOLUME", v)) }
-        return out
+        AmpHeadline.resolve(ampValues)
     }
 
     /// A pedal's settings IN PANEL ORDER, labelled the way its own faceplate
@@ -163,7 +154,7 @@ public struct RigPreset: Identifiable, Hashable {
 
 public enum RigPresets {
 
-    /// NINE TONES, ORDERED BY GAIN — clean at the top, fuzz and ambient at the
+    /// NINE PRESETS, ORDERED BY GAIN — clean at the top, fuzz and ambient at the
     /// bottom, which is the order a player scans for "somewhere near what I
     /// want" and the order the knob settings themselves climb.
     ///
@@ -460,6 +451,16 @@ extension RigStore {
     /// already reaches every time somebody drags a pedal off the stage; loading
     /// a preset is not the moment to start silently rewriting the player's AR
     /// page as well as their rig.
+    ///
+    /// `apply(_ preset: UserPreset)` DOES restore them, and the two are not in
+    /// conflict — they are the same principle applied to two different things.
+    /// A factory preset is somebody else's rig: it has an opinion about the amp
+    /// and the board and no business having one about where the player's feet go.
+    /// A user slot recorded THAT PLAYER'S OWN footswitch layout at save time, so
+    /// putting it back is restoring their choice rather than overriding it, and a
+    /// snapshot that came back with the pedals right and the switches wrong would
+    /// not be the rig they saved. If either of these two comments is edited, both
+    /// are, in the same commit.
     @discardableResult
     public func apply(_ preset: RigPreset) -> Bool {
         // 1. Resolve. `wanted` keeps catalog order — amp, cab, then pedals.

@@ -330,8 +330,9 @@ extension OnboardingCoordinator {
             id: 3, target: .rigStage, page: .main,
             title: "MY RIG",
             detail: "Your signal chain as a real rig: amp, cab, pedalboard, guitar. "
-                  + "Drag anywhere on it to orbit the whole stage. The TONES square "
-                  + "on the right loads a finished one — amp, pedals and all.",
+                  + "Drag anywhere on it to orbit the whole stage. The PRESETS square "
+                  + "on the right loads a finished one — amp, pedals and all, and keeps "
+                  + "yours.",
             cornerRadius: 16, outset: 0
         ),
         CoachMarkStep(

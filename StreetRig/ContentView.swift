@@ -91,6 +91,7 @@ struct ContentView: View {
     ContentView()
         .environmentObject(RigStore.preview)
         .environmentObject(ProfileStore.preview)
+        .environmentObject(UserPresetStore.preview)
         .environmentObject(RigDragController())
         .environmentObject(ARSlotLift())
         .environmentObject(OnboardingCoordinator())

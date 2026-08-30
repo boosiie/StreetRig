@@ -16,6 +16,12 @@ struct StreetRigApp: App {
     /// forthcoming tutorial and (very likely) the top nav, and a second instance
     /// would be a second copy of the same file racing the first to write it.
     @StateObject private var profileStore = ProfileStore()
+    /// The player's four saved rigs. Injected here for the same reason the other
+    /// two stores are: it owns a file, and a second instance would be a second
+    /// copy of `user_presets.json` racing the first to write it. `PresetsView`
+    /// reads it today; the AR page is the obvious next reader, since a slot is
+    /// already a footswitch layout as well as a rig.
+    @StateObject private var userPresetStore = UserPresetStore()
     @StateObject private var dragController = RigDragController()
     @StateObject private var slotLift = ARSlotLift()
     /// The tutorial's state. Owned here rather than in `ContentView` because two
@@ -39,6 +45,7 @@ struct StreetRigApp: App {
             ContentView()
                 .environmentObject(store)
                 .environmentObject(profileStore)
+                .environmentObject(userPresetStore)
                 .environmentObject(dragController)
                 .environmentObject(slotLift)
                 .environmentObject(onboarding)

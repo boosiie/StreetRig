@@ -104,15 +104,23 @@ enum AppPreferences {
     /// been shown around.
     static var onboardingCompleted: Bool { flag(onboardingComplete, default: false) }
 
-    // MARK: - Tone presets
+    // MARK: - Presets
 
-    /// The id of the last preset loaded from the TONES page, so reopening it
+    /// The id of the last preset loaded from the PRESETS page, so reopening it
     /// lands on the one you last chose rather than back at the top of the list.
     ///
     /// "LAST LOADED", NOT "CURRENT" — and the tag on the row says exactly that.
     /// The moment the player turns one knob the rig is no longer the preset, and
     /// a page claiming otherwise would be wrong within seconds of being right.
     /// What this key can honestly remember is which one they pressed.
+    ///
+    /// IT NOW HOLDS TWO KINDS OF ID, and one of them is namespaced. A factory
+    /// preset is remembered by its own id ("metal"); one of the player's four
+    /// slots is remembered as "slot:2", because a bare index would be a perfectly
+    /// plausible factory id and the page has to be able to tell them apart. The
+    /// two forms are produced and parsed in exactly one place — `PresetChoice`
+    /// in `PresetsView` — and a value that no longer resolves is ignored rather
+    /// than repaired, since the only cost is landing at the top of the list.
     static let lastPresetLoaded = "streetrig.lastPresetLoaded"
 
     // MARK: - Reading (for the non-SwiftUI side)

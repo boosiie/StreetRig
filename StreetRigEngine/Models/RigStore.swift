@@ -499,9 +499,43 @@ public final class RigStore: ObservableObject {
     ///    `RigAudioBridge` applies through the fade/park barrier.
     /// Clearing a slot leaves the pedal in the chain and unbound → enabled again;
     /// it is never stranded in bypass.
+    /// THE SWITCH A ROCKER HAS TO SIT ON. Leftmost, and the reason is the foot
+    /// rather than the layout: a treadle is worked by ROCKING a foot that stays on
+    /// the pedal, and that moving foot reads as a stomp to whatever it is standing
+    /// next to. `ARPedalSetupView.treadleSlotSet` exists solely to stop those
+    /// phantom stomps, and it can only suppress the switches it knows are covered.
+    ///
+    /// In the middle a rocker has a neighbour on BOTH sides, so it is the one
+    /// position that puts two switches inside the sweep. An end slot has one, and
+    /// the LEFT end is the end a wah has occupied on real boards for fifty years —
+    /// it is first in the chain (`GearCategory.chainOrder` puts `.wah` at 1) and
+    /// the rig stage already draws it there, so the AR floor now agrees with the
+    /// board instead of contradicting it.
+    ///
+    /// ONE ROCKER, because you have one foot to rock with. A second treadle would
+    /// need this slot too, and `setARSlot` releases whatever held it — so the rule
+    /// is enforced by there being exactly one legal slot rather than by counting.
+    public static let treadleSlot = 0
+
+    /// Why `pedalId` cannot go on switch `index`, or `nil` when it can.
+    ///
+    /// SEPARATE FROM `setARSlot` ON PURPOSE. The setter's contract is that it
+    /// silently does nothing it must not do, which is right for an audio path but
+    /// useless to a UI that owes the player an explanation. Asking first is how the
+    /// AR page knows to say why instead of appearing to ignore a drop.
+    public func arSlotRefusal(pedalId: UUID, at index: Int) -> ARSlotRefusal? {
+        guard let gear = item(pedalId), gear.isTreadle, index != Self.treadleSlot else { return nil }
+        return .treadleMustBeLeftmost(pedal: gear.name)
+    }
+
     public func setARSlot(_ index: Int, pedalId: UUID?) {
         guard arSlots.indices.contains(index) else { return }
         guard let pedalId else { arSlots[index] = ARSlot(); return }
+
+        // The rule, enforced where the comment above says the rules live. The AR
+        // page asks `arSlotRefusal` first so it can explain; this is the backstop
+        // for every other caller, including a future one that forgets to ask.
+        guard arSlotRefusal(pedalId: pedalId, at: index) == nil else { return }
 
         if let gear = item(pedalId), gear.category.isPedal, !rig.pedalIds.contains(pedalId) {
             apply(gear)                                   // structural: into the chain
@@ -910,4 +944,34 @@ public final class RigStore: ObservableObject {
             mk("brig-loop-depot", "VOSS Loop Depot", .looper), mk("electro-galvanic-frost", "electro-galvanic FROST", .looper),
         ]
     }()
+}
+
+// MARK: - Footswitch placement rules
+
+/// Why a pedal cannot go on a particular AR footswitch.
+///
+/// An enum rather than a `Bool` because the UI has to PRINT the reason, and a
+/// reason the player can act on ("it goes on the left") is the difference between
+/// a rule and a thing that seems broken. It carries the pedal's name so the copy
+/// can be about their pedal rather than about pedals in general.
+public enum ARSlotRefusal: Equatable, Sendable {
+    /// A rocker aimed at any switch but the leftmost — see `RigStore.treadleSlot`.
+    case treadleMustBeLeftmost(pedal: String)
+
+    /// The heading, in the player's words.
+    public var title: String { "That one goes on the left" }
+
+    /// One short paragraph: the rule, then why it exists. The why matters here —
+    /// without it this reads as an arbitrary restriction on their own pedalboard.
+    public var message: String {
+        switch self {
+        case .treadleMustBeLeftmost(let pedal):
+            return "\(pedal) is a rocker — you work it by keeping a foot on it and "
+                 + "sweeping, and a foot moving like that sets off whatever switch it "
+                 + "is standing beside. On the left it only has one neighbour, and "
+                 + "that is the one the app already knows to ignore.\n\n"
+                 + "It is also where a wah sits on a real board: first in the chain, "
+                 + "which is exactly where the rig stage draws it."
+        }
+    }
 }

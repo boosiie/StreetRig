@@ -12,6 +12,15 @@
 //  hairline and left neither with the width it wanted. `PreferencesView` is now
 //  its own page (see `settingsEntry`), and this one is about the player.
 //
+//  HELP & GUIDES IS THE ONE PART THAT CAME BACK, and the distinction is the
+//  point rather than an exception to it. Fifteen switches are about how the app
+//  behaves; the four help rows are about somebody learning it, which is the same
+//  subject as the name and the avatar beside them. They were also the worst-
+//  placed thing in the app — the rows you reach for when you are stuck sat at
+//  the bottom of a list you had to know to open. See `HelpGuidesPanel`, whose
+//  header carries the full argument and the line that says when this column has
+//  outgrown it.
+//
 //  THE GEAR RAIL STANDS DOWN HERE. `MainView` hides it on this page and only
 //  this page — there is nothing on PROFILE to drag gear onto, so all it did was
 //  take 150 points off the one page whose subject is not gear. That reclaimed
@@ -59,6 +68,11 @@ struct ProfileView: View {
     /// ~400 pt-tall screen is a letterbox with a settings list inside it.
     @State private var showingSettings = false
 
+    /// The FAQ, pushed over this page the same way settings is. It is owned here
+    /// rather than inside `HelpGuidesPanel` because the panel is a column in a
+    /// layout and has no business knowing what it is covering — this page does.
+    @State private var showingFAQ = false
+
     /// Cap, not a fixed width — see the header. Sized off the widest thing in the
     /// column (a 66pt avatar plus a name field that has to hold 24 characters),
     /// and no wider: every point spent here comes straight out of the preferences
@@ -81,7 +95,12 @@ struct ProfileView: View {
             // width it wanted and the page had no subject. Behind a button, the
             // profile page is about the player and the settings page is about
             // settings, and each gets the whole screen.
-            if showingSettings {
+            if showingFAQ {
+                FAQView(onClose: {
+                    withAnimation(.easeInOut(duration: 0.26)) { showingFAQ = false }
+                })
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else if showingSettings {
                 PreferencesView(onClose: {
                     withAnimation(.easeInOut(duration: 0.26)) { showingSettings = false }
                 })
@@ -103,7 +122,7 @@ struct ProfileView: View {
                         .fill(RigTheme.edgeBrass)
                         .frame(width: 1)
 
-                    settingsEntry
+                    helpColumn
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.horizontal, 18)
@@ -123,12 +142,38 @@ struct ProfileView: View {
         }
     }
 
+    // MARK: - Help, and the way into settings
+
+    /// The right-hand column: the four help rows, then the button to everything
+    /// else. HELP IS ABOVE SETTINGS on purpose — it is the reason most people
+    /// arrive on this side of the page, and the button below it is the one you
+    /// only want when you already know what you are changing.
+    ///
+    /// Scrolls for the same reason the identity column does: the page height is
+    /// a number that changes, and content that scrolls a little never clips.
+    private var helpColumn: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 13) {
+                HelpGuidesPanel(onOpenFAQ: {
+                    nameFocused = false
+                    withAnimation(.easeInOut(duration: 0.26)) { showingFAQ = true }
+                })
+                settingsEntry
+            }
+            .padding(.top, 1)
+            .padding(.bottom, 2)
+        }
+        .scrollIndicators(.hidden)
+    }
+
     // MARK: - The way into settings
 
     /// One button, and what is behind it. The list of section names is not
     /// decoration: a button labelled only SETTINGS makes you open it to find out
-    /// whether the thing you want is in there, and the four words underneath
-    /// answer that without a tap.
+    /// whether the thing you want is in there, and the words underneath answer
+    /// that without a tap. Help is no longer among them — it is the column
+    /// directly above, so naming it here would send people through a button to
+    /// reach something they can already see.
     private var settingsEntry: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
@@ -143,7 +188,7 @@ struct ProfileView: View {
                         Text("Settings")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(RigTheme.textPrimary)
-                        Text("Audio devices · Display · Data & privacy · Help & guides")
+                        Text("Audio devices · Display · Data & privacy")
                             .font(.system(size: 10))
                             .foregroundStyle(RigTheme.textMuted)
                             .lineLimit(1)
