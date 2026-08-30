@@ -186,7 +186,8 @@ struct ControlPanelSurface: View {
                       channel: .input,
                       monitor: audio.levels,
                       isLive: audio.isEngaged,
-                      selectable: true)
+                      selectable: true,
+                      badge: openMicBadge)
         }
         .frame(maxWidth: .infinity)
     }
@@ -213,6 +214,19 @@ struct ControlPanelSurface: View {
                       badge: latencyBadge)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// WHY IT IS SILENT. Engaging on the phone's own mic mutes the output — the
+    /// mic and the speaker are inches apart and the loop between them screeches
+    /// rather than settling; see `AudioEngineController.applyOpenMicMute`.
+    ///
+    /// Without this the app just looks broken: the lamp is lit, the input meter is
+    /// moving, PROCEED says LIVE, and nothing comes out. It rides the INPUT zone
+    /// because the input is the reason, and warns because a player who wanted to
+    /// hear something needs to go plug an interface in.
+    private var openMicBadge: RouteZone.Badge? {
+        guard audio.openMicMuted else { return nil }
+        return .init(text: "muted · feedback", warn: true)
     }
 
     private var outputBinding: Binding<AudioEngineController.OutputChoice> {
