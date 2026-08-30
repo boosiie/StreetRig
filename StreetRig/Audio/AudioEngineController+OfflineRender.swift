@@ -1641,7 +1641,14 @@ extension AudioEngineController {
         if !store.boardHasRoom, let victim = store.rig.pedalIds.first(where: { $0 != odId }) {
             store.removePedal(victim)
         }
-        let spare = store.collection.first { $0.category.isPedal && !store.rig.pedalIds.contains($0.id) }
+        // NOT A TREADLE. Steps 6 and 7 fill switches 1 and 2, and a rocker is only
+        // allowed on switch 0 now (`RigStore.treadleSlot`) — the first spare pedal in
+        // the collection happens to be the WEEPING WILLOW, so without this filter
+        // both steps would be testing the placement rule instead of what they are
+        // named for. The rule gets its own checks below.
+        let spare = store.collection.first {
+            $0.category.isPedal && !store.rig.pedalIds.contains($0.id) && !$0.isTreadle
+        }
         var addedOK = false, addedDetail = "no spare pedal in the collection"
         if let spare {
             let before = store.rig.pedalIds.count
@@ -1670,6 +1677,36 @@ extension AudioEngineController {
             movedDetail = "\(spare.name): slot 1 released, now on slot 2 only, still enabled"
         }
         checks.append(("re-binding releases the pedal's old slot", movedOK, movedDetail))
+
+        // 8. A ROCKER ONLY GOES ON THE LEFT. Both halves are asserted, because a
+        //    rule that only ever refuses is indistinguishable from a broken switch.
+        var treadleOK = false, treadleDetail = "no treadle in the collection"
+        if let rocker = store.collection.first(where: { $0.isTreadle }) {
+            // Room, for the third time in this function and for the same reason:
+            // the rocker is not in the chain, so landing it on switch 0 means
+            // `setARSlot` has to add it, and a full board refuses that add. Without
+            // this the check fails on the board cap while reporting it as the
+            // placement rule — which is exactly the confusion the other two steps
+            // above already had to be fixed for.
+            if !store.boardHasRoom, let victim = store.rig.pedalIds.first(where: { $0 != odId }) {
+                store.removePedal(victim)
+            }
+            let refusedMid = store.arSlotRefusal(pedalId: rocker.id, at: 1) != nil
+            let refusedRight = store.arSlotRefusal(pedalId: rocker.id, at: 2) != nil
+            let allowedLeft = store.arSlotRefusal(pedalId: rocker.id, at: RigStore.treadleSlot) == nil
+            // And the setter must AGREE with the query, or the UI explains one rule
+            // while the store enforces another.
+            store.setARSlot(1, pedalId: rocker.id)
+            let didNotLand = store.arSlots[1].pedalId != rocker.id
+            store.setARSlot(RigStore.treadleSlot, pedalId: rocker.id)
+            let landedLeft = store.arSlots[RigStore.treadleSlot].pedalId == rocker.id
+            treadleOK = refusedMid && refusedRight && allowedLeft && didNotLand && landedLeft
+            treadleDetail = "\(rocker.name): switch 1 \(refusedMid ? "refused" : "ACCEPTED") / "
+                          + "switch 3 \(refusedRight ? "refused" : "ACCEPTED") / "
+                          + "switch 1 landed=\(!didNotLand) / left landed=\(landedLeft)"
+        }
+        checks.append(("a rocker is refused off the leftmost switch, and lands on it",
+                       treadleOK, treadleDetail))
 
         let allPass = checks.allSatisfy { $0.1 }
         var out = """

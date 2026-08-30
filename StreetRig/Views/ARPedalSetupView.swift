@@ -87,6 +87,9 @@ struct ARPedalContentView: View {
     /// so there is one picker for the page instead of three, and so presenting it
     /// never hangs off a view the anchored layout is repositioning 30×/second.
     @State private var picking: SlotIndex?
+    /// The placement rule the player just ran into, or `nil`. Owned by the page so
+    /// the three switches and the picker share one alert — see the `.alert` below.
+    @State private var refusal: ARSlotRefusal?
 
     /// The pedals as objects on the real floor. Held here for the life of the page
     /// so the node graph survives the camera view being handed over on every
@@ -149,7 +152,8 @@ struct ARPedalContentView: View {
                                 ARSlotView(index: index,
                                            height: slotHeight,
                                            placementIsGood: detector.state.placementIsGood,
-                                           onAssign: { picking = SlotIndex(id: index) })
+                                           onAssign: { picking = SlotIndex(id: index) },
+                                           onRefused: { refusal = $0 })
                             }
                         }
                         .padding(.horizontal, 20)
@@ -231,6 +235,15 @@ struct ARPedalContentView: View {
         .sheet(item: $picking) { slot in
             ARPedalPicker(index: slot.id)
                 .environmentObject(store)
+        }
+        // ONE ALERT FOR THE WHOLE PAGE. Both ways into a switch — a drag onto it
+        // and the picker sheet — funnel here, so the rule is explained in exactly
+        // the same words however the player arrived at it.
+        .alert(refusal?.title ?? "", isPresented: Binding(get: { refusal != nil },
+                                                          set: { if !$0 { refusal = nil } })) {
+            Button("Got it", role: .cancel) { refusal = nil }
+        } message: {
+            Text(refusal?.message ?? "")
         }
         .onAppear {
             // THE TREADLE. The detector reports a foot's height over a slot; what
@@ -603,6 +616,8 @@ private struct ARFloorSlotView: View {
     /// 0…1 through the hold that commits the switch.
     var armProgress: Double = 0
     let onAssign: () -> Void
+    /// A drop this switch may not take — reported up so the page explains it.
+    var onRefused: (ARSlotRefusal) -> Void = { _ in }
 
     @State private var targeted = false
     @State private var held = false
@@ -719,7 +734,8 @@ private struct ARFloorSlotView: View {
                            // what makes the button "deliberate" rather than merely
                            // "also available". The HOLD still lifts the pedal off.
                            togglesOnTap: !treadle,
-                           onAssign: onAssign)
+                           onAssign: onAssign,
+                           onRefused: onRefused)
     }
 }
 
@@ -946,6 +962,10 @@ private struct ARSlotView: View {
     var placementIsGood: Bool = false
     /// Tapped while EMPTY — the page opens its pedal picker.
     var onAssign: () -> Void = {}
+    /// A drop this switch is not allowed to take. Reported UP rather than shown
+    /// here: three slots would otherwise own three identical alerts, and only one
+    /// of them can ever be firing.
+    var onRefused: (ARSlotRefusal) -> Void = { _ in }
     @State private var targeted = false
     /// Held, and therefore in the air on its way to the trash: the slot goes
     /// invisible so the ghost under the finger is the only copy of it.
@@ -1016,7 +1036,8 @@ private struct ARSlotView: View {
         .contentShape(Rectangle())
         .arSlotInteraction(index: index, pedal: pedal, cornerRadius: 23,
                            ringInsets: EdgeInsets(top: -5, leading: -5, bottom: 17, trailing: -5),
-                           held: $held, targeted: $targeted, onAssign: onAssign)
+                           held: $held, targeted: $targeted, onAssign: onAssign,
+                           onRefused: onRefused)
     }
 
     /// Amber wins, always. It is the PEDAL's state — engaged, or being dropped onto —
@@ -1040,11 +1061,12 @@ extension View {
                            ringInsets: EdgeInsets, held: Binding<Bool>,
                            targeted: Binding<Bool>,
                            togglesOnTap: Bool = true,
-                           onAssign: @escaping () -> Void) -> some View {
+                           onAssign: @escaping () -> Void,
+                           onRefused: @escaping (ARSlotRefusal) -> Void = { _ in }) -> some View {
         modifier(ARSlotInteraction(index: index, pedal: pedal, cornerRadius: cornerRadius,
                                    ringInsets: ringInsets, held: held,
                                    targeted: targeted, togglesOnTap: togglesOnTap,
-                                   onAssign: onAssign))
+                                   onAssign: onAssign, onRefused: onRefused))
     }
 }
 
@@ -1074,6 +1096,8 @@ private struct ARSlotInteraction: ViewModifier {
     /// is the pad on the floor beside the board.
     var togglesOnTap: Bool = true
     let onAssign: () -> Void
+    /// A drop this switch may not take, handed back to the page's alert.
+    var onRefused: (ARSlotRefusal) -> Void = { _ in }
 
     /// Parked out of reach until the pedal is held, so this gesture never claims a
     /// touch and the page swipe always wins — the same trick, for the same reason,
@@ -1164,7 +1188,7 @@ private struct ARSlotInteraction: ViewModifier {
             // what says the pedal is actually in your hand — on the frame the ring
             // closes, which is why it triggers off `charged`.
             .sensoryFeedback(.impact(weight: .medium, intensity: 0.8), trigger: charged) { _, done in done }
-            .background { SlotDropArea(index: index, targeted: $targeted) }
+            .background { SlotDropArea(index: index, targeted: $targeted, onRefused: onRefused) }
     }
 
     /// Fills over the hold, so an aborted press shows a half-drawn ring — which
@@ -1264,6 +1288,8 @@ private struct SlotDropArea: View {
     @Environment(\.rigDrag) private var drag: RigDragController?
     let index: Int
     @Binding var targeted: Bool
+    /// A drop this switch may not take, passed back up to the page's one alert.
+    var onRefused: (ARSlotRefusal) -> Void = { _ in }
 
     @State private var area = RigDropArea()
 
@@ -1300,6 +1326,13 @@ private struct SlotDropArea: View {
                     // a pedal that isn't in the chain is added to it first. Both are
                     // load-bearing for the audio path, so they are not restated here.
                     area.onDrop = { item, _ in
+                        // ASK BEFORE SETTING. `setARSlot` refuses silently, which
+                        // for a drag that has just landed reads as the app dropping
+                        // the pedal on the floor. See `RigStore.arSlotRefusal`.
+                        if let refusal = store.arSlotRefusal(pedalId: item.id, at: index) {
+                            onRefused(refusal)
+                            return
+                        }
                         withAnimation(.easeInOut(duration: 0.2)) {
                             store.setARSlot(index, pedalId: item.id)
                         }
@@ -1333,6 +1366,11 @@ private struct ARPedalPicker: View {
     @EnvironmentObject var store: RigStore
     @Environment(\.dismiss) private var dismiss
     let index: Int
+    /// Its OWN copy of the rule alert, not the page's. This is a sheet, and an
+    /// alert owned by the view underneath it cannot appear over it — the tap would
+    /// look ignored, which is the exact failure the rule's explanation exists to
+    /// prevent. Same `ARSlotRefusal`, so both routes print the same words.
+    @State private var refusal: ARSlotRefusal?
 
     private var inRig: [GearItem] { store.pedalItems }
 
@@ -1368,6 +1406,12 @@ private struct ARPedalPicker: View {
             }
         }
         .background(RigTheme.background)
+        .alert(refusal?.title ?? "", isPresented: Binding(get: { refusal != nil },
+                                                          set: { if !$0 { refusal = nil } })) {
+            Button("Got it", role: .cancel) { refusal = nil }
+        } message: {
+            Text(refusal?.message ?? "")
+        }
     }
 
     private var header: some View {
@@ -1415,7 +1459,16 @@ private struct ARPedalPicker: View {
 
         let artFrame = GearArtFrame.size(for: pedal, base: pedal.category.artSize)
 
+        // A rocker aimed at the wrong switch is refused HERE as well as on drop.
+        // The grid is the other way in, and a tap that closes the sheet having
+        // silently done nothing is the worst version of this rule.
+        let refusal = store.arSlotRefusal(pedalId: pedal.id, at: index)
+
         return Button {
+            if let refusal {
+                self.refusal = refusal
+                return
+            }
             store.setARSlot(index, pedalId: pedal.id)
             dismiss()
         } label: {
