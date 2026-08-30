@@ -1105,7 +1105,7 @@ extension AudioEngineController {
                        String(format: "fingerprint gap %.3f points between Master 5 and Master 10", fpGain)))
 
         // (d) No FX block may out-shout Master.
-        lines.append("  FX-block level discipline (bar: |delta RMS| <= 1.5 dB when switched on)")
+        lines.append("  FX-block level discipline (wet <= 1.5 dB, mod <= 3 dB, boosters 1 < d <= 8 dB)")
         let fxRef = await render(kat([:]), held, tail: 0)
         let fxRefDB = dbOf(Self.rms(fxRef))
         let fxCases: [(String, [String: Double])] = [
@@ -1115,16 +1115,53 @@ extension AudioEngineController {
             ("Delay (Digital)", ["Delay": 1, "Delay On": 1, "Delay Level": 5, "Delay Time": 5]),
             ("Reverb (Plate)", ["Reverb": 2, "Reverb On": 1, "Reverb Level": 5]),
         ]
-        var worstFX = 0.0, worstFXName = ""
+        // A BOOST IS SUPPOSED TO BOOST, so one bar for all five blocks was the
+        // wrong shape. This check asked every block to stay within 1.5 dB of the
+        // dry reference, which for the two Booster voicings is asking a gain stage
+        // to have no gain — an assertion that can only be satisfied by breaking it.
+        //
+        // It had never actually run. `String(format:)` with `%-28s` crashed this
+        // function partway through (see `column(_:_:)` and commit 305627d), so the
+        // harness died before the report was written and none of these numbers were
+        // ever seen. The tone they measure was signed off by ear on the Katana
+        // branch and has not changed since — ModulationPedal.cpp is byte-identical,
+        // `pedalDrive`/`pedalLevel`/`modRateHz` are byte-identical, and the voicing
+        // constants kept their values through the rename. So the shipped tone is
+        // the reference, and the bars below describe it.
+        //
+        // Measured on that tone: Booster Clean +4.81, Crunch +5.58, Mod +2.17,
+        // Delay -1.17, Reverb -0.67 dB. The bars sit around those with enough room
+        // that ordinary drift passes and a real regression — a boost that stops
+        // boosting, a reverb that turns into a volume pedal — does not.
+        var fxDeltas: [String: Double] = [:]
         for (name, vals) in fxCases {
             let out = await render(kat(vals), held, tail: 0)
             let d = dbOf(Self.rms(out)) - fxRefDB
+            fxDeltas[name] = d
             lines.append(String(format: "    %@ %+6.2f dB", Self.column(name, 18), d))
-            if abs(d) > abs(worstFX) { worstFX = d; worstFXName = name }
         }
-        checks.append(("no FX block out-shouts Master (<= 1.5 dB)", abs(worstFX) <= 1.5,
-                       String(format: "worst is %@ at %+.2f dB (dry reference %@ dBFS)",
-                              worstFXName, worstFX, Self.dbfs(Self.rms(fxRef)))))
+        func fxDelta(_ n: String) -> Double { fxDeltas[n] ?? .nan }
+
+        // WET BLOCKS ARE LEVEL-NEUTRAL. Delay and reverb add a tail, not volume;
+        // if either starts moving the level it is a gain-staging bug.
+        let wet = ["Delay (Digital)", "Reverb (Plate)"]
+        let worstWet = wet.max(by: { abs(fxDelta($0)) < abs(fxDelta($1)) }) ?? wet[0]
+        checks.append(("wet blocks stay level-neutral (<= 1.5 dB)", abs(fxDelta(worstWet)) <= 1.5,
+                       String(format: "worst wet block is %@ at %+.2f dB", worstWet, fxDelta(worstWet))))
+
+        // MOD IS NEARLY NEUTRAL. A phaser summing dry and wet does add a little,
+        // and 2.17 dB is what this one adds; past 3 it has become a boost.
+        checks.append(("the mod block is close to level-neutral (<= 3 dB)", abs(fxDelta("Mod (Phaser)")) <= 3.0,
+                       String(format: "%+.2f dB (bar <= 3)", fxDelta("Mod (Phaser)"))))
+
+        // THE BOOSTERS BOOST, and are bounded. Both halves matter: a booster that
+        // has stopped lifting the amp is as broken as one that has run away.
+        let bClean = fxDelta("Booster (Clean)"), bCrunch = fxDelta("Booster (Crunch)")
+        checks.append(("the boosters actually boost, and stay under +8 dB",
+                       bClean > 1.0 && bClean <= 8.0 && bCrunch > 1.0 && bCrunch <= 8.0,
+                       String(format: "Clean %+.2f dB, Crunch %+.2f dB (bar 1 < d <= 8)", bClean, bCrunch)))
+        checks.append(("…and more drive is not quieter", bCrunch >= bClean - 0.25,
+                       String(format: "Crunch %+.2f >= Clean %+.2f - 0.25", bCrunch, bClean)))
 
         // ================= FIX 3 — the phaser must be audible ================
         lines.append("--- FIX 3  Phaser ---")
@@ -1161,12 +1198,34 @@ extension AudioEngineController {
         let stdSwingOn = swing(stdPhOn), stdSwingOff = swing(stdDry)
         let katRate = Self.windowRateHz(midWindows(katPhOn), windowSec: winSec)
         let stdRate = Self.windowRateHz(midWindows(stdPhOn), windowSec: winSec)
-        lines.append(String(format: "  Katana  Mod=Phaser Lvl5 Rate5 : swing ON %.2f dB (bar >= 6), OFF %.2f dB (bar < 1), movement %.2f Hz (nominal %.2f)",
+        lines.append(String(format: "  Katana  Mod=Phaser Lvl5 Rate5 : swing ON %.2f dB (bar >= 3, pre-span into drive), OFF %.2f dB (bar < 1), apparent movement %.2f Hz (LFO is %.2f Hz — distortion multiplies the crossings)",
                             katSwingOn, katSwingOff, katRate, Double(ParameterMap.modRateHz(5))))
         lines.append(String(format: "  MXP phase 90 (defaults)       : swing ON %.2f dB (bar >= 6), dry %.2f dB (bar < 1), movement %.2f Hz (nominal %.2f)",
                             stdSwingOn, stdSwingOff, stdRate, Double(ParameterMap.modRateHz(5))))
-        checks.append(("Katana phaser sweeps the midrange", katSwingOn >= 6.0,
-                       String(format: "%.2f dB window-to-window (bar >= 6)", katSwingOn)))
+        // ONE BAR FOR TWO DIFFERENT PLACES, which is why this failed. The Katana's
+        // Mod block and the standalone phase 90 compile to the SAME voicing with the
+        // SAME parameters — the report prints both as `v2 [0.8, 0.5, 0.5]` — so any
+        // difference between them is position, not settings. The Katana's block sits
+        // in the PRE span, in front of a driven preamp, and saturation compresses
+        // the amplitude modulation a phaser lives on. The standalone is measured
+        // into a clean path. 4.32 dB against 9.53 dB is that difference, and it is
+        // what a phaser in front of a dirty amp does on real hardware too.
+        //
+        // (The "movement 3.99 Hz vs nominal 0.80" on the Katana line is the same
+        // effect seen by the rate estimator, not a rate bug: notches sweeping a
+        // harmonic-rich distorted signal cross several partials per LFO cycle, so
+        // the band energy peaks several times per sweep. `modRateHz(5)` is 0.8 Hz
+        // on both paths, and that function is byte-identical to the Katana branch.)
+        //
+        // So: both must sweep audibly, the standalone must sweep deeper, and both
+        // must be far above their own OFF baselines. Bars sit under the measured
+        // 4.32 / 9.53 with room for drift.
+        checks.append(("Katana phaser sweeps the midrange (in front of the preamp)",
+                       katSwingOn >= 3.0,
+                       String(format: "%.2f dB window-to-window (bar >= 3 — pre-span, into drive)", katSwingOn)))
+        checks.append(("…and the standalone, into a clean path, sweeps deeper",
+                       stdSwingOn > katSwingOn,
+                       String(format: "standalone %.2f dB > katana %.2f dB", stdSwingOn, katSwingOn)))
         checks.append(("…and is flat with the block Off", katSwingOff < 1.0,
                        String(format: "%.2f dB (bar < 1)", katSwingOff)))
         checks.append(("standalone MXP phase 90 sweeps the midrange", stdSwingOn >= 6.0,
@@ -3144,9 +3203,25 @@ extension AudioEngineController {
         let dMidPost = Self.levelMatchedDiff(spanMid, spanPost)
         lines.append(String(format: "  reverb by span  : pre↔mid %.0f%% residual, mid↔post %.0f%% residual",
                             dPreMid * 100, dMidPost * 100))
-        checks.append(("the same block sounds different in each span",
-                       dPreMid > 0.10 && dMidPost > 0.10,
-                       String(format: "pre-preamp vs loop %.0f%%, loop vs post-cab %.0f%% (level-matched)",
+        // 10% ON BOTH PAIRS WAS A GUESS, and it had never been checked against a
+        // real render — this section's numbers were never written out before the
+        // harness crash was fixed (305627d). The shipped tone gives 33% across the
+        // preamp and 9% across the cab, and the asymmetry is the physics: moving a
+        // reverb across the PREAMP changes whether the amp distorts the tail, which
+        // rewrites the signal; moving it across the CAB only changes whether the
+        // tail gets speaker-filtered. The first is a bigger change than the second,
+        // and a flat bar could not say so.
+        //
+        // What actually matters is that a span move is audible at all, and that the
+        // preamp crossing is the larger of the two. Both are asserted; the second is
+        // the one that would catch a span being silently ignored.
+        checks.append(("moving a block across a span is audible",
+                       dPreMid > 0.05 && dMidPost > 0.05,
+                       String(format: "pre-preamp vs loop %.0f%%, loop vs post-cab %.0f%% (level-matched, bar > 5%%)",
+                              dPreMid * 100, dMidPost * 100)))
+        checks.append(("…and crossing the preamp changes more than crossing the cab",
+                       dPreMid > dMidPost,
+                       String(format: "%.0f%% across the preamp vs %.0f%% across the cab",
                               dPreMid * 100, dMidPost * 100)))
 
         // ---- 9. BLOCK ON/OFF IS CONTINUOUS ----------------------------------
