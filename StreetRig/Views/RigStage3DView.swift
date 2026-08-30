@@ -830,7 +830,7 @@ enum RigDiorama {
     ///
     /// FRAMED FOR THE TALLEST AMP, deliberately. Every stack occupies the same
     /// vertical envelope by construction — `ProceduralAmp.Layout` solves each one's
-    /// width from a fixed height budget, so a Plexi, a Dual Rectifier and a fitted
+    /// width from a fixed height budget, so a Clearpane, a Dual Reactor and a fitted
     /// art stack are all exactly `span` tall — and a combo is shorter still. So one
     /// framing covers the whole catalog, and the number that matters is the MARGIN
     /// above the head.
@@ -943,8 +943,8 @@ enum RigDiorama {
     /// So: tip the guitar until its geometry first meets the stool, by bisection. The
     /// stool is treated as a solid cylinder from the boards up to the seat, and first
     /// contact lands on the rim where a leaning guitar actually rests. Because the
-    /// answer is measured, a different guitar — a Les Paul is a very different
-    /// silhouette from a Strat — comes to rest correctly without retuning anything.
+    /// answer is measured, a different guitar — a single-cut is a very different
+    /// silhouette from a double-cut — comes to rest correctly without retuning anything.
     ///
     /// Yaw alone when there is no stool, or when the guitar is too short to reach it
     /// at `maxGuitarLean`, which stands it up straight — the pose it had before there
@@ -1205,13 +1205,13 @@ enum RigDiorama {
 
 #Preview {
     RigStage3DView(
-        amp: GearItem(name: "Marswell JCM800 2203", category: .amp,
+        amp: GearItem(name: "Marswell MSW900 2140", category: .amp,
                       values: ["Gain": 8, "Bass": 6, "Mid": 4, "Treble": 7, "Presence": 5, "Master": 6]),
-        cabinet: GearItem(name: "Marswell 1960A 4x12", category: .cabinet),
-        pedals: [GearItem(name: "Ibonez Tube Screamer", category: .overdrive),
+        cabinet: GearItem(name: "Marswell 2415A 4x12", category: .cabinet),
+        pedals: [GearItem(name: "Iberon Valve Shrieker", category: .overdrive),
                  GearItem(name: "VOSS Digital Delay", category: .delay),
                  GearItem(name: "VOSS Reverb", category: .reverb)],
-        guitar: GearItem(name: "Les Paul Standard", category: .guitar),
+        guitar: GearItem(name: "Lyle Preston Standard", category: .guitar),
         focused: nil,
         dropArea: RigDropArea(),
         controller: RigDragController()

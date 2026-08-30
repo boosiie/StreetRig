@@ -326,7 +326,11 @@ public final class RigStore: ObservableObject {
     /// Add a copy of a catalog item to the owned collection (fresh id + default knobs).
     public func addToCollection(_ item: GearItem) {
         guard !isOwned(item) else { return }
-        let fresh = GearItem(name: item.name, category: item.category)
+        // `catalogID` rides along: an owned copy IS that catalog model, and the
+        // whole point of the id is that the copy keeps resolving after the model
+        // is re-titled. Dropping it here would put owned gear straight back on
+        // name lookup, which is the bug this replaced.
+        let fresh = GearItem(catalogID: item.catalogID, name: item.name, category: item.category)
         collection.append(fresh)
 
         // Self-heal the no-amp state. The stage warning tells the player in so
@@ -596,7 +600,7 @@ public final class RigStore: ObservableObject {
                 // is at zero. A rig saved before an amp gained a knob has no key
                 // for it, and answering 0 put that knob at its minimum while every
                 // other reader — the panel's own dimming, the chain compiler —
-                // used the parameter's default. The BE-100 gaining a clean channel
+                // used the parameter's default. The GX-140 gaining a clean channel
                 // is exactly this case.
                 return item.parameters.first { $0.name == param }?.defaultValue ?? 0
             },
@@ -618,24 +622,31 @@ public final class RigStore: ObservableObject {
     ///   1 — original placeholder catalog
     ///   2 — the 47 licensed-art pedals
     ///   3 — amps/cabs/combos re-badged to invented brands to match their new
-    ///   4 — six amps re-badged further off the real marks (Plexi → Plaxi,
-    ///       Rectifier → Ractifier, Bassman → Bassdude, Jazz → Jazzy,
-    ///       Rockerverb → Rockervert, Katana → Ketana). A rename retires the
-    ///       old name, and every seam — icon, plate, profile — is keyed off it.
-    ///       bespoke art (Marshall JCM800 → Marswell JCM800 2203, …), Twin Reverb
-    ///       and AC30 recategorised as combos, and the four art-less amps retired.
-    ///       Renaming shipped gear and bumping this are ONE atomic change: the
-    ///       icon seam matches on name, so a saved rig left on the old names would
-    ///       resolve no asset and show procedural art forever.
+    ///       bespoke art, the Tandem and the HV28 recategorised as combos, and
+    ///       the four art-less amps retired.
+    ///   4 — six amps re-badged one step further off the real marks. A rename
+    ///       retires the old name, and every seam — icon, plate, profile — is
+    ///       keyed off it.
+    ///   5 — ALL 61 models renamed off every registered mark they still carried:
+    ///       the v3/v4 passes moved the brands but left model designations
+    ///       verbatim, so the catalog was still shipping ~41 of them in plain
+    ///       text. One row survives unchanged (`Fandor Bassdude '59`). The same
+    ///       change gave every model a frozen `catalogID` and moved the icon,
+    ///       plate, profile, knob and finish seams onto it, so the NEXT rename is
+    ///       a display-string edit and does not need a version bump at all.
+    ///       Renaming shipped gear and bumping this are ONE atomic change: before
+    ///       ids the seams matched on name, so a saved rig left on the old names
+    ///       would resolve no asset and show procedural art forever.
     ///
     /// Player-driven removal does NOT bump this: the schema is unchanged (a
     /// deletion is just a shorter `collection` array), and re-seeding would hand
     /// back the very gear the player just threw away.
-    /// PUBLIC so the offline harness can ASSERT it did not move. A cosmetic
-    /// change — renaming the Katana's Mod option 3 to "Chorus" — must never bump
-    /// this, because `load` returns nil for any state below the current version
-    /// and the caller then re-seeds, throwing away the player's rig.
-    public static let catalogVersion = 4
+    /// PUBLIC so the offline harness can ASSERT it did not move. A cosmetic change
+    /// — renaming a Mod option, re-lettering art — must never bump this: `load`
+    /// returns nil for any state below the current version and the caller then
+    /// re-seeds, throwing away the player's rig. Since v5 a RENAME does not need
+    /// to bump it either; `load` re-derives display names from the catalog id.
+    public static let catalogVersion = 5
 
     struct PersistedState: Codable {
         var collection: [GearItem]
@@ -667,11 +678,39 @@ public final class RigStore: ObservableObject {
 
     private static func load(from url: URL) -> PersistedState? {
         guard let data = try? Data(contentsOf: url),
-              let state = try? JSONDecoder().decode(PersistedState.self, from: data)
+              var state = try? JSONDecoder().decode(PersistedState.self, from: data)
         else { return nil }
         // Stale catalog generation → nil, which makes the caller re-seed.
         guard (state.catalogVersion ?? 1) >= catalogVersion else { return nil }
+        state.collection = state.collection.map(refreshedFromCatalog)
         return state
+    }
+
+    /// Re-derive a saved piece's DISPLAY NAME from its catalog identity.
+    ///
+    /// `GearItem.name` is a stored property: it is written into rig_state.json
+    /// with whatever the piece was called that day, and every card renders it
+    /// directly. So renaming shipped gear changed nothing on a device that
+    /// already had a rig — the catalog said one thing and the save kept showing
+    /// the other, with no error anywhere to say so.
+    ///
+    /// The `catalogVersion` comment answers this by making a rename discard the
+    /// save, but that throws away the player's collection to fix a string. Now
+    /// that a piece carries an id, the better answer is the one the id was for:
+    /// the ID IS THE IDENTITY AND THE NAME IS DERIVED FROM IT, so refresh the
+    /// name on the way in and keep the rig. A rename needs no version bump.
+    ///
+    /// Also backfills the id itself for rigs saved before ids existed, via the
+    /// retired-name table — after which that piece renames for free too.
+    private static func refreshedFromCatalog(_ item: GearItem) -> GearItem {
+        guard let id = item.catalogID ?? GearCatalog.retiredID(forName: item.name),
+              let current = GearCatalog.currentName(forID: id)
+        else { return item }
+        guard item.catalogID != id || item.name != current else { return item }
+        var out = item
+        out.catalogID = id
+        out.name = current
+        return out
     }
 
     private static func write(_ state: PersistedState, to url: URL) {
@@ -685,27 +724,44 @@ public final class RigStore: ObservableObject {
     // owned default rig from `init` without a main-actor hop — it only builds value
     // types (GearItem / RigConfiguration), touching no `@MainActor` state.
     nonisolated static func seed() -> (collection: [GearItem], rig: RigConfiguration) {
-        let guitar   = GearItem(name: "Les Paul Standard", category: .guitar)
-        let amp      = GearItem(name: "Marswell JCM800 2203", category: .amp, values: ["Gain": 0, "Bass": 2, "Mid": 5, "Treble": 5, "Presence": 8, "Master": 10])
-        let cab      = GearItem(name: "Marswell 1960A 4x12", category: .cabinet)
-        // Replaces the retired "Fender Deluxe" as the owned starter combo. Picked
+        /// Seeded gear is a COPY OF THE CATALOG ENTRY, id and all — not a fresh
+        /// `GearItem` built from a name typed out again here. Two reasons, and the
+        /// second is the one that bites: a typo would seed gear that matches no
+        /// catalog row (`applyAvailabilityRules` then deletes it on the next
+        /// launch), and an item minted without its `catalogID` is an item whose
+        /// art, voicing and knobs are back to being resolved by display name.
+        func mk(_ id: String, values: [String: Double]? = nil) -> GearItem {
+            guard let entry = allModels.first(where: { $0.catalogID == id }) else {
+                assertionFailure("seed names \(id), which is not in allModels")
+                return GearItem(name: id, category: .overdrive)
+            }
+            return GearItem(catalogID: entry.catalogID, name: entry.name,
+                            category: entry.category, values: values)
+        }
+        // The guitar is the one seeded piece with no catalog row — `allModels` is
+        // the gear you can ADD, and the rig's guitar is fixed.
+        let guitar   = GearItem(name: "Lyle Preston Standard", category: .guitar)
+        let amp      = mk("marswell-msw900-2140",
+                          values: ["Gain": 0, "Bass": 2, "Mid": 5, "Treble": 5, "Presence": 8, "Master": 10])
+        let cab      = mk("marswell-2415a-4x12")
+        // Replaces the retired "Fandor Deluxe" as the owned starter combo. Picked
         // deliberately: it is the only new combo whose name still routes to the
-        // brighter 1x12 cab IR (`ParameterMap.cabSlot` matches "ac30"), so the
+        // brighter 1x12 cab IR (`ParameterMap.cabSlot` matches "hv28"), so the
         // seeded stack → combo swap keeps audibly changing the cab as before.
-        let combo    = GearItem(name: "Volt AC30",         category: .comboAmp)
-        let wah      = GearItem(name: "DUNLAP CRY BABY",   category: .wah)
-        let comp     = GearItem(name: "MXP dyna comp",     category: .compressor)
-        let ts       = GearItem(name: "Ibonez Tube Screamer", category: .overdrive)
-        let muff     = GearItem(name: "electro-harmonium BIG MUFF π", category: .overdrive)
-        let chorus   = GearItem(name: "VOSS Chorus",       category: .modulation)
-        let phaser   = GearItem(name: "MXP phase 90",      category: .modulation)
-        let delay    = GearItem(name: "VOSS Digital Delay", category: .delay)
-        let reverb   = GearItem(name: "VOSS Reverb",       category: .reverb)
+        let combo    = mk("vane-hv28")
+        let wah      = mk("dunridge-weeping-willow")
+        let comp     = mk("krx-damper-comp")
+        let ts       = mk("iberon-valve-shrieker")
+        let mitt     = mk("electro-galvanic-big-mitt")
+        let chorus   = mk("brig-chorus")
+        let phaser   = mk("krx-swirl-72")
+        let delay    = mk("brig-digital-delay")
+        let reverb   = mk("brig-reverb")
 
         // No tuner and no looper: both are in `withheldModels`, and seeding gear
         // the library won't offer means `applyAvailabilityRules` deletes it again
         // on the very next launch.
-        let collection = [guitar, amp, cab, combo, wah, comp, ts, muff, chorus, phaser, delay, reverb]
+        let collection = [guitar, amp, cab, combo, wah, comp, ts, mitt, chorus, phaser, delay, reverb]
         let rig = RigConfiguration(
             guitarId: guitar.id,
             ampSection: .stack(ampId: amp.id, cabinetId: cab.id),
@@ -739,23 +795,23 @@ public final class RigStore: ObservableObject {
     /// which is what the assertion in `catalog` is for.
     public static let withheldModels: Set<String> = [
         "VOSS Chromatic Tuner",           // the only tuner -- empties the category
-        "Keenly Compressor",
-        "Chiron CENTAUR",
-        "analogue.man KING of TONE",
-        "Fullstone OCD",
-        "Exotiq EP booster",
-        "strymo IRIDIUM",
+        "Keswick Compressor",
+        "Chiron SATYR",
+        "analogue.smith DUKE of DRIVE",
+        "Fullbrook FIXATION",
+        "Exalt PREAMP booster",
+        "strider BERYLLIUM",
         "VOSS Equalizer",
-        "EMPRISS ParaEq",
-        "ITP DECIMATOR II",
-        "FORTIS ZUUL",
-        "electro-harmonium small stone",
-        "Fullstone Deja'Vibe",
+        "EMBLEM Parametric EQ",
+        "QUELL NULLIFIER II",
+        "FORNAX KRAAL",
+        "electro-galvanic small slate",
+        "Fullbrook Lucid'Vibe",
         "VOSS Octave",
-        "VOSS Harmonist",
-        "electro-harmonium micro POG",
-        "VOSS Loop Station",              // both loopers -- empties the category
-        "electro-harmonium FREEZE",
+        "VOSS Chorister",
+        "electro-galvanic micro STACK",
+        "VOSS Loop Depot",              // both loopers -- empties the category
+        "electro-galvanic FROST",
     ]
 
     // MARK: - Catalog (the full library to add gear from)
@@ -773,34 +829,39 @@ public final class RigStore: ObservableObject {
     /// Every model that exists, withheld ones included. `catalog` is what the app
     /// offers today; this is the definitive list and the thing to add a model to.
     public static let allModels: [GearItem] = {
-        func mk(_ name: String, _ category: GearCategory) -> GearItem {
-            GearItem(name: name, category: category)
+        /// `id` is the model's FROZEN catalog identity — the slug its artwork,
+        /// panel plate, sidecar, DSP profile, knob set and finish are all filed
+        /// under. It is written out here, not derived from `name`, precisely so
+        /// the display name can move again without any of those following it.
+        /// Change a name freely; NEVER change an id.
+        func mk(_ id: String, _ name: String, _ category: GearCategory) -> GearItem {
+            GearItem(catalogID: id, name: name, category: category)
         }
         return [
             // ---- Amps, cabinets, combos --------------------------------------
-            // Re-badged like the pedals below (Marswell/Fandor/Volt/Tangerine/
-            // Mesa Boogey/Rolund/Freedman) so nothing ships under a real
+            // Re-badged like the pedals below (Marswell/Fandor/Vane/Tangerine/
+            // Mesquite Bootleg/Rondell/Fremont) so nothing ships under a real
             // trademark, and named so `GearIconLoader.slug(name)` lands exactly
             // on the bespoke imageset — these names are load-bearing.
             //
             // Every entry here has artwork; the four art-less heads that used to
-            // sit in this list (Marshall 1936 2x12, Fender 1x12, Fender Deluxe,
-            // Vox AC15) are retired rather than left to render the procedural
+            // sit in this list (Marswell 1936 2x12, Fandor 1x12, Fandor Deluxe,
+            // Vane HV18) are retired rather than left to render the procedural
             // fallback beside thirteen illustrated neighbours.
 
             // Amp heads (art drawn ~2:1)
-            mk("Marswell JCM800 2203", .amp), mk("Marswell Plaxi Super Lead 1959", .amp),
-            mk("Freedman BE-100", .amp), mk("Mesa Boogey Dual Ractifier", .amp),
-            mk("Tangerine Rockervert 100", .amp),
+            mk("marswell-msw900-2140", "Marswell MSW900 2140", .amp), mk("marswell-clearpane-stellar-lead-1042", "Marswell Clearpane Stellar Lead 1042", .amp),
+            mk("fremont-gx-140", "Fremont GX-140", .amp), mk("mesquite-bootleg-dual-reactor", "Mesquite Bootleg Dual Reactor", .amp),
+            mk("tangerine-rumblecrest-100", "Tangerine Rumblecrest 100", .amp),
             // Cabinets (art drawn taller than wide, ~0.86:1)
-            mk("Marswell 1960A 4x12", .cabinet), mk("Mesa Boogey Oversized 4x12", .cabinet),
-            mk("Tangerine PPC412", .cabinet),
-            // Combo amps (art drawn near-square, ~1.13:1). Twin Reverb and AC30
+            mk("marswell-2415a-4x12", "Marswell 2415A 4x12", .cabinet), mk("mesquite-bootleg-oversized-4x12", "Mesquite Bootleg Oversized 4x12", .cabinet),
+            mk("tangerine-tsv412", "Tangerine TSV412", .cabinet),
+            // Combo amps (art drawn near-square, ~1.13:1). TandemReverb and HV28
             // used to be catalogued as heads; both are combos in the real world
             // and both are drawn combo-shaped, so they live here now.
-            mk("Fandor Twin Reverb", .comboAmp), mk("Volt AC30", .comboAmp),
-            mk("Marswell DSL40C", .comboAmp), mk("Rolund JC-120 Jazzy Chorus", .comboAmp),
-            mk("Fandor Bassdude '59", .comboAmp), mk("VOSS Ketana 100", .comboAmp),
+            mk("fandor-tandem-reverb", "Fandor Tandem Reverb", .comboAmp), mk("vane-hv28", "Vane HV28", .comboAmp),
+            mk("marswell-vcx45c", "Marswell VCX45C", .comboAmp), mk("rondell-rm-140-velvet-chorus", "Rondell RM-140 Velvet Chorus", .comboAmp),
+            mk("fandor-bassdude-59", "Fandor Bassdude '59", .comboAmp), mk("brig-kabuto-100", "VOSS Ketana 100", .comboAmp),
             // ---- Pedals ------------------------------------------------------
             // The 47 shipped models. Every one has a bespoke icon in
             // Assets.xcassets keyed off `GearIconLoader.slug(name)`, so these
@@ -809,44 +870,44 @@ public final class RigStore: ObservableObject {
             // that category's card, so it leads with the best-fitting model.
 
             // Tuner
-            mk("VOSS Chromatic Tuner", .tuner),
+            mk("brig-chromatic-tuner", "VOSS Chromatic Tuner", .tuner),
             // Wah / filter
-            mk("DUNLAP CRY BABY", .wah), mk("VOLT V847", .wah), mk("MORLEE BAD HORSIE", .wah),
+            mk("dunridge-weeping-willow", "DUNRIDGE WEEPING WILLOW", .wah), mk("vane-v921", "VANE V921", .wah), mk("mordant-wild-pony", "MORDANT WILD PONY", .wah),
             // Compressor
-            mk("MXP dyna comp", .compressor), mk("VOSS Compression Sustainer", .compressor),
-            mk("Keenly Compressor", .compressor),
+            mk("krx-damper-comp", "KRX damper comp", .compressor), mk("brig-compression-leveller", "VOSS Compression Leveller", .compressor),
+            mk("keswick-compressor", "Keswick Compressor", .compressor),
             // Overdrive / distortion / fuzz / boost (one category in the model)
-            mk("VOSS Distortion", .overdrive), mk("Ibonez Tube Screamer", .overdrive),
-            mk("ProCon RAT", .overdrive), mk("VOSS Metal Zone", .overdrive),
-            mk("Chiron CENTAUR", .overdrive), mk("analogue.man KING of TONE", .overdrive),
-            mk("Marswell BLUES BREAKER", .overdrive), mk("Fullstone OCD", .overdrive),
-            mk("electro-harmonium BIG MUFF π", .overdrive),
-            mk("DALLAS ARBITOR FUZZ FACE", .overdrive), mk("Z.HEX FUZZ FACTORY", .overdrive),
-            mk("Exotiq EP booster", .overdrive), mk("strymo IRIDIUM", .overdrive),
+            mk("brig-distortion", "VOSS Distortion", .overdrive), mk("iberon-valve-shrieker", "Iberon Valve Shrieker", .overdrive),
+            mk("proforge-shrew", "ProForge SHREW", .overdrive), mk("brig-metal-realm", "VOSS Metal Realm", .overdrive),
+            mk("chiron-satyr", "Chiron SATYR", .overdrive), mk("analogue-smith-duke-of-drive", "analogue.smith DUKE of DRIVE", .overdrive),
+            mk("marswell-blues-blazer", "Marswell BLUES BLAZER", .overdrive), mk("fullbrook-fixation", "Fullbrook FIXATION", .overdrive),
+            mk("electro-galvanic-big-mitt", "electro-galvanic BIG MITT Ω", .overdrive),
+            mk("dalton-armature-fuzz-dome", "DALTON ARMATURE FUZZ DOME", .overdrive), mk("z-flux-fuzz-foundry", "Z.FLUX FUZZ FOUNDRY", .overdrive),
+            mk("exalt-preamp-booster", "Exalt PREAMP booster", .overdrive), mk("strider-beryllium", "strider BERYLLIUM", .overdrive),
             // EQ
-            mk("VOSS Equalizer", .eq), mk("MXP ten band eq", .eq), mk("EMPRISS ParaEq", .eq),
+            mk("brig-equalizer", "VOSS Equalizer", .eq), mk("krx-ten-band-eq", "KRX ten band eq", .eq), mk("emblem-parametric-eq", "EMBLEM Parametric EQ", .eq),
             // Noise gate
-            mk("VOSS Noise Suppressor", .noiseGate), mk("ITP DECIMATOR II", .noiseGate),
-            mk("FORTIS ZUUL", .noiseGate),
+            mk("brig-noise-silencer", "VOSS Noise Silencer", .noiseGate), mk("quell-nullifier-ii", "QUELL NULLIFIER II", .noiseGate),
+            mk("fornax-kraal", "FORNAX KRAAL", .noiseGate),
             // Modulation (chorus / flanger / phaser / tremolo / vibe)
-            mk("VOSS Chorus", .modulation), mk("MXP phase 90", .modulation),
-            mk("MXP flanger", .modulation), mk("VOSS Tremolo", .modulation),
-            mk("electro-harmonium SMALL CLONE", .modulation),
-            mk("electro-harmonium small stone", .modulation),
-            mk("electro-harmonium electric mistress", .modulation),
-            mk("Fullstone Deja'Vibe", .modulation),
+            mk("brig-chorus", "VOSS Chorus", .modulation), mk("krx-swirl-72", "KRX swirl 72", .modulation),
+            mk("krx-flanger", "KRX flanger", .modulation), mk("brig-tremolo", "VOSS Tremolo", .modulation),
+            mk("electro-galvanic-small-mime", "electro-galvanic SMALL MIME", .modulation),
+            mk("electro-galvanic-small-slate", "electro-galvanic small slate", .modulation),
+            mk("electro-galvanic-electric-siren", "electro-galvanic electric siren", .modulation),
+            mk("fullbrook-lucid-vibe", "Fullbrook Lucid'Vibe", .modulation),
             // Pitch / octave
-            mk("VOSS Octave", .pitch), mk("VOSS Harmonist", .pitch),
-            mk("electro-harmonium micro POG", .pitch), mk("DigiTek WHAMMY", .pitch),
+            mk("brig-octave", "VOSS Octave", .pitch), mk("brig-chorister", "VOSS Chorister", .pitch),
+            mk("electro-galvanic-micro-stack", "electro-galvanic micro STACK", .pitch), mk("digivault-slingshot", "DigiVault SLINGSHOT", .pitch),
             // Delay
-            mk("VOSS Digital Delay", .delay), mk("DUNLAP ECHOPLEX", .delay),
-            mk("electro-harmonium MEMORY MAN", .delay),
+            mk("brig-digital-delay", "VOSS Digital Delay", .delay), mk("dunridge-echoreel", "DUNRIDGE ECHOREEL", .delay),
+            mk("electro-galvanic-reverie-mate", "electro-galvanic REVERIE MATE", .delay),
             // Reverb
-            mk("VOSS Reverb", .reverb), mk("electro-harmonium HOLY GRAIL", .reverb),
+            mk("brig-reverb", "VOSS Reverb", .reverb), mk("electro-galvanic-golden-fleece", "electro-galvanic GOLDEN FLEECE", .reverb),
             // Volume
-            mk("VOSS FV-500H", .volume), mk("ERNIE BELL VP JR", .volume),
+            mk("brig-lv-320h", "VOSS LV-320H", .volume), mk("errol-brass-swell-mini", "ERROL BRASS SWELL MINI", .volume),
             // Looper / sustain
-            mk("VOSS Loop Station", .looper), mk("electro-harmonium FREEZE", .looper),
+            mk("brig-loop-depot", "VOSS Loop Depot", .looper), mk("electro-galvanic-frost", "electro-galvanic FROST", .looper),
         ]
     }()
 }

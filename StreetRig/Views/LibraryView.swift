@@ -203,8 +203,8 @@ struct LibraryContentView: View {
     /// while every card one tap behind it showed the real thing.
     ///
     /// Asking the catalog rather than naming a slug here keeps this honest
-    /// through a re-badge: the models have been renamed once already (Marshall →
-    /// Marswell, Orange → Tangerine), and a hardcoded "marswell-jcm800-2203"
+    /// through a re-badge: the whole catalog has been renamed twice now, most
+    /// recently off every real mark, and a hardcoded "marswell-msw900-2140"
     /// would have rotted silently into the generic outline it replaced. The
     /// `image(for:)` check is what stops it picking a piece whose art has not
     /// been drawn yet and quietly regressing to the same diagram.
@@ -412,7 +412,7 @@ private struct LibraryTile: View {
     /// width from the art's own pixels via `GearArtFrame`, which is the same argument
     /// carried one step further: if one box cannot serve a head and a stompbox, one
     /// box per CATEGORY cannot serve `pitch`, which holds three compact pedals at
-    /// 0.69:1 and a Whammy treadle at 1.07:1. The cases below still dress the
+    /// 0.69:1 and a pitch treadle at 1.07:1. The cases below still dress the
     /// fallback drawings, which have no intrinsic aspect of their own.
     private var artSize: CGSize {
         GearArtFrame.size(for: item, base: proceduralArtSize)

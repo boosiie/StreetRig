@@ -167,19 +167,24 @@ public enum RigGraphCompiler {
         }
 
         // Amp section (head or combo). Most amps expose the shared six knobs; a
-        // Katana adds Volume, Character, Variation and Power, and a JC-120 drops
+        // Kabuto adds Volume, Character, Variation and Power, and a RM-140 drops
         // Presence — so every read needs a default that is right FOR THAT KNOB,
         // not the generic 5. A rig saved before those knobs existed simply has no
         // entry for them, and `values` is `[String: Double]`, so the defaults
         // below are the whole of the migration.
         let ampName = ampItem?.name ?? ""
+        // The amp's frozen identity. `ampProfile` picks the VOICING off this, so
+        // a re-titled amp cannot drop into `ampLegacy` — which is a real, working
+        // voicing, and therefore a failure you hear as the wrong amp rather than
+        // notice as a bug. The name is still passed for gear with no id.
+        let ampID = ampItem.flatMap { GearCatalog.id(for: $0) }
         let vals = ampItem?.values ?? [:]
         let v: (String) -> Double = { vals[$0] ?? 5 }
         /// Index-valued selectors are NOT dials: 5 would be a nonsense default.
         let idx: (String, Double) -> Double = { vals[$0] ?? $1 }
         /// ONE ROLE, SEVERAL NAMES. Panels are now per-amp and faithful to the
         /// chassis, so the same job is labelled differently from amp to amp: the
-        /// AC30 says CUT where others say Presence, and the Friedman's panel is
+        /// HV28 says CUT where others say Presence, and the Fremont's panel is
         /// screen-printed GAIN / MIDDLE / MASTER 1 in caps. The engine cares about
         /// the ROLE, so each role lists the names that fill it and takes the first
         /// one the amp actually has. Adding an amp with its own vocabulary is a
@@ -208,9 +213,9 @@ public enum RigGraphCompiler {
         plan.ampBassDB      = ParameterMap.ampBandDB("Bass",   knob: role(["Bass", "BASS"]))
         plan.ampMidDB       = ParameterMap.ampBandDB("Mid",    knob: role(["Mid", "MIDDLE"]))
         plan.ampTrebleDB    = ParameterMap.ampBandDB("Treble", knob: role(["Treble", "TREBLE"]))
-        // Presence, or CUT on the AC30 — the same destination under two names, so
+        // Presence, or CUT on the HV28 — the same destination under two names, so
         // whichever the panel actually shows is the one that is read. An amp with
-        // neither (the Katana, the Twin, the JC-120, the Rockerverb) leaves it at
+        // neither (the Kabuto, the Tandem, the RM-140, the Rumblecrest) leaves it at
         // noon, which its profile then scales by its own presenceScale — zero for
         // the amps that genuinely have no such control.
         let presenceKnob = role(["Cut", "Presence", "PRESENCE"])
@@ -222,25 +227,26 @@ public enum RigGraphCompiler {
         // still carries "Power": 0, and honouring it would leave that player stuck
         // at half a watt with no control to undo it.
         plan.ampPower       = ParameterMap.ampPowerScale(powerIndex: 2)   // 2 = 100 W
-        plan.ampProfile     = ParameterMap.ampProfile(name: ampName, values: vals)
+        plan.ampProfile     = ParameterMap.ampProfile(id: ampID, name: ampName, values: vals)
         plan.useNeural      = ParameterMap.ampUsesNeural(name: ampName)
 
         // Cabinet: for a stack the paired cab, for a combo the combo's own box.
         // A profiled amp brings its own pairing; an unprofiled one still matches
         // on the cabinet's name, exactly as before.
         let cabName = isCombo ? ampName : (cabinetItem?.name ?? "")
+        let cabID = isCombo ? ampID : cabinetItem.flatMap { GearCatalog.id(for: $0) }
         plan.cabSlot = ParameterMap.ampProfileCabSlot(plan.ampProfile)
-            ?? ParameterMap.cabSlot(name: cabName)
-        // The Katana's ACOUSTIC character has no speaker in the model at all.
+            ?? ParameterMap.cabSlot(id: cabID, name: cabName)
+        // The Kabuto's ACOUSTIC character has no speaker in the model at all.
         if ParameterMap.ampProfileBypassesCab(plan.ampProfile) { plan.cabBypass = true }
 
-        // --- The amp's own FX section (the Katana's five blocks) -----------
+        // --- The amp's own FX section (the Kabuto's five blocks) -----------
         // These are NOT a private effect inside the amp: each resolves to the
         // same PedalChain type and voicing a standalone pedal would, and each
         // lands in the span its real position dictates — Booster and Mod in
         // front of the preamp so a boost drives the character, FX/Delay/Reverb
         // in the loop so their tails go THROUGH the power amp.
-        for fx in ParameterMap.ampFXSlots(name: ampName, values: vals) {
+        for fx in ParameterMap.ampFXSlots(id: ampID, name: ampName, values: vals) {
             let slot = RigDSPPlan.PedalSlot(type: fx.type, character: fx.voicing,
                                             enabled: fx.enabled, params: fx.params)
             switch fx.span {

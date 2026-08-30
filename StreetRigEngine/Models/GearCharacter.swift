@@ -22,7 +22,7 @@
 //  and `GearArtView.spec` already use, and for the same reason: the catalog names are
 //  re-badged parodies that shift, and a name with no match falls back to its category
 //  rather than showing nothing. Specific entries are checked before generic ones, so
-//  "big muff" wins over a bare "fuzz".
+//  "big mitt" wins over a bare "fuzz".
 //
 
 import Foundation
@@ -39,84 +39,83 @@ public enum GearCharacter {
     }
 
     /// Ordered: the first match wins, so anything specific must precede anything
-    /// general. `big muff` before `fuzz`, `phase 90` before `phase`.
+    /// general. `big mitt` before `fuzz`, `swirl 72` before `phase`.
     private static let byName: [(String, String)] = [
         // ---- Amps -------------------------------------------------------------
-        ("jcm800",          "Crunch, mid-forward"),
-        ("plaxi",           "Bright, cleans up"),
-        ("be-100",          "Modern high gain"),
-        ("ractifier",       "Scooped, saturated"),
-        ("rockervert",      "Thick British gain"),
-        ("1960a",           "Tight, mid punch"),
+        ("msw900",          "Crunch, mid-forward"),
+        ("clearpane",           "Bright, cleans up"),
+        ("gx-140",          "Modern high gain"),
+        ("reactor",       "Scooped, saturated"),
+        ("rumblecrest",      "Thick British gain"),
+        ("2415a",           "Tight, mid punch"),
         ("oversized 4x12",  "Deep, scooped lows"),
-        ("ppc412",          "Warm, rounded"),
-        ("twin reverb",     "Clean headroom, spring"),
-        ("ac30",            "Chimey, top boost"),
-        ("dsl40c",          "Two channels, crunch"),
-        ("jc-120",          "Glassy clean, stereo chorus"),
+        ("tsv412",          "Warm, rounded"),
+        ("tandem reverb",     "Clean headroom, spring"),
+        ("hv28",            "Chimey, top boost"),
+        ("vcx45c",          "Two channels, crunch"),
+        ("rm-140",          "Glassy clean, stereo chorus"),
         ("bassdude",        "Loose, early breakup"),
-        ("ketana",          "Modelled, versatile"),
+        ("kabuto",          "Modelled, versatile"),
 
         // ---- Drive ------------------------------------------------------------
-        ("tube screamer",   "Warm mid hump, cleans up"),
-        ("centaur",         "Transparent boost"),
-        ("king of tone",    "Low gain, two sides"),
-        ("blues breaker",   "Soft knee, low gain"),
-        ("ocd",             "Amp-like, HP/LP switch"),
-        ("rat",             "Hard clip, filter sweep"),
-        ("metal zone",      "Scooped, extreme gain"),
-        ("big muff",        "Sustaining wall"),
-        ("fuzz face",       "Germanium, cleans up"),
-        ("fuzz factory",    "Unstable, gated splutter"),
-        ("ep booster",      "Clean lift, slight sparkle"),
-        ("iridium",         "Amp and cab in a box"),
-        ("voss distortion", "Hard, aggressive"),
+        ("valve shrieker",   "Warm mid hump, cleans up"),
+        ("satyr",         "Transparent boost"),
+        ("duke of drive",    "Low gain, two sides"),
+        ("blues blazer",   "Soft knee, low gain"),
+        ("fixation",        "Amp-like, HP/LP switch"),
+        ("shrew",           "Hard clip, filter sweep"),
+        ("metal realm",      "Scooped, extreme gain"),
+        ("big mitt",        "Sustaining wall"),
+        ("fuzz dome",       "Germanium, cleans up"),
+        ("fuzz foundry",    "Unstable, gated splutter"),
+        ("preamp booster",      "Clean lift, slight sparkle"),
+        ("beryllium",         "Amp and cab in a box"),
+        ("brig distortion", "Hard, aggressive"),
 
         // ---- Dynamics and filter ---------------------------------------------
-        ("dyna comp",       "Squashy, percussive"),
-        ("compression sustainer", "Long sustain, even"),
-        ("keenly",          "Transparent, studio-style"),
-        ("cry baby",        "Classic vocal sweep"),
-        ("v847",            "Wide, gentle sweep"),
-        ("bad horsie",      "Switchless, always on"),
+        ("damper comp",       "Squashy, percussive"),
+        ("compression leveller", "Long sustain, even"),
+        ("keswick",          "Transparent, studio-style"),
+        ("weeping willow",        "Classic vocal sweep"),
+        ("v921",            "Wide, gentle sweep"),
+        ("wild pony",      "Switchless, always on"),
 
         // ---- EQ and gate ------------------------------------------------------
         ("ten band",        "Ten bands, precise"),
-        ("paraeq",          "Parametric, surgical"),
-        ("voss equalizer",  "Six bands, ±15 dB"),
-        ("decimator",       "Tracks fast, no chop"),
-        ("zuul",            "Gate built for high gain"),
-        ("noise suppressor","Gate and cut"),
+        ("parametric eq",          "Parametric, surgical"),
+        ("brig equalizer",  "Six bands, ±15 dB"),
+        ("nullifier",       "Tracks fast, no chop"),
+        ("kraal",            "Gate built for high gain"),
+        ("noise silencer","Gate and cut"),
 
         // ---- Modulation -------------------------------------------------------
-        ("phase 90",        "One knob, swirl"),
-        ("small clone",     "Deep, watery chorus"),
-        ("small stone",     "Warm, hollow phase"),
-        ("electric mistress", "Flange with filter matrix"),
-        ("deja",            "Rotary-style throb"),
+        ("swirl 72",        "One knob, swirl"),
+        ("small mime",     "Deep, watery chorus"),
+        ("small slate",     "Warm, hollow phase"),
+        ("electric siren", "Flange with filter matrix"),
+        ("lucid",            "Rotary-style throb"),
         ("flanger",         "Jet sweep"),
         ("tremolo",         "Amplitude pulse"),
-        ("voss chorus",     "Lush, wide"),
+        ("brig chorus",     "Lush, wide"),
 
         // ---- Pitch, time, utility ---------------------------------------------
-        ("micro pog",       "Clean polyphonic octaves"),
-        ("whammy",          "Pitch bend by pedal"),
-        ("harmonist",       "Key-aware harmonies"),
+        ("micro stack",       "Clean polyphonic octaves"),
+        ("slingshot",          "Pitch bend by pedal"),
+        ("chorister",       "Key-aware harmonies"),
         ("octave",          "Sub octave, mono"),
-        ("echoplex",        "Tape warble, dark"),
-        ("memory man",      "Analog, modulated"),
+        ("echoreel",        "Tape warble, dark"),
+        ("reverie mate",      "Analog, modulated"),
         ("digital delay",   "Clean repeats, long"),
-        ("holy grail",      "Spring, hall, flerb"),
-        ("voss reverb",     "Room to hall"),
-        ("fv-500",          "Volume swells"),
-        ("vp jr",           "Smooth taper"),
-        ("loop station",    "Layer and overdub"),
-        ("freeze",          "Holds a note forever"),
+        ("golden fleece",      "Spring, hall, flerb"),
+        ("brig reverb",     "Room to hall"),
+        ("lv-320",          "Volume swells"),
+        ("swell mini",      "Smooth taper"),
+        ("loop depot",    "Layer and overdub"),
+        ("frost",           "Holds a note forever"),
         ("chromatic tuner", "Mutes while you tune"),
 
         // ---- Guitar -----------------------------------------------------------
-        ("les paul",        "Humbuckers, thick"),
-        ("strat",           "Single coils, bright")
+        ("preston",         "Humbuckers, thick")
     ]
 
     /// The fallback when a name matches nothing. Deliberately thin: a category line

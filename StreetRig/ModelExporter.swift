@@ -33,7 +33,7 @@ enum ModelExporter {
         }
         // One file per ENCLOSURE ARCHETYPE, not one representative stompbox.
         // A designer refining "the pedal" used to be handed a generic box and
-        // had to guess what the wah or the Boss compact was supposed to be; each
+        // had to guess what the wah or the Brig compact was supposed to be; each
         // family now bakes the shape it is actually replacing. Driven off
         // `allCases` so a new archetype exports itself with no edit here.
         for archetype in PedalArchetype.allCases {

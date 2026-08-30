@@ -43,7 +43,7 @@ enum PanelArtExporter {
         var skipped = 0
 
         // Every catalog piece, by name — this is what makes a plate PER COMPONENT
-        // rather than per category: the Tube Screamer and the RAT are both
+        // rather than per category: the ValveShrieker and the SHREW are both
         // overdrives and both get their own file to paint.
         var plates: [(name: String, item: GearItem)] = RigStore.catalog.compactMap { item in
             let name = PanelArt.plateName(for: item)
@@ -91,8 +91,8 @@ enum PanelArtExporter {
     }
 
     /// WHAT TO PUT IN A SIDECAR. Anchors name controls by `GearParameter.name`,
-    /// which is not always what the panel prints — the JCM800's PRE-AMP VOLUME is
-    /// `Gain`, the BE-100's MIDDLE is `Mid`. Guessing gets you a layout that is
+    /// which is not always what the panel prints — the MSW900's PRE-AMP VOLUME is
+    /// `Gain`, the GX-140's MIDDLE is `Mid`. Guessing gets you a layout that is
     /// silently ignored, so the exporter writes the real list beside the plates:
     /// every piece with knobs, its dials in panel order, and its switches.
     @MainActor

@@ -3,7 +3,7 @@
 Dedicated drop-point for designer-supplied 3D models. Drop a `<slug>.usdz` here to
 override a gear piece's procedural model — it loads automatically, no code change.
 
-- `"Marswell JCM800 2203"` → `marswell-jcm800-2203.usdz` (the amp head **and** its cab are one model)
+- `"Marswell MSW900 2140"` → `marswell-msw900-2140.usdz` (the amp head **and** its cab are one model)
 - The guitar stand is its own file: `guitar-stand.usdz` (guitar **detail view** only — the stage leans the guitar on its stool instead)
 - Shared look for a whole category: `category-<category>.usdz` (e.g. `category-overdrive.usdz`)
 

@@ -3,8 +3,8 @@
 //  StreetRig
 //
 //  The reverb family (.reverb) — a DATTORRO PLATE tank, voiced four ways. Like
-//  delay, `.reverb` used to map to `typeTransparent`, so VOSS Reverb and
-//  electro-harmonium HOLY GRAIL held their chain position and did nothing.
+//  delay, `.reverb` used to map to `typeTransparent`, so BRIG Reverb and
+//  electro-galvanic GOLDEN FLEECE held their chain position and did nothing.
 //
 //  WHY DATTORRO AND NOT SCHROEDER. The cheap classic (four parallel combs into
 //  two all-passes) costs about half as much and rings: on a sustained chord its
@@ -40,14 +40,14 @@
 //  FOUR VOICINGS, all the same tank with different pre-delay, diffusion,
 //  bandwidth, modulation and decay scaling — plus a dispersion chain the spring
 //  voicing alone runs:
-//    • PLATE  (0) — VOSS Reverb / RV-6. The reference voicing: bright, dense,
+//    • PLATE  (0) — BRIG Reverb / RV-6. The reference voicing: bright, dense,
 //                   short pre-delay. This is Dattorro's plate as published.
-//    • SPRING (1) — electro-harmonium HOLY GRAIL. Darker, less diffuse, longer
+//    • SPRING (1) — electro-galvanic GOLDEN FLEECE. Darker, less diffuse, longer
 //                   pre-delay, deeper modulation, and a cascade of first-order
 //                   all-passes in front of the tank so a transient smears
 //                   upward the way it does travelling down a spring. It is a
 //                   dispersion FLAVOUR, not a true spring model (see the notes).
-//    • ROOM   (2) — short, dry-ish, bright: the Katana's ROOM block.
+//    • ROOM   (2) — short, dry-ish, bright: the Kabuto's ROOM block.
 //    • HALL   (3) — long pre-delay, maximum diffusion, longest decay scaling.
 //
 //  DENORMALS ARE THE REAL HAZARD HERE, more than in any other block in the app.

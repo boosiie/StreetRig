@@ -241,7 +241,7 @@ struct ARPedalContentView: View {
             // genuinely baffling bug to chase.
             //
             // Every pedal with a rocker answers to this — the wahs, both volume
-            // pedals and the Whammy — because `isTreadle` asks the pedal for its
+            // pedals and the pitch treadle — because `isTreadle` asks the pedal for its
             // controls rather than naming categories. It read `category == .wah`
             // when only the wahs had art for it, which left a player standing on a
             // volume pedal watching nothing happen.

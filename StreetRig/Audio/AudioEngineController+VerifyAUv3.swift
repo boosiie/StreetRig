@@ -283,7 +283,7 @@ extension AudioEngineController {
             + 0 * UInt64(SRPedalParamStride) + UInt64(SRPedalFieldDrive))                    // 103
         let inputGainAddr = AUParameterAddress(SRParamInputGain.rawValue)                    // 0
 
-        // Apply the "British Crunch" factory preset (index 1: TS → JCM800, a DRIVE
+        // Apply the "British Crunch" factory preset (index 1: TS → MSW900, a DRIVE
         // pedal in slot 0) purely through the PUBLIC preset API a host would use.
         let applyCrunch: (AVAudioUnit) -> Void = { unit in
             if let presets = unit.auAudioUnit.factoryPresets, presets.count > 1 {
@@ -535,7 +535,7 @@ extension AudioEngineController {
                 return out
             }
 
-            // The editor's store (seed = JCM800 + TS→delay→reverb) and the bridge.
+            // The editor's store (seed = MSW900 + TS→delay→reverb) and the bridge.
             let store = RigStore(persist: false)
             let bridge = RigAUParameterBridge(store: store, dsp: dsp)
             render(10_000)                                   // settle the initial hot-swap + ramps
@@ -546,11 +546,11 @@ extension AudioEngineController {
                 check("bridge: seed rig has amp + a drive pedal", false, "amp \(store.ampItem?.name ?? "nil")")
                 throw NSError(domain: "VerifyAUv3P4", code: -3)
             }
-            // THE PEDAL'S OWN NAME FOR ITS GAIN KNOB. A Tube Screamer calls it
-            // "Overdrive", a Big Muff "Sustain", a RAT "Distortion" — and the
+            // THE PEDAL'S OWN NAME FOR ITS GAIN KNOB. A ValveShrieker calls it
+            // "Overdrive", a BigMitt "Sustain", a SHREW "Distortion" — and the
             // bridge now links whichever of those the model actually has, rather
             // than linking a knob called "Drive" that most of them do not expose
-            // (which pushed knob-zero on every edit — the pedal-side twin of the
+            // (which pushed knob-zero on every edit — the pedal-side counterpart of the
             // amp-knob guard). Resolving the name the same way the bridge does
             // keeps this test honest about what a player is really turning.
             let gainKnob = ParameterMap.pedalLinks(for: ts.category)

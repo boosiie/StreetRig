@@ -3,7 +3,7 @@
 //  StreetRig
 //
 //  Prompt 003 — THE ONE AUDITABLE TABLE that maps every on-screen rig knob to a
-//  DSP control value. The UI knobs/sliders live on the 0…10 Marshall-style scale
+//  DSP control value. The UI knobs/sliders live on the 0…10 Marswell-style scale
 //  (GearParameter.min…max, default 5 = noon); this file turns a (category, param
 //  name, 0…10 value) into the concrete DSP unit the kernel wants (gain, dB,
 //  cutoff Hz, clip character, cab slot, …) with a musically sensible, documented
@@ -103,7 +103,7 @@ public enum ParameterMap {
         case "Bass":     return SRParamAmpBass
         case "Mid":      return SRParamAmpMid
         case "Treble":   return SRParamAmpTreble
-        // CUT is the AC30's name for the same control, and the profile's negative
+        // CUT is the HV28's name for the same control, and the profile's negative
         // presenceScale is what makes it run backwards. One destination, two labels.
         case "Presence", "Cut": return SRParamAmpPresence
         default:         return nil
@@ -116,7 +116,7 @@ public enum ParameterMap {
     /// decides how hard the character drives the output valves, while Master
     /// sets the room level. Knob 0 → 0.2, 5 → 1.0, 10 → 1.8.
     /// REACHES ZERO, for the same reason `ampMaster` does and by the same curve:
-    /// the Bassman's VOL NORMAL, the Rectifier's channel VOLUMEs and the JCM800's
+    /// the Bassdude's VOL NORMAL, the Reactor's channel VOLUMEs and the MSW900's
     /// LOUDNESS II all land here, and a volume control that bottoms out at 0.2
     /// cannot silence the amp it is written on. Unity at noon and 1.8 at ten are
     /// unchanged, so no stored rig moves.
@@ -136,7 +136,7 @@ public enum ParameterMap {
 
     /// Power index → the power amp's HEADROOM SCALE on the bus. Physically the
     /// voltage swing goes as √(W/100), i.e. 0.071 at 0.5 W; we ship 0.14, which
-    /// is deliberately conservative — a real Katana at 0.5 W is heavily
+    /// is deliberately conservative — a real Kabuto at 0.5 W is heavily
     /// power-saturated but still musical, because the clipping is soft and the OT
     /// plus speaker filter the result. Sag, bass rolloff and level compensation
     /// are derived FROM this one value in C++ (see PowerAmp), so the bus carries
@@ -223,7 +223,7 @@ public enum ParameterMap {
     public static func delayToneHz(_ v: Double) -> Float { 1200.0 * powf(2.0, norm(v) * 3.0) }
 
     /// Delay "Depth" → modulation depth 0…1, scaling the voicing's own wobble
-    /// (the Memory Man's chorus section). Tape wow/flutter is NOT scaled by this
+    /// (the ReverieMate's chorus section). Tape wow/flutter is NOT scaled by this
     /// — a tape machine's speed variation is the machine, not an effect.
     public static func delayModDepth(_ v: Double) -> Float { norm(v) }
 
@@ -292,10 +292,10 @@ public enum ParameterMap {
     static let charSoft = 0, charHard = 1
     public static let charFuzz = 2   // generic clip fallbacks (0/1/2)
     // Per-model drive voicings (mirror DrivePedal::Voicing, 3+).
-    public static let voiceTubeScreamer = 3, voiceBluesbreaker = 4, voiceKlon = 5,
-               voiceKingOfTone = 6, voiceOCD = 7, voiceDS1 = 8, voiceMetalZone = 9,
-               voiceRAT = 10, voiceBigMuff = 11, voiceFuzzFace = 12,
-               voiceFuzzFactory = 13, voiceCleanBoost = 14
+    public static let voiceValveShrieker = 3, voiceBluesBlazer = 4, voiceChiron = 5,
+               voiceKingOfTone = 6, voiceFixation = 7, voiceDS1 = 8, voiceMetalRealm = 9,
+               voiceShrew = 10, voiceBigMitt = 11, voiceFuzzDome = 12,
+               voiceFuzzFoundry = 13, voiceCleanBoost = 14
     public static let modChorus = 0, modFlanger = 1, modPhaser = 2, modTremolo = 3, modUnivibe = 4
     /// Twelve all-pass stages and near-oscillating feedback — the deep sweep.
     /// Mirrors `ModulationPedal::DeepPhaser`; the two tables are hand-mirrored,
@@ -311,44 +311,52 @@ public enum ParameterMap {
     public static let reverbPlate = 0, reverbSpring = 1, reverbRoom = 2, reverbHall = 3
 
     /// Voicing chosen by model NAME (substring match, so it works for both the old
-    /// seed names and the re-badged catalog — e.g. "electro-harmonium BIG MUFF π"
-    /// still reads as a Big Muff). Each drive model gets its own circuit voicing in
+    /// seed names and the re-badged catalog — e.g. "electro-galvanic BIG MITT Ω"
+    /// still reads as a BigMitt). Each drive model gets its own circuit voicing in
     /// DrivePedal; modulation picks its algorithm.
     public static func pedalVoicing(name: String, category: GearCategory) -> Int {
-        let n = name.lowercased()
+        // A RETIRED name is matched as the name it became, so a rig restored from
+        // an AUv3 host session keeps the voicing it was saved with -- the same
+        // guarantee `ampProfile` gives amps. Resolving through the id is what lets
+        // the tokens below name only CURRENT models: matching the old names
+        // directly would mean listing the retired makers' model designations as
+        // literals, putting those marks straight back into the binary.
+        let resolved = GearCatalog.retiredID(forName: name)
+            .flatMap { GearCatalog.currentName(forID: $0) } ?? name
+        let n = resolved.lowercased()
         switch category {
         case .overdrive:
             // Specific models first, then generic keywords.
-            if n.contains("screamer") || n.contains("ts808") || n.contains("ts9") || n.contains("tube screamer") { return voiceTubeScreamer }
-            if n.contains("centaur") || n.contains("klon")     { return voiceKlon }
-            if n.contains("king")                              { return voiceKingOfTone }
-            if n.contains("ocd")                               { return voiceOCD }
-            if n.contains("blues")                             { return voiceBluesbreaker }  // Bluesbreaker / Blues Driver
-            if n.contains("metal") || n.contains("zone") || n.contains("mt-2") || n.contains("mt2") { return voiceMetalZone }
-            if n.contains("rat")                               { return voiceRAT }
-            if n.contains("ds-1") || n.contains("ds1") || n.contains("distortion") { return voiceDS1 }
-            if n.contains("muff")                              { return voiceBigMuff }
-            if n.contains("factory")                           { return voiceFuzzFactory }
-            if n.contains("fuzz") || n.contains("face")        { return voiceFuzzFace }
-            if n.contains("boost") || n.contains("booster") || n.contains("ep ") { return voiceCleanBoost }
-            return voiceTubeScreamer   // sensible default OD flavour
+            if n.contains("shrieker")                          { return voiceValveShrieker }
+            if n.contains("satyr") || n.contains("chiron")     { return voiceChiron }
+            if n.contains("duke")                              { return voiceKingOfTone }
+            if n.contains("fixation")                          { return voiceFixation }
+            if n.contains("blues")                             { return voiceBluesBlazer }  // BLUES BLAZER / blues driver
+            if n.contains("metal")                             { return voiceMetalRealm }
+            if n.contains("shrew")                             { return voiceShrew }
+            if n.contains("distortion")                        { return voiceDS1 }
+            if n.contains("mitt")                              { return voiceBigMitt }
+            if n.contains("foundry")                           { return voiceFuzzFoundry }
+            if n.contains("fuzz")                              { return voiceFuzzDome }
+            if n.contains("boost") || n.contains("booster")    { return voiceCleanBoost }
+            return voiceValveShrieker   // sensible default OD flavour
         case .modulation:
             if n.contains("trem")                       { return modTremolo }
             if n.contains("vibe") || n.contains("univ") { return modUnivibe }
-            if n.contains("flang") || n.contains("mistress") { return modFlanger }
-            if n.contains("phase") || n.contains("stone")    { return modPhaser }   // Small Stone = phaser
-            return modChorus           // chorus / clone / CE-2
+            if n.contains("flang") || n.contains("siren")     { return modFlanger }
+            if n.contains("swirl") || n.contains("slate")    { return modPhaser }   // small slate = phaser
+            return modChorus           // chorus / mime / CE-2
         case .delay:
-            // Tape first (an Echoplex is also a "delay"), then bucket brigade,
+            // Tape first (an ECHOREEL is also a "delay"), then bucket brigade,
             // then the digital default — the same specific-before-generic order
             // the drive table uses, so it survives the catalog re-badging.
-            if n.contains("echoplex") || n.contains("ep-3") || n.contains("ep3")
+            if n.contains("echoreel")
                 || n.contains("tape")                          { return delayTape }
-            if n.contains("memory") || n.contains("bbd")
+            if n.contains("reverie") || n.contains("bbd")
                 || n.contains("analog") || n.contains("analogue") { return delayBBD }
             return delayDigital        // VOSS Digital Delay / DD-8
         case .reverb:
-            if n.contains("holy") || n.contains("grail")
+            if n.contains("fleece")
                 || n.contains("spring")                        { return reverbSpring }
             if n.contains("hall")                              { return reverbHall }
             if n.contains("room")                              { return reverbRoom }
@@ -363,7 +371,7 @@ public enum ParameterMap {
     /// family's knobs; it is deliberately here so ranges can be ear-tuned in one place.
     public static func pedalParams(category: GearCategory, values: [String: Double]) -> [Float] {
         // Role extraction: read whichever knob fills each DSP role across the
-        // per-model names — so a Big Muff's "Sustain", a Klon's "Gain" and a RAT's
+        // per-model names — so a BigMitt's "Sustain", a Chiron's "Gain" and a SHREW's
         // "Distortion" all drive the gain stage. Keeps the DSP mapping working no
         // matter what a model's knobs are called (see PedalSpec in Gear.swift).
         func role(_ keys: [String], _ d: Double = 5) -> Double {
@@ -402,7 +410,7 @@ public enum ParameterMap {
         case .delay:
             // All five generic fields are used, and all five fit — no stride
             // extension needed. Aliases cover the three real panels: a DD-8's
-            // Time/Feedback/Mix, an Echoplex's Delay/Sustain/Volume and a Memory
+            // Time/Feedback/Mix, an Echoreel's Delay/Sustain/Volume and a Memory
             // Man's Delay/Feedback/Blend/Depth.
             let time  = role(["Time", "Delay"])
             let fb    = role(["Feedback", "Sustain", "Repeats", "Regen"])
@@ -414,7 +422,7 @@ public enum ParameterMap {
             let toneHz: Float = values["Tone"].map { delayToneHz($0) } ?? 0
             return [delayTimeMs(time), delayFeedback(fb), delayMix(mix), toneHz, delayModDepth(depth)]
         case .reverb:
-            // The Holy Grail has ONE knob, called "Reverb" — it maps onto Mix,
+            // The GoldenFleece has ONE knob, called "Reverb" — it maps onto Mix,
             // and Decay/Tone fall back to noon, which is what a single-knob
             // pedal's fixed voicing amounts to.
             let decay = role(["Decay", "Time", "Size"])
@@ -426,11 +434,11 @@ public enum ParameterMap {
         }
     }
 
-    // MARK: - The Katana's onboard FX section (Booster / Mod / FX / Delay / Reverb)
+    // MARK: - The Kabuto's onboard FX section (Booster / Mod / FX / Delay / Reverb)
     //
     //  THE ROUTING IS THE POINT. A modelling amp's FX blocks are not "pedals in
     //  front"; each sits at a specific place in the amp, and getting that wrong
-    //  is what most Katana emulations do:
+    //  is what most Kabuto emulations do:
     //
     //    guitar → [BOOSTER] → [MOD] → PREAMP → TONE STACK → [FX] → [DELAY]
     //             └─────── PRE ─────┘                       └──── MID ────┘ → [REVERB]
@@ -444,7 +452,7 @@ public enum ParameterMap {
     //  compress with the notes rather than floating on top of a finished,
     //  cab-filtered signal. `PedalChain`'s three spans exist for exactly this,
     //  and as a side benefit the whole app gets a real FX loop, not just the
-    //  Katana.
+    //  Kabuto.
     //
     //  EVERY BLOCK IS ORDINARY CHAIN MACHINERY. Nothing here is a private effect
     //  inside the amp: each block resolves to the same `PedalChain` type and
@@ -466,7 +474,7 @@ public enum ParameterMap {
     /// The panel definition of one block: the key its type is stored under in
     /// `GearItem.values`, the detents of its selector, its span, and the extra
     /// dials it owns. The real hardware gives each block a SINGLE panel knob
-    /// (deeper editing lives in Boss's editor app), and that is what is modelled
+    /// (deeper editing lives in Brig's editor app), and that is what is modelled
     /// — except Delay, which also gets Time, because the hardware sets delay time
     /// by tap tempo and this app has no tap-tempo surface.
     public struct AmpFXBlockSpec: Sendable {
@@ -506,7 +514,7 @@ public enum ParameterMap {
     /// on and off never rebuilds the chain.
     public static let ampFXOff = 0
 
-    public static let katanaFXBlocks: [AmpFXBlockSpec] = [
+    public static let kabutoFXBlocks: [AmpFXBlockSpec] = [
         .init(name: "Booster", options: ["Off", "Clean", "Blues", "Crunch", "Tube", "Dist", "Metal", "Fuzz"],
               dials: ["Level"], span: .pre),
         // MOD IS THE PHASE-SHIFT BLOCK, plus one thickener. Options 1–2 are the
@@ -535,11 +543,17 @@ public enum ParameterMap {
               dials: ["Level"], span: .mid),
     ]
 
-    /// Does this amp model expose an onboard FX section? Only the Katana does
+    /// Does this amp model expose an onboard FX section? Only the Kabuto does
     /// today; the mechanism is general, so a second modelling amp is a table
     /// entry, not new machinery.
+    public static func ampHasFXSection(id: String?, name: String) -> Bool {
+        if let id { return id == kabutoID }
+        return ampHasFXSection(name: name)
+    }
+
     public static func ampHasFXSection(name: String) -> Bool {
-        name.lowercased().contains("katana") || name.lowercased().contains("ketana")
+        if let id = GearCatalog.retiredID(forName: name) { return id == kabutoID }
+        return name.lowercased().contains("ketana")
     }
 
     /// Resolve an amp's FX panel into chain slots. Blocks whose type is `Off`
@@ -552,10 +566,10 @@ public enum ParameterMap {
     /// drives is chosen per block to match what the hardware's knob does: on the
     /// Booster it is the amount of drive, on Mod the depth, on Delay the echo
     /// level and on Reverb the reverb level.
-    public static func ampFXSlots(name: String, values: [String: Double]) -> [AmpFXSlot] {
-        guard ampHasFXSection(name: name) else { return [] }
+    public static func ampFXSlots(id: String? = nil, name: String, values: [String: Double]) -> [AmpFXSlot] {
+        guard ampHasFXSection(id: id, name: name) else { return [] }
         var out: [AmpFXSlot] = []
-        for block in katanaFXBlocks {
+        for block in kabutoFXBlocks {
             let typeIndex = Int((values[block.name] ?? Double(ampFXOff)).rounded())
             guard typeIndex > ampFXOff, typeIndex < block.options.count else { continue }
             let on = (values["\(block.name) On"] ?? 1) >= 0.5
@@ -568,8 +582,8 @@ public enum ParameterMap {
             switch block.name {
             case "Booster":
                 type = typeDrive
-                voicing = [0, voiceCleanBoost, voiceBluesbreaker, voiceTubeScreamer,
-                           voiceOCD, voiceDS1, voiceMetalZone, voiceFuzzFace][typeIndex]
+                voicing = [0, voiceCleanBoost, voiceBluesBlazer, voiceValveShrieker,
+                           voiceFixation, voiceDS1, voiceMetalRealm, voiceFuzzDome][typeIndex]
                 // The panel knob is the boost AMOUNT; tone and output level sit
                 // where a pedal set for "in front of a modelling amp" would.
                 params = [pedalDrive(level), pedalToneHz(6), pedalLevel(6)]
@@ -622,21 +636,21 @@ public enum ParameterMap {
     //  already are. Ids are APPEND-ONLY: they ride in `RigDSPPlan.signature`, and
     //  an amp name resolves to one every time a rig is compiled.
     public static let ampLegacy = 0
-    public static let ampJCM800 = 1, ampTwinReverb = 2, ampAC30 = 3,
-                      ampJC120  = 4, ampBassman59  = 5
-    public static let ampPlexi1959 = 6, ampBE100 = 7, ampDualRect = 8,
-                      ampRockerverb = 9
-    /// 10…19 are the Katana (see `ampKatanaBase`), so the DSL40C — added after
+    public static let ampMSW900 = 1, ampTandemReverb = 2, ampHV28 = 3,
+                      ampRM140  = 4, ampBassdude59  = 5
+    public static let ampClearpane1042 = 6, ampGX140 = 7, ampDualReactor = 8,
+                      ampRumblecrest = 9
+    /// 10…19 are the Kabuto (see `ampKabutoBase`), so the VCX45C — added after
     /// that block was reserved — takes 20. Ids are append-only; 21+ is open.
-    public static let ampDSL40C = 20
-    /// Katana ids are `ampKatanaBase + character*2 + variation`, so the five
+    public static let ampVCX45C = 20
+    /// Kabuto ids are `ampKabutoBase + character*2 + variation`, so the five
     /// characters and the A/B switch collapse into ONE structural field. Turning
     /// the Character selector changes the profile id, which changes the topology
     /// signature, which triggers the rebuild — three controls, one field, no way
     /// for them to drift apart.
-    public static let ampKatanaBase = 10
-    public static let ampKatanaCharacterCount = 5
-    public static let ampKatanaCharacters = ["Acoustic", "Clean", "Crunch", "Lead", "Brown"]
+    public static let ampKabutoBase = 10
+    public static let ampKabutoCharacterCount = 5
+    public static let ampKabutoCharacters = ["Acoustic", "Clean", "Crunch", "Lead", "Brown"]
     public static let ampVariationLabels = ["A", "B"]
 
     /// Which voicing profile an amp MODEL uses. Substring match on the lowercased
@@ -645,42 +659,111 @@ public enum ParameterMap {
     /// works for both the seed names and the shipped ones.
     ///
     /// Anything unrecognized resolves to `ampLegacy`, which reproduces the
-    /// pre-profile voicing bit-for-bit. That is the back-compat guarantee: every
-    /// already-owned rig, every factory preset (which references pre-rename names
-    /// like "Marshall JCM800" and "Fender Deluxe") and every saved host session
-    /// keeps sounding exactly as it did.
+    /// pre-profile voicing bit-for-bit. That is the back-compat guarantee for a
+    /// name this build has never heard of. Rigs carrying a name from an EARLIER
+    /// catalog generation do not rely on it: they resolve through
+    /// `GearCatalog.id(for:)`, whose legacy table maps every retired name onto the
+    /// catalog id it became, so a saved host session keeps its exact voicing
+    /// without the retired names surviving as literal strings in this matcher.
+    /// THE PROFILE TABLE — catalog id → voicing. Every shipped amp resolves here,
+    /// by identity, so a display-name edit can no longer drop one into `ampLegacy`
+    /// (which is a real, working voicing, which is exactly why that failure was
+    /// inaudible as a bug and audible as the wrong amp).
+    ///
+    /// The Kabuto is absent on purpose: it is not one profile but ten, chosen by
+    /// its Character and Variation knobs, so it is computed below.
+    static let profileByID: [String: Int] = [
+        "marswell-msw900-2140":                 ampMSW900,
+        "marswell-vcx45c":                      ampVCX45C,
+        "marswell-clearpane-stellar-lead-1042": ampClearpane1042,
+        "fremont-gx-140":                       ampGX140,
+        "mesquite-bootleg-dual-reactor":        ampDualReactor,
+        "tangerine-rumblecrest-100":            ampRumblecrest,
+        "fandor-tandem-reverb":                 ampTandemReverb,
+        "vane-hv28":                            ampHV28,
+        "rondell-rm-140-velvet-chorus":         ampRM140,
+        "fandor-bassdude-59":                   ampBassdude59,
+    ]
+
+    /// The one id whose profile is a family rather than a row.
+    static let kabutoID = "brig-kabuto-100"
+
+    /// Identity-first: the catalog id decides, and the name matcher below is only
+    /// reached by gear that has no id — something the player named, or a rig
+    /// restored from a session so old it predates ids and whose name is not even
+    /// in `GearCatalog.retiredNames`.
+    public static func ampProfile(id: String?, name: String, values: [String: Double]) -> Int {
+        if let id {
+            if id == kabutoID { return kabutoProfile(values: values) }
+            if let p = profileByID[id] { return p }
+        }
+        return ampProfile(name: name, values: values)
+    }
+
+    private static func kabutoProfile(values: [String: Double]) -> Int {
+        let character = Int((values["Character"] ?? 2).rounded())
+        let variation = Int((values["Variation"] ?? 0).rounded())
+        return ampKabutoBase
+             + min(max(character, 0), ampKabutoCharacterCount - 1) * 2
+             + min(max(variation, 0), 1)
+    }
+
     public static func ampProfile(name: String, values: [String: Double]) -> Int {
+        // A name with a catalog identity behind it resolves by identity first.
+        if let id = GearCatalog.retiredID(forName: name) {
+            if id == kabutoID { return kabutoProfile(values: values) }
+            if let p = profileByID[id] { return p }
+        }
         let n = name.lowercased()
-        if n.contains("katana") || n.contains("ketana") {
+        if n.contains("ketana") {
             let character = Int((values["Character"] ?? 2).rounded())
             let variation = Int((values["Variation"] ?? 0).rounded())
-            return ampKatanaBase
-                 + min(max(character, 0), ampKatanaCharacterCount - 1) * 2
+            return ampKabutoBase
+                 + min(max(character, 0), ampKabutoCharacterCount - 1) * 2
                  + min(max(variation, 0), 1)
         }
-        if n.contains("jcm800") || n.contains("2203")   { return ampJCM800 }
-        // The DSL is checked BEFORE the generic Marshall-family keywords below so
-        // a future "Marswell DSL … Plexi-voiced" style name cannot fall through to
-        // the Plexi row. Specific model, then family — the same rule as the pedals.
-        if n.contains("dsl")                            { return ampDSL40C }
-        if n.contains("plexi") || n.contains("plaxi") || n.contains("super lead") { return ampPlexi1959 }
-        if n.contains("be-100") || n.contains("be100")  { return ampBE100 }
-        if n.contains("rectifier") || n.contains("ractifier") || n.contains("recto") { return ampDualRect }
-        if n.contains("rockerver")                     { return ampRockerverb }
-        if n.contains("twin")                           { return ampTwinReverb }
-        if n.contains("ac30")                           { return ampAC30 }
-        if n.contains("jc-120") || n.contains("jc120")
-            || n.contains("jazz chorus")                { return ampJC120 }
-        if n.contains("bassman") || n.contains("bassdude")                        { return ampBassman59 }
+        if n.contains("msw900") || n.contains("2140")   { return ampMSW900 }
+        // The VCX is checked BEFORE the generic Marswell-family keywords below so
+        // a future "Marswell VCX … Clearpane-voiced" style name cannot fall through
+        // to the Clearpane row. Specific model, then family — the pedals' rule.
+        if n.contains("vcx")                            { return ampVCX45C }
+        if n.contains("clearpane") || n.contains("stellar lead") { return ampClearpane1042 }
+        if n.contains("gx-140") || n.contains("gx140")  { return ampGX140 }
+        if n.contains("reactor")                        { return ampDualReactor }
+        if n.contains("rumblecrest")                    { return ampRumblecrest }
+        if n.contains("tandem")                         { return ampTandemReverb }
+        if n.contains("hv28")                           { return ampHV28 }
+        if n.contains("rm-140") || n.contains("rm140")
+            || n.contains("velvet chorus")              { return ampRM140 }
+        if n.contains("bassdude")                       { return ampBassdude59 }
         return ampLegacy
     }
 
     /// Cab IR slot for a cabinet/combo model. Only two IRs are bundled today —
     /// slot 0 = V30 4x12 (dark/big), slot 1 = greenback 1x12 (brighter/smaller).
     /// 4x12/2x12 → slot 0; 1x12 and combos → slot 1. Default slot 0.
+    static let cabSlotByID: [String: Int] = [
+        "marswell-2415a-4x12":              0,
+        "mesquite-bootleg-oversized-4x12":  0,
+        "tangerine-tsv412":                 0,
+        "vane-hv28":                        1,   // the seeded starter combo — its
+    ]                                            // brighter 1x12 IR is the point
+
+    /// `cabSlot` is internal (only the compiler routes a cab); the integrity
+    /// check in the app target needs to assert on it, so it gets one public door.
+    public static func cabSlotForCheck(id: String?, name: String) -> Int {
+        cabSlot(id: id, name: name)
+    }
+
+    static func cabSlot(id: String?, name: String) -> Int {
+        if let id, let s = cabSlotByID[id] { return s }
+        return cabSlot(name: name)
+    }
+
     static func cabSlot(name: String) -> Int {
+        if let id = GearCatalog.retiredID(forName: name), let s = cabSlotByID[id] { return s }
         let n = name.lowercased()
-        if n.contains("1x12") || n.contains("deluxe") || n.contains("ac15") || n.contains("ac30") {
+        if n.contains("1x12") || n.contains("deluxe") || n.contains("hv18") || n.contains("hv28") {
             return 1
         }
         return 0
@@ -696,18 +779,18 @@ public enum ParameterMap {
     /// the other IRs arrive.
     static func ampProfileCabSlot(_ profile: Int) -> Int? {
         switch profile {
-        case ampJCM800, ampBassman59: return 0        // 4×12 V30 · 4×10 tweed
-        case ampTwinReverb, ampAC30, ampJC120: return 1   // 2×12 Jensen · alnico · JC
+        case ampMSW900, ampBassdude59: return 0        // 4×12 V30 · 4×10 tweed
+        case ampTandemReverb, ampHV28, ampRM140: return 1   // 2×12 Jensen · alnico · JC
         case ampLegacy: return nil
-        default: return 1                              // every Katana voicing: 1×12
+        default: return 1                              // every Kabuto voicing: 1×12
         }
     }
 
-    /// True when the profile models an amp with NO speaker — the Katana's
+    /// True when the profile models an amp with NO speaker — the Kabuto's
     /// ACOUSTIC character, which is a DI preamp, not a guitar amp. Mirrors
     /// `AmpProfile::bypassCab`.
     public static func ampProfileBypassesCab(_ profile: Int) -> Bool {
-        profile == ampKatanaBase || profile == ampKatanaBase + 1
+        profile == ampKabutoBase || profile == ampKabutoBase + 1
     }
 
     /// Whether to prefer the neural capture for an amp.
@@ -842,7 +925,7 @@ public enum ParameterMap {
     // MARK: - Automatable pedal knobs (host → UI, per family)
 
     /// One automatable pedal knob: which DSP ROLE it fills (matched against the
-    /// model's own knob names by alias, so a Big Muff's "Sustain" and a Klon's
+    /// model's own knob names by alias, so a BigMitt's "Sustain" and a Chiron's
     /// "Gain" both find the gain stage), which generic slot field it drives, and
     /// the forward/inverse pair.
     ///

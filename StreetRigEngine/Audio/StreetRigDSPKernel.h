@@ -57,7 +57,7 @@ typedef enum : uint64_t {
     // --- Per-amp voicing: two new addresses, and only two. Everything else the
     //     profile system needs is STRUCTURAL and goes through a setup call below,
     //     exactly as pedal Type / Character already do.
-    /// Channel volume INTO the power amp (unity = 1.0). The Katana's "Volume":
+    /// Channel volume INTO the power amp (unity = 1.0). The Kabuto's "Volume":
     /// how hard the character drives the output stage, as distinct from Master
     /// (SRParamAmpMakeup), which is the room level.
     SRParamAmpVolume    = 12,
@@ -200,14 +200,14 @@ uint64_t SRKernelPedalArenaBytes(SRKernelRef kernel);
 /// The profile is NOT a parameter address, deliberately: it redesigns filters,
 /// which means trigonometry, which must never happen on or near the audio
 /// thread. It is a setup call mirroring `SRKernelConfigurePedal`, for exactly the
-/// reason pedal Type and Character are. The Katana's Character and Variation
+/// reason pedal Type and Character are. The Kabuto's Character and Variation
 /// selectors need no separate plumbing — they are already baked into the profile
 /// id by the Swift-side name/value resolver, so one field carries three controls
 /// and they cannot drift apart. Setup thread only (call inside the barrier).
 void SRKernelConfigureAmp(SRKernelRef kernel, int profile);
 int  SRKernelActiveAmpProfile(SRKernelRef kernel);
 
-/// True when the active profile models an amp with no speaker (the Katana's
+/// True when the active profile models an amp with no speaker (the Kabuto's
 /// ACOUSTIC character), so the caller can bypass the cab. Setup/main thread.
 bool SRKernelAmpProfileBypassesCab(SRKernelRef kernel);
 
