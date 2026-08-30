@@ -523,6 +523,7 @@ private extension CGRect {
     return MainView()
         .environmentObject(RigStore.preview)
         .environmentObject(ProfileStore.preview)
+        .environmentObject(UserPresetStore.preview)
         .environmentObject(RigDragController())
         .environmentObject(ARSlotLift())
         .environmentObject(coordinator)

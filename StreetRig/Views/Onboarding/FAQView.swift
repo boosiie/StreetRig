@@ -187,7 +187,7 @@ enum FAQ {
                 + "so something comes off to make room. You never have to place the "
                 + "gate in order: the board sorts itself into signal-chain order, and a "
                 + "gate lands after the drive, which is where it belongs. Or skip all "
-                + "of this: the TONES square on the rig page loads whole rigs, and every "
+                + "of this: the PRESETS square on the rig page loads whole rigs, and every "
                 + "high-gain one brings a gate already set."
         ),
         FAQEntry(
