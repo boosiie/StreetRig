@@ -2,9 +2,10 @@
 //  SetupGuideIllustrations.swift
 //  StreetRig
 //
-//  THE MOVING HALF OF THE SETUP GUIDE. Four drawings, each one animated because
+//  THE MOVING HALF OF THE SETUP GUIDE. Five drawings, each one animated because
 //  the thing it is teaching is a thing that HAPPENS: a plug seating, a signal
-//  arriving late, sound leaving a speaker, a meter answering a string.
+//  arriving late, sound leaving a speaker, a meter answering a string, a gate
+//  shutting the gap between two notes.
 //
 //  WHY DRAWN AND NOT PHOTOGRAPHED. The subject is hardware sitting outside the
 //  phone, and the honest options were a photo of an iRig, an SF Symbol, or this.
@@ -552,7 +553,7 @@ struct OutputChoicesIllustration: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 9)
-        .rigRaised(cornerRadius: 9,
+        .rigRaised(cornerRadius: RigTheme.Radius.tight,
                    stroke: lit ? RigTheme.amber.opacity(0.85) : RigTheme.surfaceEdge,
                    lineWidth: lit ? 1.5 : 1)
         .animation(.easeInOut(duration: 0.25), value: lit)
@@ -717,7 +718,7 @@ struct LevelsIllustration: View {
         }
         .background(RigTheme.background)
         .overlay(alignment: .top) { Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1) }
-        .rigCard(cornerRadius: 12)
+        .rigCard(cornerRadius: RigTheme.Radius.control)
     }
 
     /// Full-height inside the strip, but the STRIP is only as tall as its rows —
@@ -766,12 +767,257 @@ struct LevelsIllustration: View {
     }
 }
 
+// MARK: - 5. Noise and the gate
+
+/// THE SAME TWO NOTES, TWICE: once as the amp makes them, once with a gate on
+/// the board. The top lane has hiss in every gap and a dashed line across it;
+/// the bottom lane is the same signal with everything under that line taken to
+/// nothing, drawn in as a sweep passes over it.
+///
+/// WHY TWO LANES AND NOT ONE THAT CHANGES. A single lane that cleans itself up
+/// shows the result but not the claim — the claim is that the NOTES ARE
+/// UNTOUCHED, and you can only see that by having both versions on screen at
+/// once with the note peaks lining up. It is also the only honest way to draw a
+/// gate: the interesting thing a gate does is nothing at all, most of the time.
+///
+/// THE SHAPE OF THE DECAY IS THE POINT, and it is real: the envelope falls
+/// exponentially, crosses the threshold partway down, and the gate then takes a
+/// moment to close rather than snapping. That moment is `Decay` on the pedal,
+/// and it is why the bottom lane's notes still ring after the line is crossed.
+struct GateIllustration: View {
+    let reduceMotion: Bool
+
+    private struct Frame {
+        /// How far across the gated lane the sweep has drawn, 0…1.
+        var reveal: CGFloat = 0
+        /// Opacity of the gated lane, so the loop restarts on a fade rather than
+        /// a cut — see the keyframes.
+        var fade: CGFloat = 0
+    }
+
+    // The signal, as numbers. Deliberately a decaying exponential with a floor
+    // under it rather than a hand-drawn squiggle: every relationship in the
+    // drawing — where the line sits, how long the gate stays open, where the
+    // note disappears into the hiss — falls out of these four constants, so the
+    // picture cannot drift away from the thing it is describing.
+    private static let barCount = 44
+    private static let strikes: [CGFloat] = [0.07, 0.53]
+    private static let decay: CGFloat = 0.115
+    /// Where the dashed line sits, as a fraction of full scale. Above the hiss,
+    /// well under a struck note — which is the whole instruction for setting a
+    /// real one.
+    private static let threshold: CGFloat = 0.24
+    /// How long the gate takes to shut once the envelope drops under the line.
+    private static let release: CGFloat = 0.055
+
+    var body: some View {
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                if reduceMotion {
+                    // The end state, with the information the sweep carried
+                    // written out instead: both lanes complete, side by side.
+                    lanes(geo.size, frame: Frame(reveal: 1, fade: 1))
+                } else {
+                    animated(geo.size)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func animated(_ size: CGSize) -> some View {
+        KeyframeAnimator(initialValue: Frame(), repeating: true) { frame in
+            lanes(size, frame: frame)
+        } keyframes: { _ in
+            KeyframeTrack(\.reveal) {
+                LinearKeyframe(0, duration: 0.25)
+                LinearKeyframe(1, duration: 2.2)
+                LinearKeyframe(1, duration: 1.05)
+            }
+            // Up before the sweep, down after the hold, so the loop closes on a
+            // fade. `initialValue` is 0 and the last keyframe is 0, which is
+            // what stops the restart being a pop.
+            KeyframeTrack(\.fade) {
+                LinearKeyframe(1, duration: 0.25)
+                LinearKeyframe(1, duration: 2.2)
+                LinearKeyframe(1, duration: 0.7)
+                LinearKeyframe(0, duration: 0.35)
+            }
+        }
+    }
+
+    private func lanes(_ size: CGSize, frame: Frame) -> some View {
+        // Fractions of the pane, never points — the guide runs from a 430pt-wide
+        // phone pane to more than double that on an iPad.
+        let laneHeight = min(58, max(30, size.height * 0.26))
+
+        return VStack(alignment: .leading, spacing: 14) {
+            lane(title: "NO GATE",
+                 titleColour: RigTheme.clip,
+                 caption: "hiss in every gap",
+                 height: laneHeight) {
+                ZStack {
+                    bars(height: laneHeight, gated: false, reveal: 1)
+                    thresholdRule(laneHeight)
+                }
+            }
+
+            lane(title: "GATE ON",
+                 titleColour: RigTheme.signal,
+                 caption: "same notes, quiet between them",
+                 height: laneHeight) {
+                bars(height: laneHeight, gated: true, reveal: frame.reveal)
+                    .overlay(alignment: .leading) {
+                        // The sweep's leading edge. A halo rather than a hairline
+                        // for the same reason `SignalDot` has one: a 1pt line on
+                        // this ground is a scratch.
+                        Rectangle()
+                            .fill(RigTheme.amber)
+                            .frame(width: 1.5)
+                            .frame(maxHeight: .infinity)
+                            .shadow(color: RigTheme.amber.opacity(0.85), radius: 5)
+                            .offset(x: size.width * frame.reveal)
+                            .opacity(frame.reveal > 0.01 && frame.reveal < 0.99 ? 1 : 0)
+                    }
+                    .opacity(frame.fade)
+            }
+        }
+        .frame(width: size.width)
+    }
+
+    private func lane<Content: View>(title: String,
+                                     titleColour: Color,
+                                     caption: String,
+                                     height: CGFloat,
+                                     @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 7) {
+                PartLabel(text: title, colour: titleColour)
+                Text(caption)
+                    .font(.system(size: 8.5))
+                    .foregroundStyle(RigTheme.textMuted.opacity(0.8))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Spacer(minLength: 0)
+            }
+            ZStack {
+                // The zero line, so a silent stretch reads as silence rather than
+                // as a lane that failed to draw.
+                Rectangle()
+                    .fill(RigTheme.hairline.opacity(0.7))
+                    .frame(height: 1)
+                content()
+            }
+            .frame(height: height)
+        }
+    }
+
+    /// The dashed line the gate is judging against, with its label on the header
+    /// row rather than beside it — a caption floating over the waveform lands on
+    /// top of a bar at some pane width or other.
+    private func thresholdRule(_ height: CGFloat) -> some View {
+        DashRule()
+            .stroke(RigTheme.trim.opacity(0.85),
+                    style: StrokeStyle(lineWidth: 1, dash: [3.5, 3.5]))
+            .frame(height: 1)
+            .offset(y: -height * Self.threshold / 2)
+            .overlay(alignment: .topTrailing) {
+                Text("THRESHOLD")
+                    .font(.system(size: 7, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundStyle(RigTheme.trim)
+                    .offset(y: -height * Self.threshold / 2 - 9)
+            }
+    }
+
+    private func bars(height: CGFloat, gated: Bool, reveal: CGFloat) -> some View {
+        HStack(spacing: 2) {
+            ForEach(0..<Self.barCount, id: \.self) { index in
+                let t = Self.time(of: index)
+                let amplitude = Self.amplitude(index, gated: gated)
+                let drawn = (!gated || t <= reveal) ? amplitude : 0
+                Capsule()
+                    .fill(Self.colour(at: t, gated: gated))
+                    .frame(height: height * drawn)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .frame(height: height)
+    }
+
+    // MARK: The signal
+
+    private static func time(of index: Int) -> CGFloat {
+        (CGFloat(index) + 0.5) / CGFloat(barCount)
+    }
+
+    /// A cheap deterministic 0…1 per bar. Deterministic on purpose: the drawing
+    /// must be the same every loop, or the eye reads the difference between the
+    /// two lanes as noise rather than as the gate.
+    private static func jitter(_ index: Int) -> CGFloat {
+        let x = sin(Double(index) * 12.9898) * 43758.5453
+        return CGFloat(x - x.rounded(.down))
+    }
+
+    /// The note envelope: instant attack, exponential decay, two strikes.
+    private static func noteEnvelope(_ t: CGFloat) -> CGFloat {
+        var envelope: CGFloat = 0
+        for strike in strikes where t >= strike {
+            envelope = max(envelope, exp(-(t - strike) / decay))
+        }
+        return envelope
+    }
+
+    /// The gate's gain: fully open above the line, then closing over `release`
+    /// once the envelope has fallen through it. Opening is not drawn as a ramp
+    /// because it is not one — a real gate opens in about a millisecond.
+    private static func gateGain(_ t: CGFloat) -> CGFloat {
+        guard noteEnvelope(t) < threshold else { return 1 }
+        var sinceClose = CGFloat.infinity
+        for strike in strikes {
+            let crossing = strike + decay * log(1 / threshold)
+            if t >= crossing { sinceClose = min(sinceClose, t - crossing) }
+        }
+        guard sinceClose.isFinite else { return 0 }     // before the first note
+        return max(0, 1 - sinceClose / release)
+    }
+
+    private static func amplitude(_ index: Int, gated: Bool) -> CGFloat {
+        let t = time(of: index)
+        let wobble = jitter(index)
+        let hiss = 0.10 + 0.09 * wobble
+        let raw = max(hiss, noteEnvelope(t) * (0.72 + 0.28 * wobble))
+        return gated ? raw * gateGain(t) : raw
+    }
+
+    /// Red is reserved for the part of the top lane that is NOT the guitar. It
+    /// is the only thing on the page the gate removes, so it is the only thing
+    /// coloured like a problem.
+    private static func colour(at t: CGFloat, gated: Bool) -> Color {
+        if gated { return RigTheme.amber }
+        return noteEnvelope(t) >= threshold ? RigTheme.amber.opacity(0.62) : RigTheme.clip
+    }
+
+    /// A horizontal rule through the middle of its frame, so it can be dashed.
+    private struct DashRule: Shape {
+        func path(in rect: CGRect) -> Path {
+            var path = Path()
+            path.move(to: CGPoint(x: 0, y: rect.midY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+            return path
+        }
+    }
+}
+
 #Preview("Setup guide illustrations") {
     VStack(spacing: 10) {
         PlugInIllustration(reduceMotion: false).frame(height: 130)
         WirelessDelayIllustration(reduceMotion: false).frame(height: 130)
         OutputChoicesIllustration(reduceMotion: false).frame(height: 150)
         LevelsIllustration(reduceMotion: false).frame(height: 110)
+        GateIllustration(reduceMotion: false).frame(height: 150)
     }
     .padding(18)
     .frame(width: 520)

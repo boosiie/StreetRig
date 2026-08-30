@@ -118,7 +118,7 @@ struct RigStageView: View {
         // `CoachMarkResolution`.
         .coachMarkTarget(.rigStage)
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: RigTheme.Radius.control, style: .continuous)
                 .strokeBorder(RigTheme.amber, lineWidth: 2)
                 .padding(6)
                 .opacity(isTargeted ? 0.9 : 0)
@@ -150,8 +150,7 @@ struct RigStageView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 11, weight: .semibold))
             Text("NO AMP IN YOUR RIG")
-                .font(.system(size: 11, weight: .bold))
-                .tracking(0.8)
+                .rigLegend(11, weight: .bold)
             Text("· add one from the Gear Library")
                 .font(.system(size: 11))
                 .foregroundStyle(RigTheme.textPrimary.opacity(0.9))
@@ -268,11 +267,11 @@ struct RigStageView: View {
         .padding(.top, 10)
         .padding(.bottom, 12)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: RigTheme.Radius.control, style: .continuous)
                 .fill(LinearGradient(colors: [Color(white: 0.24), Color(white: 0.13)],
                                      startPoint: .top, endPoint: .bottom))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: RigTheme.Radius.control, style: .continuous)
                         .strokeBorder(RigTheme.trim.opacity(0.30), lineWidth: 1.5)
                 )
                 .shadow(color: .black.opacity(0.5), radius: 8, y: 4)

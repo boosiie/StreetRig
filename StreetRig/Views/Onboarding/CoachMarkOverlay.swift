@@ -374,7 +374,7 @@ struct CoachMarkOverlay: View {
             RoundedRectangle(cornerRadius: 13, style: .continuous)
                 .fill(RigTheme.background.opacity(overlapping ? 0.97 : 0.75))
         }
-        .rigCard(cornerRadius: 13, stroke: RigTheme.amber.opacity(0.35), lifted: overlapping)
+        .rigCard(cornerRadius: RigTheme.Radius.control, stroke: RigTheme.amber.opacity(0.35), lifted: overlapping)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Step \(coordinator.stepIndex + 1) of \(coordinator.steps.count), \(step.title). Showing \(step.target.accessibleName).")
     }

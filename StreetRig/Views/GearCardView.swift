@@ -76,12 +76,13 @@ struct GearCardView: View {
                 .multilineTextAlignment(.center)
                 .minimumScaleFactor(0.8)
                 .frame(height: 28)
+
         }
         .padding(10)
         .frame(maxWidth: .infinity)
         // `.rigCard` before the affordance overlays so the grip dots, hold ring and
         // hint draw ON the card rather than under its edge and shadow.
-        .rigCard(cornerRadius: 14)
+        .rigCard(cornerRadius: RigTheme.Radius.control, stroke: RigTheme.surfaceEdge)
         // Gear already in the rig sits in shadow, matching how the library shades
         // what you already own: darkened means "already accounted for", so the
         // cards that stay bright are the ones still available to place. The rail
@@ -95,7 +96,7 @@ struct GearCardView: View {
         // exactly backwards. Hit testing off; the refusal lives in the gesture.
         .overlay {
             if inRig {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: RigTheme.Radius.control, style: .continuous)
                     .fill(RigTheme.background.opacity(0.58))
                     .allowsHitTesting(false)
             }
@@ -109,7 +110,7 @@ struct GearCardView: View {
         .opacity(isLifted ? 0.35 : 1)
         .scaleEffect(cardScale)   // animates with `charge`; no separate curve
         .offset(y: demoOffset)
-        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: RigTheme.Radius.control, style: .continuous))
         // Someone who taps instead of holding gets told what to do instead —
         // and nobody who already knows ever sees it.
         .onTapGesture { showHint() }
@@ -181,7 +182,7 @@ struct GearCardView: View {
     /// Fills over the hold, so an aborted press shows a half-drawn ring — which
     /// teaches "too early" rather than "nothing happened".
     private var holdRing: some View {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
+        RoundedRectangle(cornerRadius: RigTheme.Radius.control, style: .continuous)
             .trim(from: 0, to: charge)
             .stroke(RigTheme.amber, style: StrokeStyle(lineWidth: 2, lineCap: .round))
             .opacity(isHeld || isLifted ? 0 : 1)
@@ -195,8 +196,7 @@ struct GearCardView: View {
             // A locked card's tap answers "why won't this move?" instead of
             // teaching the hold. Without it the refusal just reads as a dead card.
             Text(inRig ? "IN YOUR RIG" : "HOLD TO PICK UP")
-                .font(.system(size: 8, weight: .bold))
-                .tracking(0.4)
+                .rigLegend(8, weight: .bold)
                 .foregroundStyle(RigTheme.background)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)

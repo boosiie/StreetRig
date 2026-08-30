@@ -29,6 +29,10 @@ struct ComponentDetailView: View {
     /// used, the notification is the whole point.
     @ObservedObject private var plateRevision = PanelArtRevision.shared
 
+    /// The natural height of the levels list, measured so the dock can cap itself to
+    /// its own content rather than filling whatever the sheet has spare.
+    @State private var dialsHeight: CGFloat = 0
+
     /// The switch the player just flicked, named over the panel for a moment.
     /// A toggle on a faceplate carries no caption at arm's length, so touching
     /// one has to say what it is and which way it now points.
@@ -192,7 +196,7 @@ struct ComponentDetailView: View {
                         // the dock a real viewport, and a real viewport is what makes
                         // a ScrollView scroll.
                         sliderDock(id: id)
-                            .frame(maxHeight: .infinity)
+                            .frame(maxHeight: .infinity, alignment: .top)
                     } else {
                         VStack(spacing: 12) {
                             GearArtView(item: item)
@@ -286,12 +290,20 @@ struct ComponentDetailView: View {
         // exactly; a plate of some other shape loses its edges instead of its
         // geometry. The signature colour stays UNDER it, so a plate with
         // transparency tints rather than replaces.
+        // THE CLIP GOES ON THE COMPOSITE, NOT ON THE PLATE.
+        //
+        // `plate` is `.aspectRatio(contentMode: .fill)`, so it is deliberately LARGER
+        // than the panel — that is what lets a plate authored at one machine's
+        // proportions cover any width. Clipping the plate to its own rounded rect
+        // therefore clipped it to the size of the IMAGE, not the size of the panel,
+        // and an overlay is not clipped to its parent by default. The artwork painted
+        // straight out past the panel's border: measured at 2400px wide against a
+        // 2165px dock beneath it, and off-centre, because the overflow is centred on
+        // the image while the panel is not centred on the screen.
         return RoundedRectangle(cornerRadius: 24, style: .continuous)
             .fill(panel)
-            .overlay(
-                plate
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            )
+            .overlay(plate)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(
                 GeometryReader { geo in
                     // A PLATE MAY PLACE ITS OWN KNOBS. When the artwork is a real
@@ -689,7 +701,7 @@ struct ComponentDetailView: View {
                     let off = rowIsOffChannel(param.rowLabel)
                     VStack(alignment: .leading, spacing: 6) {
                         Text(param.displayName.uppercased())
-                            .font(.caption2.weight(.bold)).tracking(1.2)
+                            .rigLegend(11, weight: .bold)
                             .foregroundStyle(RigTheme.textMuted.opacity(off ? 0.45 : 1))
                             .lineLimit(1)
                         HStack(spacing: 5) {
@@ -707,10 +719,10 @@ struct ComponentDetailView: View {
                                         .frame(maxWidth: .infinity, minHeight: 30)
                                         .background {
                                             if isOn {
-                                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                                RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
                                                     .fill(RigTheme.amber)
                                             } else {
-                                                Color.clear.rigRaised(cornerRadius: 8)
+                                                Color.clear.rigRaised(cornerRadius: RigTheme.Radius.tight)
                                             }
                                         }
                                         .contentShape(Rectangle())
@@ -728,7 +740,7 @@ struct ComponentDetailView: View {
                     .opacity(param.isDisabled ? 0.5 : 1)
                     .overlay {
                         if param.isDisabled {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
                                 .fill(.black.opacity(0.28))
                                 .blendMode(.multiply)
                                 .allowsHitTesting(false)
@@ -745,7 +757,7 @@ struct ComponentDetailView: View {
         // off the buttons.
         .frame(height: compact ? 52 : 56)
         .padding(compact ? 8 : 14)
-        .rigCard(cornerRadius: 16)
+        .rigCard(cornerRadius: RigTheme.Radius.control)
     }
 
     // MARK: - Slider dock (bottom), aligned under the knobs
@@ -763,6 +775,13 @@ struct ComponentDetailView: View {
             if !fxGroups.isEmpty { panePicker }
             switch (fxGroups.isEmpty || !panes.contains(pane) ? .levels : pane) {
             case .levels:
+                // CAPPED AT ITS OWN CONTENT so the dock hugs three sliders instead of
+                // filling the sheet. A ScrollView is greedy vertically, so a
+                // three-knob pedal drew a box with half its height empty. `maxHeight`
+                // is a ceiling and not a demand: with a short list the dock shrinks to
+                // fit, and with a long one the stack hands it less than the ceiling
+                // and it scrolls exactly as before — which is the behaviour the
+                // unreachable-dial fix above depends on.
                 ScrollView {
                     VStack(spacing: KnobPanelLayout.isDialHeavy(params) ? 10 : 14) {
                         ForEach(dials) { param in
@@ -770,7 +789,9 @@ struct ComponentDetailView: View {
                         }
                     }
                     .padding(.vertical, 4)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { dialsHeight = $0 }
                 }
+                .frame(maxHeight: dialsHeight > 0 ? dialsHeight : nil)
             case .fx:
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 10) {
@@ -786,7 +807,7 @@ struct ComponentDetailView: View {
             }
         }
         .padding(14)
-        .rigCard(cornerRadius: 18)
+        .rigCard(cornerRadius: RigTheme.Radius.control)
     }
 
     /// The pages this item actually has. Channel memories are offered only to an
@@ -806,9 +827,10 @@ struct ComponentDetailView: View {
                         .frame(maxWidth: .infinity, minHeight: 22)
                         .background {
                             if isOn {
-                                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(RigTheme.amber)
+                                RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
+                                    .fill(RigTheme.amberChrome)
                             } else {
-                                Color.clear.rigRaised(cornerRadius: 6)
+                                Color.clear.rigRaised(cornerRadius: RigTheme.Radius.tight)
                             }
                         }
                         .contentShape(Rectangle())
@@ -863,7 +885,7 @@ struct ComponentDetailView: View {
                     .padding(.vertical, 4)
                     .padding(.horizontal, 7)
                     .background(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
                             .fill(RigTheme.amber.opacity(0.14))
                     )
                     .contentShape(Rectangle())
@@ -893,7 +915,7 @@ struct ComponentDetailView: View {
         return VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
                 Text(name.uppercased())
-                    .font(.caption2.weight(.bold)).tracking(1.2)
+                    .rigLegend(11, weight: .bold)
                     .foregroundStyle(isOff ? RigTheme.textMuted : RigTheme.amber)
                     .lineLimit(1)
                 Spacer(minLength: 4)
@@ -969,7 +991,7 @@ struct ComponentDetailView: View {
             }
             .buttonStyle(.plain)
         }
-        .background { Color.clear.rigRaised(cornerRadius: 7) }
+        .background { Color.clear.rigRaised(cornerRadius: RigTheme.Radius.tight) }
     }
 
     /// A block's own dial: label above, slider below, so it fits a 178 pt card.
@@ -1007,10 +1029,10 @@ struct ComponentDetailView: View {
                         .frame(maxWidth: .infinity, minHeight: compact ? 26 : 34)
                         .background {
                             if isOn {
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                RoundedRectangle(cornerRadius: RigTheme.Radius.tight, style: .continuous)
                                     .fill(RigTheme.amber)
                             } else {
-                                Color.clear.rigRaised(cornerRadius: 7)
+                                Color.clear.rigRaised(cornerRadius: RigTheme.Radius.tight)
                             }
                         }
                         .contentShape(Rectangle())
@@ -1049,7 +1071,7 @@ struct ComponentDetailView: View {
                         }
                         .foregroundStyle(filled ? RigTheme.textPrimary : RigTheme.textMuted)
                         .frame(maxWidth: .infinity, minHeight: 40)
-                        .background { Color.clear.rigRaised(cornerRadius: 9) }
+                        .background { Color.clear.rigRaised(cornerRadius: RigTheme.Radius.tight) }
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -1162,7 +1184,7 @@ struct NumberKeypad: View {
 
             VStack(spacing: 14) {
                 Text(title.uppercased())
-                    .font(.caption.weight(.bold)).tracking(1.5)
+                    .rigLegend(12, weight: .bold)
                     .foregroundStyle(RigTheme.textMuted)
 
                 Text(text.isEmpty ? "0" : text)
@@ -1191,7 +1213,7 @@ struct NumberKeypad: View {
             .padding(20)
             .frame(width: 300)
             // A modal sheet over the dimmed detail view — the deepest shadow in the app.
-            .rigCard(cornerRadius: 22, lifted: true)
+            .rigCard(cornerRadius: RigTheme.Radius.control, lifted: true)
         }
         .onAppear { if text.isEmpty { text = fmt(initial) } }
     }
@@ -1202,7 +1224,7 @@ struct NumberKeypad: View {
                 .font(.title2.weight(.medium))
                 .foregroundStyle(RigTheme.textPrimary)
                 .frame(maxWidth: .infinity, minHeight: 48)
-                .rigRaised(cornerRadius: 12)
+                .rigRaised(cornerRadius: RigTheme.Radius.tight)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1220,7 +1242,7 @@ struct NumberKeypad: View {
                     if filled {
                         RoundedRectangle(cornerRadius: 12, style: .continuous).fill(tint)
                     } else {
-                        Color.clear.rigRaised(cornerRadius: 12)
+                        Color.clear.rigRaised(cornerRadius: RigTheme.Radius.tight)
                     }
                 }
                 .contentShape(Rectangle())

@@ -61,13 +61,20 @@ ReverbPedal::Voice ReverbPedal::voiceFor(int voicing) noexcept {
         v.inDiff2    = 0.50f;      // and more "twangy" than a plate
         v.decayDiff1 = 0.62f;
         v.decayDiff2 = 0.45f;
-        v.excursion  = 14.0f;      // more wobble — cue: the tail should shimmer
+        v.excursion  = 5.0f;       // was 14 — the sweep that made the comb WALK.
+                                   // Cue: the tail should shimmer, not sweep.
         v.modHz      = 0.90f;
         v.sizeScale  = 0.85f;
         v.decayScale = 0.94f;
         v.dispersion = 0.62f;      // cue: a picked note should "sproing", not
                                    // just echo. No boing → raise toward 0.75.
-        v.trim       = 1.05f;
+        v.trim       = 0.35f;   // was 1.05
+      // Retrimmed once the sweep and the comb were gone: with the dry and
+      // the tank no longer cancelling, their powers ADD, and every mode
+      // came out too loud instead of too quiet. Set so switching the block
+      // on moves broadband level by under a dB — see the level note in
+      // `process`. Cue: reverb should add space, not volume.
+
         break;
 
     case Room:
@@ -83,24 +90,37 @@ ReverbPedal::Voice ReverbPedal::voiceFor(int voicing) noexcept {
         v.modHz      = 1.10f;
         v.sizeScale  = 0.55f;      // a small box: every line proportionally short
         v.decayScale = 0.80f;      // …and it dies quickly even at Decay 10
-        v.trim       = 1.0f;
+        v.trim       = 0.52f;   // was 1.0
+      // FITTED ACROSS PITCHES, NOT ONE NOTE. Trimmed at a single test tone
+      // these were out by 3 dB an octave away: the tank's modes line up with
+      // some notes' harmonics and not others, so the level a mode adds is
+      // pitch-dependent and no fixed trim nulls it everywhere. Set from the
+      // AVERAGE across two notes at two mix settings. Residual is a couple of
+      // dB at the extremes; see the level note in `process`.
+
         break;
 
     case Hall:
         // The Katana's HALL block. The opposite end: a long pre-delay so the dry
         // note speaks first, maximum diffusion, and the longest tail available.
-        v.preDelayMs = 32.0f;
+        v.preDelayMs = 38.0f;     // was 32 — see the level note in `process`.
         v.bandwidth  = 0.9950f;
         v.inDiff1    = 0.78f;
         v.inDiff2    = 0.68f;
         v.decayDiff1 = 0.72f;
         v.decayDiff2 = 0.55f;
-        v.excursion  = 10.0f;
+        v.excursion  = 4.0f;      // was 10 — see the crossfade note in `process`.
         v.modHz      = 0.55f;
         v.sizeScale  = 1.35f;
         v.decayScale = 1.04f;      // clamped downstream — the tank can never be
                                    // driven past the stability ceiling
-        v.trim       = 0.95f;
+        v.trim       = 0.32f;   // was 0.95
+      // Retrimmed once the sweep and the comb were gone: with the dry and
+      // the tank no longer cancelling, their powers ADD, and every mode
+      // came out too loud instead of too quiet. Set so switching the block
+      // on moves broadband level by under a dB — see the level note in
+      // `process`. Cue: reverb should add space, not volume.
+
         break;
 
     case Plate:
@@ -109,17 +129,23 @@ ReverbPedal::Voice ReverbPedal::voiceFor(int voicing) noexcept {
         // the reference row, and the other three are stated departures from it.
         // Cue: Tone 10 should be a bright plate with NO metallic ring. If it
         // rings, the tank all-pass modulation is not running.
-        v.preDelayMs = 8.0f;
+        v.preDelayMs = 22.0f;     // was 8 — see the level note in `process`.
         v.bandwidth  = 0.9995f;
         v.inDiff1    = 0.750f;
         v.inDiff2    = 0.625f;
         v.decayDiff1 = 0.700f;
         v.decayDiff2 = 0.500f;
-        v.excursion  = 8.0f;
+        v.excursion  = 4.0f;      // was 8 — see the crossfade note in `process`.
         v.modHz      = 0.70f;
         v.sizeScale  = 1.0f;
         v.decayScale = 1.0f;
-        v.trim       = 1.0f;
+        v.trim       = 0.45f;   // was 1.0
+      // Retrimmed once the sweep and the comb were gone: with the dry and
+      // the tank no longer cancelling, their powers ADD, and every mode
+      // came out too loud instead of too quiet. Set so switching the block
+      // on moves broadband level by under a dB — see the level note in
+      // `process`. Cue: reverb should add space, not volume.
+
         break;
     }
     return v;
@@ -337,9 +363,18 @@ void ReverbPedal::process(float *buffer, int n, int channel, const float *params
             - tapAt(span, lines_[Ldelay2], s, Ldelay2, tap_[6]);
 
         // Additive wet send: the dry is never attenuated, so Mix at 10 is
-        // drenched but the player's own note is still there. `sanitize` on the
-        // way out means a poisoned tank can never reach the speakers even for
-        // the one buffer it takes the guards above to clear it.
+        // drenched but the player's own note is still there.
+        //
+        // A CONSTANT-POWER CROSSFADE WAS TRIED HERE AND IS WRONG. Crossfading
+        // assumes the two sides are uncorrelated and comparably loud; the tank's
+        // diffuse output is far quieter than the dry, so cos/sin pulled the dry
+        // down without the wet replacing it and every mode got QUIETER — Hall by
+        // 3.6 dB, worse than the additive send it replaced. The level error this
+        // block used to have was never the blend law; it was the SWEEP (see the
+        // excursion values above), which walked a comb filter across the dry.
+        //
+        // `sanitize` on the way out means a poisoned tank can never reach the
+        // speakers even for the one buffer it takes the guards above to clear it.
         buffer[i] = dry + wet * sanitize(0.6f * y);
     }
 }

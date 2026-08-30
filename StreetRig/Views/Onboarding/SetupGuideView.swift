@@ -18,12 +18,22 @@
 //  — but nobody debugs an amp sim, they delete it. So the audio route gets said
 //  first, while it can still prevent something.
 //
-//  EVERY AUDIO CLAIM ON THESE FOUR PAGES IS TRACEABLE, and deliberately no
+//  EVERY AUDIO CLAIM ON THESE FIVE PAGES IS TRACEABLE, and deliberately no
 //  further than that. The 42 dB, the 172/163 ms round trip, the ≈25 ms wired
 //  figure, the speaker compensation and the reason `.allowBluetoothA2DP` stays
 //  on are all written down in `AudioEngineController` as things measured on real
-//  hardware. Nothing here rounds them into a better story. If those numbers are
-//  ever re-measured, this file is the second place to change.
+//  hardware; the −56 dBFS line and the 4:1 slope on the last page are
+//  `DSPKernel`'s own constants. Nothing here rounds them into a better story. If
+//  those numbers are ever re-measured, this file is the second place to change.
+//
+//  WHY THERE IS A FIFTH PAGE ABOUT NOISE. The Bluetooth page exists because the
+//  first minute is where a new player decides the app is broken; the noise page
+//  exists because the first HOUR is. A cranked amp model hisses between notes
+//  and howls if the phone can hear its own speaker, and the reasonable reading
+//  of that is "this thing is badly made". It isn't — it is what the amplifier
+//  we are copying does — but nobody debugs an amp sim, so the page says both
+//  halves of it: the noise is real, and a noise gate is what shuts it. The long
+//  version, including the echo, is `FAQView`.
 //
 //  LANDSCAPE SHAPE: illustration left, prose right, on one row. A stacked card
 //  would put the drawing off the bottom of a 382-point-tall viewport.
@@ -87,17 +97,10 @@ struct SetupGuideView: View {
                 .tracking(2)
                 .foregroundStyle(RigTheme.textMuted)
             Spacer(minLength: 0)
-            Button(action: onSkip) {
-                Text("SKIP")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1.2)
-                    .foregroundStyle(RigTheme.textMuted)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(Capsule().fill(RigTheme.surfaceRaised))
-                    .overlay(Capsule().strokeBorder(RigTheme.surfaceEdge, lineWidth: 1))
-            }
-            .buttonStyle(.plain)
+            // Quiet, not secondary: skipping is the one thing on this screen that
+            // should not compete with the action it is offering to skip.
+            Button("SKIP", action: onSkip)
+                .buttonStyle(.rigQuiet)
             .accessibilityLabel("Skip the audio setup guide")
         }
         .padding(.bottom, 6)
@@ -165,7 +168,7 @@ struct SetupGuideView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .rigCard(cornerRadius: 9)
+                .rigCard(cornerRadius: RigTheme.Radius.control)
             }
         }
         .accessibilityElement(children: .combine)
@@ -198,24 +201,15 @@ struct SetupGuideView: View {
         .accessibilityLabel("Page \(index + 1) of \(pages.count)")
     }
 
+    /// Both guide buttons come from the shared kit now. They used to be capsules
+    /// filled with `RigTheme.amber` at 11pt over 9pt of padding — about 33pt tall,
+    /// under the HIG minimum, on a screen a player taps while holding a guitar. The
+    /// kit enforces the 44pt floor itself, so the size is no longer a call-site
+    /// decision, and `amberChrome` replaces the hot ember: this is a painted control,
+    /// not a lit one.
     private func chrome(_ title: String, filled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 11, weight: .bold))
-                .tracking(1.2)
-                .foregroundStyle(filled ? .black : RigTheme.textPrimary)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 9)
-                .background {
-                    if filled {
-                        Capsule().fill(RigTheme.amber)
-                    } else {
-                        Capsule().fill(RigTheme.surfaceRaised)
-                            .overlay { Capsule().strokeBorder(RigTheme.surfaceEdge, lineWidth: 1) }
-                    }
-                }
-        }
-        .buttonStyle(.plain)
+        Button(title, action: action)
+            .buttonStyle(RigButtonStyle(role: filled ? .primary : .secondary))
     }
 
     private func move(to next: Int) {
@@ -228,11 +222,11 @@ struct SetupGuideView: View {
     }
 }
 
-// MARK: - The four pages
+// MARK: - The five pages
 
 /// One page of the guide: the words, and the drawing that moves beside them.
 ///
-/// Held as data rather than as four `View` cases so the order, the count and the
+/// Held as data rather than as five `View` cases so the order, the count and the
 /// dots are one array — the same reasoning as `AppPage` in the shell.
 struct SetupGuidePage {
     let kicker: String
@@ -244,7 +238,7 @@ struct SetupGuidePage {
     let measuredNote: String?
     let illustrationKind: Kind
 
-    enum Kind { case plugIn, wireless, outputs, levels }
+    enum Kind { case plugIn, wireless, outputs, levels, gate }
 
     @ViewBuilder
     func illustration(_ reduceMotion: Bool) -> some View {
@@ -253,6 +247,7 @@ struct SetupGuidePage {
         case .wireless: WirelessDelayIllustration(reduceMotion: reduceMotion)
         case .outputs:  OutputChoicesIllustration(reduceMotion: reduceMotion)
         case .levels:   LevelsIllustration(reduceMotion: reduceMotion)
+        case .gate:     GateIllustration(reduceMotion: reduceMotion)
         }
     }
 
@@ -309,6 +304,20 @@ struct SetupGuidePage {
             measuredNote: "OUTPUT carries your round-trip latency live — with the "
                         + "word \"wireless\" beside it when it applies.",
             illustrationKind: .levels
+        ),
+        SetupGuidePage(
+            kicker: "5 · WHEN IT ROARS",
+            title: "The noise is the amp. Gate it",
+            paragraphs: [
+                "An amp with the gain up hisses between notes and howls if it can "
+                + "hear its own speaker. We are modelling real amplifiers to the best "
+                + "of our ability, so ours does too — and the fix is the real one: put "
+                + "a noise gate on the board."
+            ],
+            measuredNote: "The rig already pulls anything under −56 dBFS down 4:1, and "
+                        + "raises that line as you raise the gain. A gate pedal is the "
+                        + "rest of it, in the GEAR LIBRARY.",
+            illustrationKind: .gate
         )
     ]
 }

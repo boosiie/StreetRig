@@ -61,9 +61,13 @@ import StreetRigEngine
 /// from, rather than present-but-useless.
 struct ARPedalSetupView: View {
     @EnvironmentObject private var drag: RigDragController
+    /// Whether the pager is currently showing this page — see `ARCameraView.isActive`.
+    /// Defaults true so the play page, which hosts the content directly and is only
+    /// ever on screen when it is the thing being looked at, needs to say nothing.
+    var isActive: Bool = true
 
     var body: some View {
-        ARPedalContentView()
+        ARPedalContentView(isActive: isActive)
             .environment(\.rigDrag, drag)
     }
 }
@@ -71,6 +75,11 @@ struct ARPedalSetupView: View {
 // MARK: - Shared content
 
 struct ARPedalContentView: View {
+    /// See `ARCameraView.isActive`. Only the camera feed reads it — the overlays are
+    /// already cheap, and blanking them off-page would make a swipe show an empty
+    /// board sliding away instead of the board.
+    var isActive: Bool = true
+
     @EnvironmentObject var store: RigStore
     @StateObject private var detector = CameraStompDetector.shared
 
@@ -336,6 +345,7 @@ struct ARPedalContentView: View {
             // twice. Two nearly-identical viewports is how a stomp lands on the
             // wrong slot.
             ARCameraView(session: detector.session,
+                         isActive: isActive,
                          onGeometry: { detector.setViewGeometry(orientation: $0, size: $1) },
                          onView: {
                              detector.attach(feedView: $0)
@@ -1434,7 +1444,7 @@ private struct ARPedalPicker: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity)
-            .rigCard(cornerRadius: 14,
+            .rigCard(cornerRadius: RigTheme.Radius.control,
                      stroke: boundElsewhere == nil ? RigTheme.surfaceEdge : RigTheme.amber.opacity(0.5))
         }
         .buttonStyle(.plain)

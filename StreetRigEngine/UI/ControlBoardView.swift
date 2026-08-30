@@ -80,7 +80,7 @@ public struct ControlBoardView: View {
             }
         }
         .padding(16)
-        .rigCard(cornerRadius: 18)
+        .rigCard(cornerRadius: RigTheme.Radius.control)
     }
 }
 

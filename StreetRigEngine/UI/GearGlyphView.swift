@@ -31,6 +31,6 @@ public struct GearGlyphView: View {
                     .foregroundStyle(RigTheme.amber)
                     .padding(6)
             )
-            .rigRaised(cornerRadius: 8, stroke: RigTheme.trim.opacity(0.5))
+            .rigRaised(cornerRadius: RigTheme.Radius.tight, stroke: RigTheme.trim.opacity(0.5))
     }
 }

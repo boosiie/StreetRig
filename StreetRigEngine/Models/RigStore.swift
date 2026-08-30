@@ -631,7 +631,11 @@ public final class RigStore: ObservableObject {
     /// Player-driven removal does NOT bump this: the schema is unchanged (a
     /// deletion is just a shorter `collection` array), and re-seeding would hand
     /// back the very gear the player just threw away.
-    static let catalogVersion = 4
+    /// PUBLIC so the offline harness can ASSERT it did not move. A cosmetic
+    /// change — renaming the Katana's Mod option 3 to "Chorus" — must never bump
+    /// this, because `load` returns nil for any state below the current version
+    /// and the caller then re-seeds, throwing away the player's rig.
+    public static let catalogVersion = 4
 
     struct PersistedState: Codable {
         var collection: [GearItem]

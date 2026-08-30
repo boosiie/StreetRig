@@ -66,6 +66,25 @@ enum AppPage: Int, CaseIterable, Hashable {
         case .ar, .profile:   return false
         }
     }
+
+    /// Whether the floating TONES square sits on this page's right edge.
+    ///
+    /// THE RIG PAGE ONLY, and written as an exhaustive switch for the same
+    /// reason `remembersGearDrawer` is: a fifth page should be a compile error
+    /// here, not a silent default.
+    ///
+    /// A preset rebuilds the amp, the cab and the board and then sets thirty
+    /// knobs, and every one of those things is drawn on the rig page. Pressing
+    /// it from the library or the profile would be pressing a button whose whole
+    /// effect happens somewhere you cannot see — and on AR the header is already
+    /// explicit that every point of chrome is a point of floor a propped phone
+    /// cannot show.
+    var showsTonePresets: Bool {
+        switch self {
+        case .main:                    return true
+        case .library, .ar, .profile:  return false
+        }
+    }
 }
 
 struct MainView: View {
@@ -80,11 +99,59 @@ struct MainView: View {
     /// does, it draws itself in `CoachMarkOverlay`.
     @EnvironmentObject private var onboarding: OnboardingCoordinator
     @State private var focused: RigComponent?
-    @State private var page: AppPage = .main
+    @State private var page: AppPage = MainView.initialPage
+
+    /// Which page the shell opens on.
+    ///
+    /// `-OpenPage library|main|ar|profile` drops straight onto a page in DEBUG
+    /// builds. Same family as `-CoachMarkTour` and `-ShowDeviceOffer`: a screen you
+    /// have to LOOK at repeatedly, on several device sizes, is a screen worth being
+    /// able to open directly — the alternative is three swipes before every check,
+    /// and synthetic swipes into a landscape app running in a portrait simulator
+    /// frame are exactly as reliable as that sounds.
+    private static var initialPage: AppPage {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-OpenPage"), i + 1 < args.count {
+            switch args[i + 1] {
+            case "library": return .library
+            case "ar":      return .ar
+            case "profile": return .profile
+            default:        return .main
+            }
+        }
+        #endif
+        return .main
+    }
     /// Where the library should open when something sends the player there — the
     /// no-amp warning, so far. Consumed by LibraryContentView.
-    @State private var libraryDestination: LibraryContentView.Drill?
+    @State private var libraryDestination: LibraryContentView.Drill? = MainView.initialDrill
+
+    /// `-OpenPage library -OpenDrill overdrive` lands on a model grid rather than the
+    /// category cards above it. The grid is where the gear CARD lives, so it is the
+    /// thing worth being able to open directly; the category screen in front of it is
+    /// one tap that a synthetic tap cannot reliably make.
+    private static var initialDrill: LibraryContentView.Drill? {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-OpenDrill"), i + 1 < args.count else { return nil }
+        switch args[i + 1] {
+        case "ampStack":  return .ampStack
+        case "ampCombo":  return .ampCombo
+        case "overdrive": return .pedal(.overdrive)
+        case "delay":     return .pedal(.delay)
+        case "modulation":return .pedal(.modulation)
+        default:          return nil
+        }
+        #else
+        return nil
+        #endif
+    }
     @State private var showCredits = false
+
+    /// The TONES page, over the shell rather than inside the pager — see
+    /// `PresetsView`'s header for why it is not a fifth `AppPage`.
+    @State private var showingPresets = false
 
     /// HOW THE PLAYER LIKES THE DRAWER, and WHERE IT IS RIGHT NOW. Two values on
     /// purpose, because they are two different questions: the preference is a
@@ -111,6 +178,17 @@ struct MainView: View {
     /// the screen with nothing in it.
     private var drawerShown: Bool { drawerOpen || onboarding.revealsGearRail }
 
+    /// Whether the transport bar belongs on this page.
+    ///
+    /// It does not belong on PROFILE — which is also where Settings and Credits
+    /// live. Those pages are about the player and the app, not about signal: nothing
+    /// on them makes a sound, so a live INPUT/OUTPUT/MASTER strip with a lit PROCEED
+    /// under a list of privacy copy is 77pt spent on controls that have nothing to do
+    /// with what is on screen, and an invitation to start the engine while reading
+    /// about data handling. The rail already stands down on this page for the same
+    /// reason; the transport was the half of the chassis that never got the memo.
+    private var showsTransport: Bool { !cameraPage && page != .profile }
+
     var body: some View {
         ZStack {
             RigTheme.background.ignoresSafeArea()
@@ -135,7 +213,9 @@ struct MainView: View {
                             .tag(AppPage.library)
                         RigStageView(focused: $focused, onFindAmp: showAmpLibrary)
                             .tag(AppPage.main)
-                        ARPedalSetupView()
+                        // `isActive` so the camera feed idles while the pager is
+                        // showing something else — see ARCameraView.isActive.
+                        ARPedalSetupView(isActive: page == .ar)
                             .tag(AppPage.ar)
                         ProfileView()
                             .tag(AppPage.profile)
@@ -166,6 +246,17 @@ struct MainView: View {
                     // spotlight is for the rail, and a handle stuck to the outside of
                     // that rect would widen the hole by a tab for no reason.
                     .overlay(alignment: .leading) { gearDrawerTab }
+                    // THE OTHER EDGE, AND DELIBERATELY NOT THE SAME SHAPE. The
+                    // drawer tab is flush to its edge and half a rounded
+                    // rectangle, because it is the visible handle of a thing that
+                    // is mostly off screen. This is not a handle: nothing is
+                    // parked behind it, so it floats clear of the edge as a whole
+                    // square with the card treatment every other liftable thing
+                    // in this app has. Two controls on two edges that behave
+                    // differently should not look the same.
+                    .overlay(alignment: .trailing) {
+                        if page.showsTonePresets { tonePresetsTab }
+                    }
                     // The trash lives HERE — top-left of the centre area, just
                     // past the MY GEAR rail — so it is somewhere you drag TO,
                     // equally reachable from the rail and from the rig stage.
@@ -231,7 +322,11 @@ struct MainView: View {
                 // see, and unlike the rail it has no handle to pull it out with —
                 // it is out of scope here on purpose. It keeps its coach-mark
                 // target for every page that still shows it.
-                if !cameraPage {
+                //
+                // PROFILE drops it for a different reason — nothing on that page,
+                // or on the Settings and Credits it hosts, makes a sound — so the
+                // condition is `showsTransport` rather than a bare `!cameraPage`.
+                if showsTransport {
                     ControlPanelView()
                         .coachMarkTarget(.controlPanel)
                 }
@@ -250,11 +345,33 @@ struct MainView: View {
             // both that do (the library's search box, the profile's name) already
             // sit at the top of their column.
             .ignoresSafeArea(.keyboard, edges: .bottom)
+            // `-OpenDetail pedal|amp` opens the knob panel straight away. Same family
+            // as -OpenPage: the detail overlay is two navigations and a tap deep, and
+            // it is the screen whose layout is hardest to check by eye.
+            .task {
+                #if DEBUG
+                let args = ProcessInfo.processInfo.arguments
+                guard let i = args.firstIndex(of: "-OpenDetail"), i + 1 < args.count else { return }
+                switch args[i + 1] {
+                case "amp":   focused = .amp
+                case "pedal": if let id = store.rig.pedalIds.compactMap({ $0 }).first { focused = .pedal(id) }
+                default:      break
+                }
+                #endif
+            }
 
             // (A small chevron used to float here on the AR page. It existed only
             // because hiding `topNav` took the only visible way off that page with
             // it — its own comment said so. The bar is back, and a second, quieter
             // exit sitting on top of the real one is just something else to explain.)
+
+            if showingPresets {
+                PresetsView(onClose: {
+                    withAnimation(.easeInOut(duration: 0.24)) { showingPresets = false }
+                })
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                .zIndex(1)
+            }
 
             if let component = focused {
                 ComponentDetailView(component: component) {
@@ -397,6 +514,50 @@ struct MainView: View {
     /// The 44pt minimum a target has to be to be worth aiming at.
     private static let drawerTabHitWidth: CGFloat = 44
 
+    /// THE TONES SQUARE — the way into `PresetsView`, floating at the vertical
+    /// centre of the rig page's trailing edge.
+    ///
+    /// LABELLED, NOT JUST DRAWN. A lone glyph on an edge is a guess, and the one
+    /// guess a knob icon invites here is "this opens the amp's controls", which
+    /// is the tap the player already has (the amp itself). Four letters under it
+    /// costs nine points and removes the guess.
+    ///
+    /// IT CLEARS THE ZOOM FIRST. Tapping a pedal opens `ComponentDetailView` over
+    /// this whole area; leaving that up under a full-screen presets page would
+    /// mean closing the presets and finding a zoomed pedal nobody asked to still
+    /// be there.
+    private var tonePresetsTab: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.24)) {
+                focused = nil
+                showingPresets = true
+            }
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: "dial.medium.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(RigTheme.amber)
+                Text("TONES")
+                    .font(.system(size: 7, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundStyle(RigTheme.textMuted)
+            }
+            .frame(width: Self.presetsTabSide, height: Self.presetsTabSide)
+            .rigCard(cornerRadius: 11, stroke: RigTheme.amber.opacity(0.38), lifted: true)
+            .padding(.trailing, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Tone presets")
+        .accessibilityHint("Loads a whole rig — amp, cabinet, pedals and knob settings")
+    }
+
+    /// 50, not 44. The minimum is the floor for something you have to AIM at;
+    /// this one floats over a 3D stage the player is also dragging to orbit, and
+    /// the extra six points are what keep a deliberate press apart from the
+    /// start of a spin.
+    private static let presetsTabSide: CGFloat = 50
+
     /// The tab was pressed. THE ONLY PLACE THE PREFERENCE IS EVER WRITTEN, and
     /// only from the pages that keep one — see `AppPage.remembersGearDrawer`.
     private func toggleGearDrawer() {
@@ -454,8 +615,7 @@ struct MainView: View {
             Spacer()
             VStack(spacing: 5) {
                 Text(page.title)
-                    .font(.caption.weight(.bold))
-                    .tracking(2)
+                    .rigLegend(12)
                     .foregroundStyle(RigTheme.textMuted)
                 pageDots
             }
@@ -464,9 +624,13 @@ struct MainView: View {
             creditsButton
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 10)
-        .background(RigTheme.background)
-        .overlay(alignment: .bottom) { Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1) }
+        .padding(.vertical, 3)
+        // The nav bar is a piece of the app's chassis, so it is made of something:
+        // black anodised plate with a brass hairline along its lit edge. The white
+        // 7% separator it used to carry is gone — the plate's own dark bottom stop
+        // is the edge now, and a white line on a warm-black app was always a borrowed
+        // Material trick rather than a decision.
+        .rigChrome()
         .contentShape(Rectangle())   // the gaps beside the title are swipeable too
         .gesture(headerSwipe)
         .coachMarkTarget(.header)
@@ -519,8 +683,13 @@ struct MainView: View {
         } label: {
             Image(systemName: systemName)
                 .font(.title3.weight(.bold))
-                .foregroundStyle(target != nil ? RigTheme.amber : RigTheme.textMuted.opacity(0.35))
-                .frame(width: 46, height: 30)
+                .foregroundStyle(target != nil ? RigTheme.amberChrome
+                                               : RigTheme.textMuted.opacity(0.35))
+                // 46x30 was one of three sub-minimum targets in this file. The height
+                // goes to 44; the bar does NOT grow, because the header's own vertical
+                // padding drops from 10 to 3 to pay for it. Same 50pt bar, a target
+                // you can actually hit with a guitar on.
+                .frame(width: 46, height: 44)
                 .contentShape(Rectangle())
         }
         .disabled(target == nil)
@@ -549,7 +718,7 @@ struct DragGhostView: View {
                 .padding(8)
                 // Literally in the air: the `lifted` shadow, and an amber edge that
                 // means "this one is in your hand" rather than the usual hairline.
-                .rigCard(cornerRadius: 12,
+                .rigCard(cornerRadius: RigTheme.Radius.control,
                          stroke: RigTheme.amber.opacity(0.85),
                          lineWidth: 1.5,
                          lifted: true)

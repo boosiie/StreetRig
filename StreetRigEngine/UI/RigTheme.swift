@@ -106,6 +106,127 @@ public enum RigTheme {
     public static let signal = Color(red: 0.353, green: 0.663, blue: 0.506)         // #5AA981
     public static let clip = Color(red: 0.812, green: 0.290, blue: 0.196)           // #CF4A32
 
+    // MARK: - Chrome — the app's own bars, and NOTHING that draws gear
+    //
+    // These are the top nav, the control panel and any surface the APP owns. They
+    // are deliberately separate tokens from `panel`, which is a GEAR colour: it is
+    // the fallback faceplate in `Faceplate.ampSpec(for:) ?? RigTheme.panel`, it
+    // fills the drawn plates in `GearArt`, and it is handed to the logo shader as
+    // "cream". Re-grading `panel` to darken the app's bars would repaint every
+    // amp's faceplate and the app icon along with them. Two roles, two tokens.
+    //
+    // Black anodised aluminium, and near-black rather than black: a true black has
+    // no surface, takes no light, and would swallow the brass piping.
+    //
+    // NEUTRAL, NOT COOL. The first cut ran B - R = +8, chosen so the panel would
+    // separate from the warm tolex on hue as well as luminance. On a real phone that
+    // read plainly BLUE — a near-black carries its cast much further than a swatch
+    // suggests, because there is no colour around it to judge it against. It is now
+    // B - R = -1, a hair warm of neutral, and the separation rests on the luminance
+    // step alone, which is the cue that was doing the work anyway.
+    //
+    // WHY THESE VALUES. `chromeBody` measures 1.29:1 against `background`, matching
+    // the CARD rung's documented-working step above. An earlier cut sat at #191A1D
+    // — a more convincing "black" — which measures 1.09:1, the exact ratio the
+    // elevation-ladder note above records as the bug that made `backgroundLift`
+    // invisible. Hue alone will not hold two near-blacks apart on a cheap screen in
+    // daylight, so the panel separates on THREE cues: a real luminance step, a cool
+    // cast (B > R, against the warm tolex behind it), and the brass hairline.
+
+    /// The chrome's lip, top and bottom. An edge turns away from the key light, so
+    /// it is the darkest part of a lit panel — not the lightest.
+    public static let chromeLip = Color(red: 0.090, green: 0.090, blue: 0.086)     // #171716
+    /// The chamfer catch: thin, at 2.5% of the panel's height, and the brightest
+    /// thing on it. On a dark surface a reflection genuinely IS narrow and faint,
+    /// which is why anodised gear reads as expensive and flat at the same time.
+    public static let chromeCatch = Color(red: 0.263, green: 0.259, blue: 0.255)   // #434241
+    public static let chromeSheen = Color(red: 0.208, green: 0.204, blue: 0.196)   // #353432
+    /// The flat field — most of the panel, and it stays flat.
+    public static let chromeBody = Color(red: 0.161, green: 0.157, blue: 0.157)    // #292828
+    /// The faint bounce low down, where light comes back off the surface below.
+    public static let chromeLow = Color(red: 0.169, green: 0.165, blue: 0.161)     // #2B2A29
+    /// Legend printed ON the chrome. Light, because the chrome is dark — 10.5:1.
+    public static let chromeInk = Color(red: 0.855, green: 0.847, blue: 0.831)     // #DAD8D4
+    /// Muted legend on the chrome — captions, units, secondary labels. 4.5:1.
+    public static let chromeInkMuted = Color(red: 0.557, green: 0.549, blue: 0.533) // #8E8C88
+
+    /// The UI-chrome accent: primary action, engaged state, selection, focus.
+    ///
+    /// Matured DOWN from `amber` on purpose, and the reasoning is physical rather
+    /// than aesthetic. A control is a PAINTED SURFACE, and paint at 79% saturation
+    /// is a toy. `amber` stays exactly where it is because it is LIGHT — LEDs, meter
+    /// segments, the tube glow, the logo's pointers — and light IS saturated. One
+    /// colour doing both jobs is why the accent used to read as loud everywhere and
+    /// special nowhere; now nothing in the interface is allowed to be as hot as a
+    /// thing that is actually lit.
+    ///
+    /// NOTE the direction of this split. `amber` was NOT re-graded, because
+    /// `AmpLogoView` hands it to the Metal shader as the pointer ember and the app
+    /// icon is baked from that view — maturing it in place would desaturate the
+    /// logo and leave the shipped icon out of step with the splash.
+    public static let amberChrome = Color(red: 0.761, green: 0.416, blue: 0.173)   // #C26A2C
+    public static let amberChromeLit = Color(red: 0.831, green: 0.510, blue: 0.247) // #D4823F
+    public static let amberChromeDeep = Color(red: 0.584, green: 0.318, blue: 0.122) // #95511F
+
+    // MARK: - Geometry
+    //
+    // RADII COLLAPSE. Was 19 distinct values across the codebase, running up to 22.
+    // A rounded corner is visual softness applied uniformly to things that are not
+    // uniformly soft, and pro audio hardware is square because its controls are
+    // machined rather than moulded. At r16 a 52pt button reads as a web CTA.
+    // The one radius NOT on this scale is a device bezel, which is a real radius on
+    // a real object.
+    public enum Radius {
+        public static let flush: CGFloat = 0    // full-bleed bars, list rows, dividers
+        public static let tight: CGFloat = 2    // chips, wells, text fields
+        public static let control: CGFloat = 3  // buttons, cards, segmented
+        public static let panel: CGFloat = 4    // modals, sheets, footswitch
+        public static let sheet: CGFloat = 6    // the largest permitted
+    }
+
+    /// 4pt base. Use these rather than typing a number.
+    public enum Space {
+        public static let hair: CGFloat = 2
+        public static let xs: CGFloat = 4
+        public static let s: CGFloat = 8
+        public static let m: CGFloat = 12
+        public static let l: CGFloat = 16
+        public static let xl: CGFloat = 24
+        public static let xxl: CGFloat = 32
+    }
+
+    /// Brass is a HAIRLINE. It was 3pt on panel edges and 2pt on rings, and at that
+    /// weight it stopped being trim and became a stripe — the loudest thing on a
+    /// screen whose whole argument is restraint. It still reads at 1pt because the
+    /// piping is two-tone: `trim` with a lit `trimLit` line directly above it.
+    public static let hairlineWidth: CGFloat = 1
+
+    /// A WELL: a recess cut into a surface — a search field, a segmented track, a
+    /// meter's unlit segments. Darker than `background`, because a groove shows you
+    /// the shadow inside it, and a control that is cut IN should never be lighter
+    /// than the panel it is cut into. Search fields and segmented wells were using
+    /// `surfaceRaised`, which is the rung for things sitting ON a card — the exact
+    /// opposite reading.
+    public static let well = Color(red: 0.063, green: 0.043, blue: 0.027)          // #100B07
+
+    /// STRUCTURAL BRASS. The line that separates one REGION of the app from another:
+    /// the gear rail from the page beside it, the profile from its settings column.
+    /// NOT a card edge.
+    ///
+    /// It was briefly the default stroke on every card, and that was wrong in the way
+    /// trim is usually wrong — brass on a hundred small things is not luxury, it is
+    /// noise, and it costs the few lines that should carry it any weight at all. A
+    /// card is already separated from the page by its FILL; only a boundary with
+    /// nothing else to distinguish it needs a drawn line, and those are the ones
+    /// worth gilding. Cards keep the quiet `surfaceEdge`.
+    ///
+    /// 0.55 because there are about three of these in the app rather than fifty: over
+    /// the page it composites to ≈#8B7147, unmistakably gold at 1pt.
+    public static let edgeBrass = Color(red: 0.894, green: 0.761, blue: 0.478).opacity(0.55)
+
+    /// Lit top edge of the brass piping — the bright half of the two-tone hairline.
+    public static let trimLit = Color(red: 0.894, green: 0.761, blue: 0.478)       // #E4C27A
+
     /// Semantic — "this position works": the AR page's placement-ready outline, and
     /// nothing else. Deliberately NOT `amber`, which already means "this pedal is
     /// engaged"; a player standing over their phone has to be able to tell the two
@@ -113,4 +234,39 @@ public enum RigTheme {
     /// muted enough to read on the espresso panel, and far too quiet to survive being
     /// drawn as a hairline over a live camera image of a carpet.
     public static let ready = Color(red: 0.322, green: 0.827, blue: 0.478)          // #52D37A
+}
+
+// MARK: - Legends
+
+public extension RigTheme {
+
+    /// Letter-spacing for an UPPERCASE legend, in points, derived from the point
+    /// size rather than typed in.
+    ///
+    /// THE BUG THIS FIXES. Tracking was a CONSTANT across the app — 1.2pt on a 9pt
+    /// caption and 1.2pt on a 12pt title — while the sizes varied. Constant tracking
+    /// means the SMALLER the label, the tighter it reads: `MASTER` at 11/1.2 was
+    /// 0.109em and `HOLD TO PLACE` at 8/0.8 was 0.100em, against a page title at
+    /// 0.167em. Uppercase needs MORE air as it shrinks, not less, so the app's
+    /// smallest legends were its most cramped — which is what makes a panel read as
+    /// cartoonish rather than engraved.
+    ///
+    /// The coefficient falls slightly as size rises (0.228em at 8pt, 0.216 at 11,
+    /// 0.212 at 12, 0.196 at 16): small caps want proportionally more space, large
+    /// ones want less or they fall apart into separate letters. This is for
+    /// UPPERCASE only — running text and the wordmark are untouched, and the
+    /// wordmark sets its own tracking from its own size.
+    static func legendTracking(_ size: CGFloat) -> CGFloat {
+        size * (0.26 - size * 0.004)
+    }
+}
+
+public extension View {
+
+    /// An uppercase legend printed on a panel: font and tracking together, so the
+    /// two cannot drift apart at a call site the way they did before.
+    func rigLegend(_ size: CGFloat, weight: Font.Weight = .bold) -> some View {
+        font(.system(size: size, weight: weight))
+            .tracking(RigTheme.legendTracking(size))
+    }
 }

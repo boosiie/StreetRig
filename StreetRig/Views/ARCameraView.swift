@@ -43,6 +43,22 @@ import SwiftUI
 
 struct ARCameraView: UIViewRepresentable {
     let session: ARSession
+    /// Is this view on the page the player is actually looking at?
+    ///
+    /// THE PAGER KEEPS ITS NEIGHBOURS ALIVE. `MainView` hosts this inside a paged
+    /// `TabView`, which is a `UIPageViewController` bridge: the page either side of
+    /// the current one is built and left running, and DURING a swipe both are on
+    /// screen at once being composited by the transition. An `ARSCNView` drawing a
+    /// full-screen camera feed at the display rate is the most expensive thing in
+    /// the app, and it was doing that continuously — while sitting off-screen, and
+    /// while the pager was trying to animate. That contention is what a swipe off
+    /// this page felt like.
+    ///
+    /// Off-page it drops to `kIdleFPS` rather than stopping: the session keeps
+    /// running (pausing it would cost a relocalisation hitch on the way back, which
+    /// is worse than the swipe), tracking stays warm, and the feed stays live
+    /// enough to be correct the moment it matters again.
+    var isActive: Bool = true
     /// Called on the main thread with the orientation and size the feed is being
     /// drawn at.
     var onGeometry: (UIInterfaceOrientation, CGSize) -> Void = { _, _ in }
@@ -61,15 +77,31 @@ struct ARCameraView: UIViewRepresentable {
         view.automaticallyUpdatesLighting = true
         view.rendersCameraGrain = false
         view.rendersMotionBlur = false
-        view.antialiasingMode = .multisampling2X
+        // NO MULTISAMPLING, and that is a change from 2X. MSAA resolves the WHOLE
+        // framebuffer every frame, and this framebuffer is a full-screen camera
+        // feed — video that arrives already sampled and gains nothing from being
+        // resolved again. The only geometry that could benefit is the pedal board,
+        // which is a handful of low-poly boxes on a floor. Full-screen bandwidth
+        // for the edges of three rectangles is the wrong trade on a phone that is
+        // simultaneously running world tracking and a neural amp.
+        view.antialiasingMode = .none
+        view.preferredFramesPerSecond = Self.kActiveFPS
         view.onGeometry = onGeometry
         onView(view)
         return view
     }
 
+    /// The display rate when this page is the one being looked at, and the rate it
+    /// idles at when it is not. 6 is low enough to cost almost nothing and high
+    /// enough that a glimpse of the page mid-swipe is not a freeze-frame.
+    static let kActiveFPS = 60
+    static let kIdleFPS = 6
+
     func updateUIView(_ view: FeedView, context: Context) {
         view.onGeometry = onGeometry
         onView(view)
+        let want = isActive ? Self.kActiveFPS : Self.kIdleFPS
+        if view.preferredFramesPerSecond != want { view.preferredFramesPerSecond = want }
         // A rotation reaches SwiftUI as a re-render (the safe-area insets swap sides)
         // as well as a layout pass, so the report is made from both. It costs an
         // equality check on the far end, not a reconfiguration.

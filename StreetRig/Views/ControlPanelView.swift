@@ -152,10 +152,9 @@ struct ControlPanelSurface: View {
             .frame(height: PanelMetrics.rows)
             .padding(.vertical, PanelMetrics.vPadding)
         }
-        .background(RigTheme.background)
-        .overlay(alignment: .top) {
-            Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1)
-        }
+        // Same plate as the nav bar — see `rigChrome`. The two are the top and
+        // bottom of one chassis and must be made of the same thing.
+        .rigChrome()
         // The error strip changes the panel's height, so the strip arriving would
         // otherwise snap whatever is next to it by 30pt.
         .animation(.easeInOut(duration: 0.2), value: audio.status)
@@ -242,8 +241,7 @@ struct ControlPanelSurface: View {
         VStack(alignment: .leading, spacing: PanelMetrics.rowGap) {
             HStack(spacing: 6) {
                 Text("MASTER")
-                    .font(.system(size: 11, weight: .bold))
-                    .tracking(1.2)
+                    .rigLegend(11)
                     .foregroundStyle(RigTheme.textMuted)
                 Spacer(minLength: 4)
                 Text(masterText)
@@ -313,7 +311,7 @@ struct ControlPanelSurface: View {
                     .shadow(color: audio.isEngaged ? statusColor : .clear, radius: 4)
                 Text(statusText)
                     .font(.system(size: 11, weight: .bold).monospacedDigit())
-                    .tracking(1.2)
+                    .tracking(RigTheme.legendTracking(11))
                     .foregroundStyle(statusColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -365,15 +363,13 @@ struct ControlPanelSurface: View {
             }
         } label: {
             Text(audio.isEngaged ? "STOP" : "PROCEED")
-                .font(.system(size: 16, weight: .heavy))
                 .tracking(1)
-                .foregroundStyle(.black)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(audio.isEngaged ? RigTheme.emberSoft : RigTheme.amber)
-                )
         }
+        // The transport is the app's one primary action, so it comes off the shared
+        // kit rather than hand-rolling a fill: it gets the press state and the
+        // `.medium` haptic every other primary has. `fills` because this zone's row
+        // is pinned at 41pt — see the note on that property.
+        .buttonStyle(RigButtonStyle(role: .primary, isEngaged: audio.isEngaged, fills: true))
     }
 
     #if DEBUG
@@ -404,8 +400,7 @@ struct ControlPanelSurface: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 15, weight: .bold))
                 Text("DONE")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1)
+                    .rigLegend(10, weight: .bold)
             }
             .foregroundStyle(RigTheme.textMuted)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -482,8 +477,7 @@ private struct RouteZone: View {
             HStack(spacing: 7) {
                 SignalLamp(monitor: monitor, channel: channel, isLive: isLive)
                 Text(title)
-                    .font(.system(size: 11, weight: .bold))
-                    .tracking(1.2)
+                    .rigLegend(11)
                     .foregroundStyle(RigTheme.textMuted)
                     .fixedSize()
                 Spacer(minLength: 0)
