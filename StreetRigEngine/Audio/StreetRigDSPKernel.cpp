@@ -371,6 +371,77 @@ double SRKernelBenchmarkFullNsPerSample(SRKernelRef kernel, int frames, int iter
 }
 
 // MARK: - Render (AUDIO THREAD)
+namespace {
+
+// THE FEEDBACK KILL, ON THE AUDIO THREAD, WHERE IT CANNOT BE STARVED.
+//
+// Three guards for this lived up in the controller — on the route-change reason,
+// on the route itself, and on the metered output level — and none of them fired
+// while the speaker was screaming. They share a fatal property: they run on the
+// MAIN thread, off notifications and a timer, and they are gated on `isEngaged`.
+// Anything that delays or skips that path takes the whole protection with it,
+// and the one moment you need it is the one moment the app is busy tearing a
+// route down.
+//
+// This is the same question asked where the samples actually are. It cannot miss
+// a notification because it reads none; it cannot be starved because if it is not
+// running, no sound is being produced either.
+//
+// WHAT IT LOOKS FOR is loudness that does not let up. A guitar gets loud and then
+// decays — every note does, it is a plucked string. Feedback is a loop re-feeding
+// itself, so it goes up and stays up. Roughly a second of unbroken near-full-scale
+// output is not something a guitar can do.
+//
+// WHAT IT DOES is duck to silence over ~30 ms rather than cutting dead: an abrupt
+// mute is a click through a PA at exactly the volume that made this necessary.
+// The gain stays down until the level has been sane for a moment, so a rig left
+// screaming stays quiet rather than chattering in and out of the threshold.
+void srApplyRunawayDuck(DSPKernel *k, AudioBufferList *out,
+                        int channels, int frameCount, float srF) {
+        float peak = 0.0f;
+        for (int ch = 0; ch < channels; ++ch) {
+            const auto *dst = static_cast<const float *>(out->mBuffers[ch].mData);
+            if (!dst) continue;
+            for (int i = 0; i < frameCount; ++i) {
+                const float a = std::fabs(dst[i]);
+                if (a > peak) peak = a;
+            }
+        }
+        const float blockSec = float(frameCount) / srF;
+        // AT THE CEILING, not merely loud. −6 dBFS was tried and it silenced ordinary
+        // playing: the offline suite's sustained tones sit above it for seconds, and
+        // so does a held chord. Loudness alone cannot tell a long note from a loop.
+        //
+        // What a loop does that a note cannot is sit ON the ceiling and stay there.
+        // The limiter and `softCeil` above hold real playing below full scale by
+        // construction, so a signal parked at 0.99 for a second and a half is the
+        // limiter being overrun continuously — which is feedback, not a guitar.
+        if (peak > 0.99f) k->runawaySec += blockSec;
+        else              k->runawaySec = 0.0f;
+
+        const bool runaway = k->runawaySec >= DSPKernel::kRunawaySec;
+        const float target = runaway ? 0.0f : 1.0f;
+        // ~30 ms either way.
+        const float step = blockSec / 0.030f;
+        float g = k->runawayGain;
+        for (int ch = 0; ch < channels; ++ch) {
+            auto *dst = static_cast<float *>(out->mBuffers[ch].mData);
+            if (!dst) continue;
+            g = k->runawayGain;
+            for (int i = 0; i < frameCount; ++i) {
+                g += (target - g) * step;
+                if (g < 0.0f) g = 0.0f; else if (g > 1.0f) g = 1.0f;
+                dst[i] *= g;
+            }
+        }
+        k->runawayGain = g;
+        // Only let it back up once the output has been quiet for a while, so a rig
+        // that is still feeding back cannot pump.
+        if (runaway && peak <= 0.99f) k->runawaySec = 0.0f;
+}
+
+}  // namespace
+
 
 void SRKernelProcess(SRKernelRef kernel,
                      const void *inputData,
@@ -394,6 +465,9 @@ void SRKernelProcess(SRKernelRef kernel,
     const float inStart  = k->inputGain.current;
     const float outStart = k->outputLevel.current;
     const float invFrames = 1.0f / static_cast<float>(frameCount);
+    // Hoisted above the bypass branch: the feedback duck runs on that path too and
+    // needs the sample rate to measure how long the output has been pinned.
+    const float srF = static_cast<float>(k->sampleRate > 0 ? k->sampleRate : 48000.0);
     const float inStep  = (inTarget  - inStart)  * invFrames;
     const float outStep = (outTarget - outStart) * invFrames;
 
@@ -409,6 +483,12 @@ void SRKernelProcess(SRKernelRef kernel,
             if (src && src != dst) { for (int i = 0; i < frameCount; ++i) dst[i] = src[i]; }
             else if (!src)         { for (int i = 0; i < frameCount; ++i) dst[i] = 0.0f; }
         }
+        // AND THE DUCK RUNS HERE TOO. This path copies input to output verbatim and
+        // returns, so a feedback loop passing through a bypassed engine met no DSP
+        // and, until now, no protection either — the kill was at the bottom of the
+        // function and bypass never reached it. That is how the loop kept screaming
+        // through a guard written specifically to stop it.
+        srApplyRunawayDuck(k, out, channels, frameCount, srF);
         // Bypass never enters the swappable DSP stages, so it counts as "parked"
         // for a concurrent reconfigure (the setup thread may safely mutate).
         if (reconf) k->parkedBuffers.fetch_add(1, std::memory_order_relaxed);
@@ -438,7 +518,7 @@ void SRKernelProcess(SRKernelRef kernel,
     // Limiter timing, once per buffer rather than per sample: 2 ms to take hold
     // of a transient, 80 ms to let go — slow enough not to chatter on every note,
     // fast enough that a chord doesn't arrive before the gain does.
-    const float srF = static_cast<float>(k->sampleRate > 0 ? k->sampleRate : 48000.0);
+
     const float attackCoef  = 1.0f - std::exp(-1.0f / (0.002f * srF));
     const float releaseCoef = 1.0f - std::exp(-1.0f / (0.080f * srF));
 
@@ -605,6 +685,8 @@ void SRKernelProcess(SRKernelRef kernel,
         k->limiterEnv[limCh] = env;
         k->limiterGain[limCh] = lim;
     }
+
+    srApplyRunawayDuck(k, out, channels, frameCount, srF);
 
     // Commit ramp end-points for the next buffer (audio thread only).
     k->chainGain          = cgTarget;

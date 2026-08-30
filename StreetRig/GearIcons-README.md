@@ -113,7 +113,7 @@ bars. Use a **transparent background** so the icon sits cleanly on the card.
 | Category                         | Frame shape           | Recommended aspect (W:H)   |
 | -------------------------------- | --------------------- | -------------------------- |
 | Pedals (overdrive, delay, …)     | tall & narrow         | ~0.7 : 1  (e.g. 240x336)   |
-| Wah                              | slightly wide         | ~1.3 : 1                   |
+| Wah / volume / Whammy (treadles) | near square           | ~0.95 : 1 (e.g. 270x295)   |
 | Amp head                         | **wide, ~2:1**        | ~2.05 : 1 (e.g. 500x240)   |
 | Cabinet                          | **taller than wide**  | ~0.87 : 1 (e.g. 512x590)   |
 | Combo amp                        | near square           | ~1.13 : 1 (e.g. 460x405)   |
@@ -123,6 +123,17 @@ The amp/cabinet/combo numbers are **measured from the shipped art**, not guessed
 five heads run 1.68–2.11, the three cabinets 0.80–0.94, and the six combos 1.05–1.21.
 A cabinet is *taller than wide* — an earlier version of this table called it "near
 square, 1.1:1", which is the wrong way round and sent art back letterboxed.
+
+**The aspect column is now advice, not a constraint.** A bespoke icon takes its width
+from its own pixels at render time (`GearArtFrame`), keeping the category's height as
+the budget — so art that disagrees with the column is framed correctly anyway, and only
+the procedural fallback drawings still depend on these numbers.
+
+That seam exists because a category is not always one shape. `pitch` holds three compact
+stompboxes at 0.69:1 *and* a Whammy treadle at 1.07:1; no single per-category frame is
+right for both. Before this, the six treadle pedals — three wahs, two volumes and the
+Whammy — were framed as tall 0.7:1 compacts and rendered 34–42pt tall where their
+neighbours got 54pt.
 
 The frames in code (`GearCategory.artSize`, `LibraryView`'s tile sizes and the rig
 stage's) are set to these same proportions, so art authored at them fills the frame.

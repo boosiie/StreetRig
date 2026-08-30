@@ -407,7 +407,18 @@ private struct LibraryTile: View {
     ///
     /// The widths differ but the BOX below is constant, so the name column starts at
     /// the same x on every card in the grid.
+    ///
+    /// AND THEY ARE THE PROCEDURAL FRAMES ONLY. A piece with a bespoke icon takes its
+    /// width from the art's own pixels via `GearArtFrame`, which is the same argument
+    /// carried one step further: if one box cannot serve a head and a stompbox, one
+    /// box per CATEGORY cannot serve `pitch`, which holds three compact pedals at
+    /// 0.69:1 and a Whammy treadle at 1.07:1. The cases below still dress the
+    /// fallback drawings, which have no intrinsic aspect of their own.
     private var artSize: CGSize {
+        GearArtFrame.size(for: item, base: proceduralArtSize)
+    }
+
+    private var proceduralArtSize: CGSize {
         switch item.category {
         case .amp:      return CGSize(width: 46, height: 22)
         case .cabinet:  return CGSize(width: 30, height: 35)

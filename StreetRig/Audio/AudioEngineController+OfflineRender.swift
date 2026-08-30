@@ -788,7 +788,23 @@ extension AudioEngineController {
                        String(format: "hi>3k: bass-boost %.1f%% < treble-boost %.1f%%",
                               bright(eqBass, 3000), bright(eqTreble, 3000))))
 
-        // Wah — resonant peak → materially changes the signal.
+        // Wah — HEEL vs TOE, which is the only measurement that means "strong".
+        //
+        // The check below it (difference from dry) is a did-it-do-anything gate, and
+        // it is a poor strength meter: it rewards ADDING energy, so a broad boost
+        // scores well while a real wah — which cuts above and below its peak as much
+        // as it boosts at it — scores lower while sounding far more dramatic. Tuning
+        // the voicing against that number sends you the wrong way, which it did.
+        //
+        // Sweeping the treadle end to end and asking how much the tone MOVED is the
+        // honest question, and it is what a player hears as the pedal being strong.
+        let wahHeel = await render(famPlan(.wah, "Cry Baby", ["Position": 0]))
+        let wahToe  = await render(famPlan(.wah, "Cry Baby", ["Position": 10]))
+        let sweepDelta = Self.rms(Self.difference(wahToe, wahHeel))
+        checks.append(("Wah sweeps far between heel and toe", sweepDelta > 1e-2,
+                       String(format: "heel→toe Δ %@ dBFS · hi>2k %.1f%% → %.1f%%",
+                              Self.dbfs(sweepDelta), bright(wahHeel, 2000), bright(wahToe, 2000))))
+
         let wah = await render(famPlan(.wah, "Cry Baby", ["Position": 7]))
         checks.append(("Wah reshapes the signal", Self.rms(Self.difference(wah, ref)) > 1e-3,
                        "diff RMS \(Self.dbfs(Self.rms(Self.difference(wah, ref)))) dBFS"))
@@ -898,6 +914,21 @@ extension AudioEngineController {
         return buf
     }
 
+    /// Left-pad a Swift string to a column width, for report tables.
+    ///
+    /// EXISTS BECAUSE `%-28s` CRASHES. `String(format:)` maps `%s` to a C string, so
+    /// handing it a Swift `String` passes an object pointer where a `char *` is
+    /// expected and the formatter runs `strlen` on it: EXC_BAD_ACCESS, reliably, the
+    /// moment the line is reached. It took the whole offline harness down partway
+    /// through the tone-fix section, which is worse than a wrong column — everything
+    /// after it never ran and the report was never written.
+    ///
+    /// `%@` takes a Swift string safely but ignores width, so the padding is done
+    /// here and the format string just prints it.
+    private static func column(_ text: String, _ width: Int) -> String {
+        text.count >= width ? text : text + String(repeating: " ", count: width - text.count)
+    }
+
     private func runToneFixVerification(dry: AVAudioPCMBuffer,
                                         fmt: AVAudioFormat,
                                         sr: Double) async -> (text: String, pass: Bool) {
@@ -985,7 +1016,8 @@ extension AudioEngineController {
             let off = await render(timePlan(.reverb, name, offVals), held, tail: 0)
             let sw = swing(on)
             let dm = abs(mids(on) - mids(off))
-            lines.append(String(format: "  %-28s window swing %.2f dB, mid delta %.2f dB", name, sw, dm))
+            lines.append(String(format: "  %@ window swing %.2f dB, mid delta %.2f dB",
+                                Self.column(name, 28), sw, dm))
             checks.append(("\(name.prefix(22)) passes the same wah test", sw < 1.5,
                            String(format: "swing %.2f dB, 300 Hz-3 kHz delta %.2f dB", sw, dm)))
         }
@@ -1070,7 +1102,7 @@ extension AudioEngineController {
         for (name, vals) in fxCases {
             let out = await render(kat(vals), held, tail: 0)
             let d = dbOf(Self.rms(out)) - fxRefDB
-            lines.append(String(format: "    %-18s %+6.2f dB", name, d))
+            lines.append(String(format: "    %@ %+6.2f dB", Self.column(name, 18), d))
             if abs(d) > abs(worstFX) { worstFX = d; worstFXName = name }
         }
         checks.append(("no FX block out-shouts Master (<= 1.5 dB)", abs(worstFX) <= 1.5,
@@ -1188,8 +1220,8 @@ extension AudioEngineController {
                      "BOSS DS-1", "OCD", "Bluesbreaker", "Fuzz Face", "Fuzz Factory",
                      "EP Booster", "King of Tone"] {
             let out = await render(drivePlan(name), chug, tail: 0)
-            lines.append(String(format: "  %-16s crest %.3f  2-4k %5.2f%%  <100 %5.2f%%  400-800 %5.2f%%  fp %@",
-                                name, Self.crestFactor(out),
+            lines.append(String(format: "  %@ crest %.3f  2-4k %5.2f%%  <100 %5.2f%%  400-800 %5.2f%%  fp %@",
+                                Self.column(name, 16), Self.crestFactor(out),
                                 Self.bandEnergy(out, sr: sr, lo: 2000, hi: 4000),
                                 Self.bandEnergy(out, sr: sr, lo: 20, hi: 100),
                                 Self.bandEnergy(out, sr: sr, lo: 400, hi: 800),

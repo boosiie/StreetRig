@@ -173,6 +173,11 @@ struct DSPKernel {
     /// A gain that may only fall slowly cannot modulate at audio rate. Opening
     /// stays fast so no pick attack is ever late — that asymmetry is the whole
     /// design: instant when a note arrives, molasses on the way back down.
+    /// How long the output may stay pinned AT the ceiling before it is called
+    /// feedback and ducked. The limiter holds real playing below full scale, so this
+    /// is measuring how long the limiter has been continuously overrun.
+    static constexpr float kRunawaySec = 1.5f;
+
     static constexpr double kGateOpenSec  = 0.001;   // 1 ms — never late
     static constexpr double kGateCloseSec = 0.250;   // 250 ms — never rippling
 
@@ -205,6 +210,10 @@ struct DSPKernel {
     static constexpr int kLimiterChannels = 8;
     float limiterEnv[kLimiterChannels]{};
     float limiterGain[kLimiterChannels] = {1, 1, 1, 1, 1, 1, 1, 1};
+    /// How long the output has been sitting loud, and the duck applied when it has
+    /// been too long — see the feedback kill at the end of `SRKernelProcess`.
+    float runawaySec = 0.0f;
+    float runawayGain = 1.0f;
 
     // Stream configuration.
     double sampleRate{48000.0};

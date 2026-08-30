@@ -63,6 +63,15 @@ nonisolated final class StompPoseTracker {
         /// wah treadle wants its y measured against the pedal it is standing on. The
         /// tracker's job ends at "here is the foot".
         let footPoint: CGPoint?
+        /// The LOWER of the two ankles on screen, when a body is visible.
+        ///
+        /// BOTH LEGS, not the working one. The working foot is whichever is doing
+        /// something, and a foot that is doing something is usually the one in the
+        /// AIR — so using it to answer "where is the floor" puts the floor wherever
+        /// the player happened to have lifted a boot to. The other leg is standing on
+        /// the ground by definition, which is exactly the question. Larger y is lower
+        /// on screen.
+        let groundPoint: CGPoint?
     }
 
     // MARK: Tunables (first-pass; need on-device tuning)
@@ -100,21 +109,53 @@ nonisolated final class StompPoseTracker {
     /// moves, as a fraction of the gap between their centres. Pure anti-flicker: with
     /// it at zero the answer changes on sub-pixel jitter at the boundary.
     private static let slotSwitchMargin: CGFloat = 0.16
+    /// How much the middle slot's distance is discounted when binning — see
+    /// `slot(forViewX:)`. 0.75 widens its catch by a quarter on each side.
+    /// Back to 1.0 — neutral. At 0.75 the middle won unless a neighbour was 25%
+    /// closer, which moved the middle/right boundary 30pt toward the right pedal and
+    /// broke it: the right slot is already the tightest on the board, because the row
+    /// is slid right to leave the switch pad room on the left, so it has the least
+    /// frame beyond it to catch with. Taking from it was the one direction that could
+    /// not afford it. The middle's fairness is handled by the switch margin instead,
+    /// which costs the neighbours nothing.
+    private static let middleSlotCatch: CGFloat = 1.0
+
     /// How far the ankle has to travel DOWN, as a fraction of the viewport, to count
-    /// as a stomp on displacement alone — see `stompWindow`.
+    /// as a stomp on displacement alone — and the window it has to do it in. Together
+    /// these are the "pressed down deliberately" trigger, as opposed to
+    /// `stompVelocity`'s "moved down fast".
     private static let stompDrop: CGFloat = 0.045
-    /// …and the window it has to do it in. Together these are the "pressed down
-    /// deliberately" trigger, as opposed to `stompVelocity`'s "moved down fast".
     private static let stompWindow: TimeInterval = 0.32
     /// Above this horizontal speed, in viewport-widths per second, the foot is
     /// crossing the board rather than pressing on it and stomps are suppressed.
-    /// NEEDS ON-DEVICE TUNING: too low and a stomp that drifts slightly sideways is
-    /// swallowed, too high and the fly-over it exists to stop comes back.
     private static let maxLateralForStomp: CGFloat = 0.22
     /// How long the foot has to have been over a slot before a stomp there counts.
     /// Short on purpose — long enough to exclude a fly-over, short enough that
     /// reaching and stomping in one motion still lands.
-    private static let slotDwell: TimeInterval = 0.13
+    /// 0.06, halved on device evidence. A deliberate tap arrives and lands inside
+    /// ~70ms — the log's refusals sat at 0.00s and 0.07s against 0.13 — so this was
+    /// rejecting real taps, not fly-overs. Fly-overs are `maxLateralForStomp`'s job,
+    /// and it did it: one suppression in the whole session, correctly.
+    private static let slotDwell: TimeInterval = 0.06
+
+    /// How fast the per-foot motion estimate follows. Slow: it decides which leg is
+    /// standing, and that answer should describe a stance rather than a moment.
+    private static let groundMotionSmoothing: CGFloat = 0.15
+    /// The standing foot only changes when the other is this much stiller. Well below
+    /// 1 so a rocking foot cannot claim the floor from a planted one.
+    private static let groundSwitchRatio: CGFloat = 0.5
+    /// How much busier the other foot must be, proportionally, to become the working
+    /// one. Above 1 so two near-still feet do not trade the role back and forth.
+    private static let workingFootRatio: CGFloat = 1.6
+
+    /// Stance width as a fraction of viewport height at the distance the stomp
+    /// thresholds were tuned at. The distance scale is this ratio, so it is 1 there
+    /// and grows as the player comes closer.
+    private static let referenceStance: CGFloat = 0.16
+    /// Bounds on that scale. A mis-measured stance must not be able to make stomps
+    /// impossible or make standing still trip one.
+    private static let minDistanceScale: CGFloat = 0.5
+    private static let maxDistanceScale: CGFloat = 3.0
 
     private let request = VNDetectHumanBodyPoseRequest()
 
@@ -129,6 +170,12 @@ nonisolated final class StompPoseTracker {
     private var tracks: [FootTrack?] = [nil, nil]
     /// Which ankle is currently doing the work. Sticky; see `movingFootSpeed`.
     private var activeFoot = 0
+    /// Smoothed motion per ankle, and which one is currently taken to be standing on
+    /// the floor. Separate from `activeFoot` on purpose — see where it is set.
+    private var footMotion: [CGFloat] = [0, 0]
+    private var groundFoot: Int?
+    /// Smoothed distance between the two ankles — the stand-in for standing distance.
+    private var stanceWidth: CGFloat?
     private var lastFootAt: TimeInterval = 0
     private var lastStomp: TimeInterval = 0
     /// The last slot reported, for hysteresis and for riding out dropped frames.
@@ -163,11 +210,30 @@ nonisolated final class StompPoseTracker {
     private var lastDiagLog: TimeInterval = 0
     private static let diagLogInterval: TimeInterval = 1.0
 
+    /// The lower of whatever ankles this frame saw — the planted one, and therefore
+    /// the floor. Nil when nothing is visible.
+    private func groundPoint(_ seen: [CGPoint?]) -> CGPoint? {
+        if let groundFoot, let planted = seen[groundFoot] { return planted }
+        // THE OTHER FOOT FIRST. The working foot is the one being moved, and while a
+        // treadle is being swept that is the foot in the air — so taking the lower of
+        // the two ankles can hand back the very foot whose height is being measured,
+        // and the sweep then reads its own zero and goes dead. The standing leg is
+        // the floor by definition, and "the other one" identifies it more reliably
+        // than "the lower one" does once perspective is involved: up close the NEAR
+        // foot sits lower in frame whether or not it is on the ground.
+        // Nothing chosen yet, or it went out of shot: the lower ankle is the best
+        // guess left, and it is right whenever the player is simply standing there.
+        return seen.compactMap { $0 }.max { $0.y < $1.y }
+    }
+
     /// Drop the motion history — on session restart, or anything else that makes the
     /// previous foot position a statement about a different situation.
     func reset() {
         tracks = [nil, nil]
         activeFoot = 0
+        footMotion = [0, 0]
+        groundFoot = nil
+        stanceWidth = nil
         lastHoverSlot = nil
         lastHoverAt = 0
         hoverSince = 0
@@ -208,13 +274,13 @@ nonisolated final class StompPoseTracker {
         // that found nothing is a gap in the data, not a player who has stepped away.
         do { try handler.perform([request]) } catch {
             visionMisses += 1
-            return Reading(hoverSlot: heldHover(now: now), stomp: nil, footPoint: nil)
+            return Reading(hoverSlot: heldHover(now: now), stomp: nil, footPoint: nil, groundPoint: nil)
         }
         guard let observation = request.results?.first,
               let points = try? observation.recognizedPoints(.all) else {
             visionMisses += 1
             diagLogIfDue(now: now)
-            return Reading(hoverSlot: heldHover(now: now), stomp: nil, footPoint: nil)
+            return Reading(hoverSlot: heldHover(now: now), stomp: nil, footPoint: nil, groundPoint: nil)
         }
 
         // BOTH ANKLES, TRACKED SEPARATELY. This used to collapse them to one point —
@@ -246,7 +312,7 @@ nonisolated final class StompPoseTracker {
             // clearing the glow on each of those made it strobe. The hover is held
             // briefly instead, and only a real absence — longer than `hoverHold` —
             // puts it out.
-            return Reading(hoverSlot: heldHover(now: now), stomp: nil, footPoint: nil)
+            return Reading(hoverSlot: heldHover(now: now), stomp: nil, footPoint: nil, groundPoint: nil)
         }
         footFrames += 1
         lastFootAt = now
@@ -280,20 +346,82 @@ nonisolated final class StompPoseTracker {
         // foot 0 was the one that was not there. The frame then returned no hover at
         // all. Measured: `hover slot=1 → none → 1 → none` every 60 ms while
         // `pose foot=13/13 frames` said a foot was visible on every single one.
+        // HOW FAR AWAY THE PLAYER IS, from the gap between their own ankles.
+        //
+        // The stomp thresholds are fractions of the VIEWPORT — how far the foot fell,
+        // how fast. A stomp is a fixed distance in the world, so how much screen it
+        // covers depends entirely on standing distance: the numbers are right at one
+        // distance and wrong at every other, and up close a stomp overshoots them so
+        // far that ordinary movement trips them. "Only standing at a certain distance
+        // works."
+        //
+        // Stance width is the cheapest scale available — both ankles are already
+        // being tracked, no extra joints, no confidence to lose. It varies with how
+        // the player is standing, so it is smoothed hard and only ever used as a
+        // RATIO against the distance it was tuned at; a wrong-by-20% scale is still
+        // enormously better than one that assumes a single distance.
+        if let a = seen[0], let b = seen[1] {
+            let gap = hypot(a.x - b.x, a.y - b.y)
+            if gap > 1 { stanceWidth = stanceWidth.map { $0 + (gap - $0) * 0.05 } ?? gap }
+        }
+        let distanceScale: CGFloat = stanceWidth.map {
+            min(Self.maxDistanceScale, max(Self.minDistanceScale, $0 / (geometry.size.height * Self.referenceStance)))
+        } ?? 1
+
         let visible = (0..<2).filter { seen[$0] != nil }
-        guard let fastest = visible.max(by: { speed[$0] < speed[$1] }) else {
+        guard !visible.isEmpty else {
             diagLogIfDue(now: now)
-            return Reading(hoverSlot: heldHover(now: now), stomp: nil, footPoint: nil)
+            return Reading(hoverSlot: heldHover(now: now), stomp: nil, footPoint: nil, groundPoint: nil)
         }
-        // Stickiness, unchanged in spirit: a foot has to be meaningfully faster than a
-        // foot merely holding still to TAKE OVER, or the answer flickers between two
-        // near-motionless ankles. It can only stick to a foot that is still in shot.
-        var candidate = fastest
-        if speed[candidate] < Self.movingFootSpeed, visible.contains(activeFoot) {
-            candidate = activeFoot
+
+        // ONE MOTION ESTIMATE, TWO OPPOSITE ANSWERS — the moving leg and the standing
+        // one — so they cannot disagree about which foot is which.
+        for index in visible {
+            footMotion[index] += (speed[index] - footMotion[index]) * Self.groundMotionSmoothing
         }
-        activeFoot = candidate
+
+        // THE WORKING FOOT IS THE ONE WITH MOTION IN IT, judged over a short history
+        // rather than on this instant's speed.
+        //
+        // It used to take the instantaneously fastest and then refuse to move unless
+        // that beat `movingFootSpeed` outright. A deliberate tap is not fast — it is
+        // small and quick — so it routinely failed that bar, the choice stuck to
+        // whichever foot held it, and when that was the PLANTED foot the hover
+        // reported where the player was standing rather than where they tapped.
+        // Aiming at a pedal then meant putting the standing foot near it, which is
+        // the "I have to tap between two pedals" symptom.
+        let mover = visible.max { footMotion[$0] < footMotion[$1] }!
+        if visible.contains(activeFoot), activeFoot != mover {
+            // Hysteresis on the accumulated figure: clearly busier, not merely busier.
+            if footMotion[mover] > footMotion[activeFoot] * Self.workingFootRatio {
+                activeFoot = mover
+            }
+        } else {
+            activeFoot = mover
+        }
         let foot = seen[activeFoot]!
+
+        // WHICH FOOT IS STANDING — decided on its own evidence, not as "the other one".
+        //
+        // `groundPoint` used to be whichever ankle `activeFoot` was not, and that is
+        // why the sweep bounced: `activeFoot` legitimately flips, and every flip moved
+        // the floor reference to the other leg and inverted the reading. Two answers
+        // derived from one sticky flag, so a wobble in the flag became a wobble in
+        // both.
+        //
+        // The standing leg is the one that ISN'T MOVING, which is a fact about it
+        // rather than a leftover. Motion is accumulated per foot and the choice only
+        // changes when the other foot is CLEARLY stiller — half the motion — so an
+        // ordinary rock cannot hand the floor over to the foot doing the rocking.
+        if let stillest = visible.min(by: { footMotion[$0] < footMotion[$1] }) {
+            if let current = groundFoot, visible.contains(current) {
+                if footMotion[stillest] < footMotion[current] * Self.groundSwitchRatio {
+                    groundFoot = stillest
+                }
+            } else {
+                groundFoot = stillest
+            }
+        }
 
         // Where the WORKING foot is, decided the SAME way a stomp's slot is decided —
         // same binning, same centres, same viewport. If these two ever disagreed the
@@ -311,7 +439,38 @@ nonisolated final class StompPoseTracker {
                 let toPrevious = abs(foot.x - xs[previous])
                 let toNew = abs(foot.x - xs[hoverSlot])
                 let gap = abs(xs[previous] - xs[hoverSlot])
-                if toPrevious - toNew < gap * Self.slotSwitchMargin { hoverSlot = previous }
+                // THE MIDDLE SLOT IS NOT LIKE THE OTHER TWO, and treating it the same
+                // is why it was the unreliable one.
+                //
+                // Binning is by nearest centre, so the OUTER slots capture everything
+                // beyond themselves — a foot anywhere left of slot 0 is slot 0, out to
+                // the edge of the frame. Only the middle is bounded on both sides, so
+                // it is already the smallest target, and then this margin takes a bite
+                // out of both of its edges while taking nothing from the outer two.
+                // Hence "perfect on the sides, inconsistent in the middle".
+                //
+                // Entering the middle is made cheaper to compensate. LEAVING it still
+                // costs full margin, which is the half that was doing the anti-flicker
+                // work in the first place.
+                // Half margin into the middle. Zero was too far the other way: free to
+                // enter and full price to leave makes the middle STICKY, so it takes
+                // the foot off its neighbours and will not give it back — which turns
+                // up as the outer pedals going unreliable, the opposite of the
+                // complaint it was meant to fix. Half keeps the middle reachable
+                // without letting it poach.
+                // SYMMETRIC AGAIN — the discount was a RATCHET against the outer
+                // slots, and the device log caught it doing exactly that.
+                //
+                // Cheapening entry to the middle was meant to compensate for it being
+                // the only bounded target. What it built was a one-way valve: the foot
+                // fell off an outer slot into the middle at half price on the
+                // slightest jitter, then had to pay full margin to get back. So the
+                // hover kept RE-ARRIVING at slot 2 rather than staying there, and
+                // every re-arrival restarts `hoverSince` — the dwell timer never
+                // accumulated and the stomp was refused as NOT SETTLED. Nine times on
+                // the right pedal in one session; never on the other two.
+                let margin = Self.slotSwitchMargin
+                if toPrevious - toNew < gap * margin { hoverSlot = previous }
             }
         }
         // When the foot ARRIVED over this slot. Reaching across the board sweeps the
@@ -345,7 +504,9 @@ nonisolated final class StompPoseTracker {
         let drop = (foot.y - highest) / geometry.size.height
         if drop > peakDrop { peakDrop = drop }
 
-        let fired = velocity > Self.stompVelocity || drop > Self.stompDrop
+        // Scaled to where the player is standing — see `distanceScale`.
+        let fired = velocity > Self.stompVelocity * distanceScale
+                 || drop > Self.stompDrop * distanceScale
 
         // REACHING ACROSS THE BOARD IS NOT STOMPING THE PEDAL YOU PASS OVER.
         //
@@ -359,17 +520,26 @@ nonisolated final class StompPoseTracker {
         // Two independent guards, because they fail differently. A fast sideways
         // sweep is caught by `lateral`; a slow deliberate reach that pauses briefly
         // over the middle is caught by the dwell. Either alone leaves a gap.
-        let travelling = lateral[activeFoot] > Self.maxLateralForStomp
+        // SCALED LIKE THE OTHER TWO, which it should have been all along.
+        //
+        // `stompVelocity` and `stompDrop` are multiplied by `distanceScale` because a
+        // fixed distance in the world covers more of the SCREEN the closer the player
+        // stands. This gate measures the same kind of quantity — sideways speed as a
+        // fraction of the viewport — and was left unscaled, so up close an ordinary
+        // step across the board reads as far more viewport-widths per second than the
+        // same step from further back, sails past 0.22, and the stomp is thrown away
+        // as a fly-over. The nearer the player, the more of their real taps it eats.
+        let travelling = lateral[activeFoot] > Self.maxLateralForStomp * distanceScale
         let settled = now - hoverSince >= Self.slotDwell
         if fired, travelling || !settled {
             ARDiagnostics.log("stomp SUPPRESSED slot=\(hoverSlot) "
-                            + "lateral=\(ARDiagnostics.f(lateral[activeFoot]))/\(Self.maxLateralForStomp) "
+                            + "lateral=\(ARDiagnostics.f(lateral[activeFoot]))/\(ARDiagnostics.f(Self.maxLateralForStomp * distanceScale)) "
                             + "dwell=\(ARDiagnostics.f(CGFloat(now - hoverSince), 2))s/\(Self.slotDwell) "
                             + "\(travelling ? "TRAVELLING" : "NOT SETTLED")")
         }
         guard fired, !travelling, settled, now - lastStomp > Self.debounce else {
             diagLogIfDue(now: now)
-            return Reading(hoverSlot: hoverSlot, stomp: nil, footPoint: foot)
+            return Reading(hoverSlot: hoverSlot, stomp: nil, footPoint: foot, groundPoint: groundPoint(seen))
         }
         lastStomp = now
         // A fired stomp's trail is spent: leaving it would let the same descent fire
@@ -389,7 +559,7 @@ nonisolated final class StompPoseTracker {
                         + "drop=\(ARDiagnostics.f(drop, 3))/\(Self.stompDrop) "
                         + "other=\(ARDiagnostics.f(downward[1 - activeFoot])) "
                         + "footX=\(ARDiagnostics.f(foot.x, 0)) centres=\(centres)")
-        return Reading(hoverSlot: hoverSlot, stomp: stomp, footPoint: foot)
+        return Reading(hoverSlot: hoverSlot, stomp: stomp, footPoint: foot, groundPoint: groundPoint(seen))
     }
 
     /// Once a second: is Vision finding an ankle at all, and how close did the hardest
@@ -408,10 +578,15 @@ nonisolated final class StompPoseTracker {
     private func diagLogIfDue(now: TimeInterval) {
         guard ARDiagnostics.enabled, now - lastDiagLog >= Self.diagLogInterval else { return }
         lastDiagLog = now
-        ARDiagnostics.log("pose foot=\(footFrames)/\(footFrames + blindFrames) frames "
-                        + "noBody=\(visionMisses) "
-                        + "peakV=\(ARDiagnostics.f(peakVelocity))/\(Self.stompVelocity) "
-                        + "peakDrop=\(ARDiagnostics.f(peakDrop, 3))/\(Self.stompDrop)")
+        // Built in pieces rather than one interpolated chain: as written it tipped
+        // the type-checker over ("unable to type-check this expression in reasonable
+        // time"). Nothing subtle — just four interpolations and three concatenations
+        // of mixed numeric types in one expression.
+        let seen = "pose foot=\(footFrames)/\(footFrames + blindFrames) frames"
+        let body = "noBody=\(visionMisses)"
+        let vel = "peakV=\(ARDiagnostics.f(peakVelocity))/\(Self.stompVelocity)"
+        let drop = "peakDrop=\(ARDiagnostics.f(peakDrop, 3))/\(Self.stompDrop)"
+        ARDiagnostics.log([seen, body, vel, drop].joined(separator: " "))
         visionMisses = 0
         peakDrop = 0
         peakVelocity = 0
@@ -449,7 +624,21 @@ nonisolated final class StompPoseTracker {
         }
         // Anchored: nearest slot centre, which is the honest generalisation of thirds
         // once the row is somewhere on the floor rather than filling the screen.
-        let d0 = abs(centers.0 - x), d1 = abs(centers.1 - x), d2 = abs(centers.2 - x)
+        // THE MIDDLE GETS A WIDER CATCH, on purpose and for a structural reason.
+        //
+        // Nearest-centre is fair between EQUALS, and these three are not equals: the
+        // outer two capture everything beyond themselves, out to the edge of the
+        // frame, while the middle only ever gets the band between two midpoints. It
+        // is the smallest target on the board by construction, which is why it — and
+        // only it — kept being reported as inconsistent while "the sides are
+        // perfect".
+        //
+        // Discounting its distance widens its catch by that fraction on BOTH sides,
+        // taking a little from two slots that have room to spare. Not a threshold to
+        // tune against jitter: the anti-flicker work is all in the switch margin at
+        // the call site.
+        let d0 = abs(centers.0 - x), d2 = abs(centers.2 - x)
+        let d1 = abs(centers.1 - x) * Self.middleSlotCatch
         if d0 <= d1 { return d0 <= d2 ? 0 : 2 }
         return d1 <= d2 ? 1 : 2
     }
