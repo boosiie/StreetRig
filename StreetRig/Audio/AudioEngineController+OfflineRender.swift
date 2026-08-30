@@ -1077,8 +1077,20 @@ extension AudioEngineController {
         let v0m5  = await render(kat(["Volume": 0, "Master": 5]), held, tail: 0)
         checks.append(("Volume 10 / Master 0 is silent", dbOf(Self.rms(v10m0)) < -80.0,
                        String(format: "RMS %.1f dBFS", dbOf(Self.rms(v10m0)))))
-        checks.append(("Volume 0 / Master 5 is audible", dbOf(Self.rms(v0m5)) > -60.0,
-                       String(format: "RMS %.1f dBFS", dbOf(Self.rms(v0m5)))))
+        // VOLUME 0 IS SILENCE, and this check used to assert the opposite.
+        //
+        // It was written when `ampVolume` bottomed out at 0.2 and Master was the
+        // only control that could actually mute — so "Master overrides Volume in
+        // both directions" meant Volume 0 still had to be audible. Commit c43509e
+        // changed that deliberately, on a direct report ("setting volume to 0
+        // should make it silent on all of them"), taking ampVolume, ampMaster and
+        // ampDrive all to true zero. The check was not updated with it and has
+        // been asserting the removed behaviour ever since.
+        //
+        // Both directions still hold, they just both end in silence now: either
+        // control at zero mutes the rig, which is what a volume control is for.
+        checks.append(("Volume 0 / Master 5 is silent too (c43509e)", dbOf(Self.rms(v0m5)) < -80.0,
+                       String(format: "RMS %.1f dBFS (bar < -80)", dbOf(Self.rms(v0m5)))))
 
         // (b) Master is a PURE OUTPUT GAIN now — so moving it may not change one
         // harmonic. If the fingerprint moves, the drive moved with the gain and
@@ -1527,6 +1539,16 @@ extension AudioEngineController {
         // 4. STRUCTURAL REBUILD while stomped off — add another pedal (a genuine
         //    topology change) and confirm the stomped pedal is STILL bypassed.
         //    This is the regression the enabled-state rule exists to prevent.
+        // MAKE ROOM FIRST, or this step tests nothing. `RigStore.maxPedalsOnBoard`
+        // is 3 and the seed rig ships three, so `apply` REFUSES the add below, the
+        // topology never changes, and "structural rebuild really happened"
+        // compares a signature against itself. It failed that way for as long as
+        // the board has been capped. Free a slot that is not the footswitched
+        // pedal, so what this step is actually about — a stomped pedal surviving a
+        // rebuild — is still what it measures.
+        if !store.boardHasRoom, let victim = store.rig.pedalIds.first(where: { $0 != odId }) {
+            store.removePedal(victim)
+        }
         if let mitt = store.collection.first(where: { $0.name.lowercased().contains("big mitt") }) {
             store.apply(mitt)
         }
@@ -1552,6 +1574,14 @@ extension AudioEngineController {
                        "slot released → pedal enabled again"))
 
         // 6. Dropping a pedal that is NOT in the rig adds it to the chain first.
+        // Room again, for the same reason and with the same consequence if it is
+        // missing: `RigStore.setARSlot` documents that "a full board refuses that
+        // add" and returns having changed nothing, so without this the check reads
+        // "added to the chain (3 -> 3 pedals)" and fails while the app is behaving
+        // exactly as designed.
+        if !store.boardHasRoom, let victim = store.rig.pedalIds.first(where: { $0 != odId }) {
+            store.removePedal(victim)
+        }
         let spare = store.collection.first { $0.category.isPedal && !store.rig.pedalIds.contains($0.id) }
         var addedOK = false, addedDetail = "no spare pedal in the collection"
         if let spare {

@@ -236,6 +236,13 @@ private:
         float downHist[kFirTaps] = {};
         int   downPos = 0;
         float smVolume = 1.0f, smPower = 1.0f;
+        /// See `AmpCabProcessor::smPrimed_` — same rule, one stage earlier. The
+        /// power amp's volume de-zipper glides from 1.0f, so a rig compiled with
+        /// Volume at 0 still passed the first few ms at full level. `ampMaster`
+        /// could not mask it because Master sits AFTER this stage, which is why
+        /// "Volume 0 / Master 5" measured about -62 dBFS while "Master 0" went
+        /// properly silent once the outer smoother was primed.
+        bool  smPrimed = false;
     };
     ChannelState ch_[kMaxChannels];
 };
@@ -340,6 +347,19 @@ private:
     // Per-channel de-zipper smoothers for drive / makeup.
     float smDrive_[kMaxChannels] = {3.0f, 3.0f};
     float smAmpOut_[kMaxChannels] = {1.0f, 1.0f};
+    /// PER-CHANNEL DE-ZIPPER PRIMING. False until that channel has processed one
+    /// buffer since the last `reset()`; the first buffer SNAPS the smoothers to
+    /// the incoming values instead of gliding from the boot ones.
+    ///
+    /// A de-zipper exists to ramp between two settings a player moved between. It
+    /// has no business ramping from a constructor default into the first setting
+    /// the rig was ever compiled with — there was no earlier setting to glide
+    /// from. Leaving it to glide meant a rig whose Master is 0 still emitted the
+    /// first few ms of a full-gain signal decaying at the 5 ms time constant,
+    /// which is a real click on every structural rebuild and, in the offline
+    /// harness, the reason "Master 0 is TRUE SILENCE" measured about -62 dBFS
+    /// instead of nothing at all.
+    bool smPrimed_[kMaxChannels] = {false, false};
     float smoothCoeff_ = 0.0f;   // one-pole coefficient (~5 ms).
 };
 

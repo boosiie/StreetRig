@@ -207,6 +207,7 @@ void PowerAmp::reset() noexcept {
         ch_[c].downPos = 0;
         ch_[c].smVolume = 1.0f;
         ch_[c].smPower = 1.0f;
+        ch_[c].smPrimed = false;
     }
 }
 
@@ -288,6 +289,13 @@ void PowerAmp::process(float *buffer, int n, int channel,
 
     const float ps = std::clamp(powerScale, 0.02f, 4.0f);
     const bool  runSag = (sagDepth_ > 0.0f);
+
+    // FIRST BUFFER SINCE RESET: snap, do not glide. See `ChannelState::smPrimed`.
+    if (!s.smPrimed) {
+        s.smVolume = volume;
+        s.smPower  = ps;
+        s.smPrimed = true;
+    }
 
     float vol = s.smVolume, pw = s.smPower;
 
@@ -405,7 +413,9 @@ void AmpCabProcessor::prepare(double sampleRate, int numChannels, int maxFrames)
     // ~5 ms one-pole smoothing coefficient for drive / makeup de-zippering.
     smoothCoeff_ = std::exp(-1.0f / (0.005f * (float)sampleRate_));
 
-    for (int c = 0; c < kMaxChannels; ++c) { smDrive_[c] = 3.0f; smAmpOut_[c] = 1.0f; }
+    for (int c = 0; c < kMaxChannels; ++c) {
+        smDrive_[c] = 3.0f; smAmpOut_[c] = 1.0f; smPrimed_[c] = false;
+    }
     // Re-apply whatever profile was selected before the format change, so a
     // sample-rate switch never silently reverts the amp to Legacy.
     configureAmp(profileId_);
@@ -413,6 +423,10 @@ void AmpCabProcessor::prepare(double sampleRate, int numChannels, int maxFrames)
 }
 
 void AmpCabProcessor::reset() noexcept {
+    // UN-PRIME, so the first buffer after a reset SNAPS the de-zippers to
+    // whatever the rig is set to rather than gliding into it from the boot
+    // values. See `smPrimed_`.
+    for (int c = 0; c < kMaxChannels; ++c) smPrimed_[c] = false;
     analog_.reset();
     tone_.reset();
     power_.reset();
@@ -476,6 +490,13 @@ void AmpCabProcessor::processPreamp(float *buffer, int n, int channel, const Amp
 
     NeuralAmpModel *model = activeModel_.load(std::memory_order_acquire);
     const bool neural = p.useNeural && model && model->isValid();
+
+    // FIRST BUFFER SINCE RESET: snap, do not glide. See `smPrimed_`.
+    if (!smPrimed_[channel]) {
+        smDrive_[channel]  = p.drive;
+        smAmpOut_[channel] = p.ampOut;
+        smPrimed_[channel] = true;
+    }
 
     if (neural) {
         // A capture replaces the PREAMP CASCADE only; the profile's tone stack,
