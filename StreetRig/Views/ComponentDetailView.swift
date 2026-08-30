@@ -102,7 +102,7 @@ struct ComponentDetailView: View {
     /// than "you may not touch this". That is the opposite of the THUMP shade,
     /// which is dead precisely because there is nothing behind it.
     /// Dimmed because some OTHER control says it is doing nothing right now — the
-    /// JC-120's SPEED and DEPTH when its effect switch is OFF. Distinct from an
+    /// RM-140's SPEED and DEPTH when its effect switch is OFF. Distinct from an
     /// off-channel dim (a different row is selected) and from `isDisabled` (there
     /// is no engine at all), though all three look alike on purpose: the panel is
     /// saying "not in play", and why is the amp's business rather than the eye's.
@@ -134,7 +134,7 @@ struct ComponentDetailView: View {
     /// panel is big enough by then that recalling it wholesale is the point.
     private var hasChannels: Bool {
         guard let item, item.category == .amp || item.category == .comboAmp else { return false }
-        return ParameterMap.ampHasFXSection(name: item.name)
+        return ParameterMap.ampHasFXSection(id: GearCatalog.id(for: item), name: item.name)
     }
 
     var body: some View {
@@ -190,8 +190,8 @@ struct ComponentDetailView: View {
                         // bottom. Worse than merely cut off — the ScrollView inside
                         // had been handed a viewport as tall as its own content, so
                         // it had nothing to scroll, and every dial below the fold was
-                        // UNREACHABLE rather than just out of sight. The Friedman
-                        // showed two of its fifteen that way; the Rockerverb three of
+                        // UNREACHABLE rather than just out of sight. The Fremont
+                        // showed two of its fifteen that way; the Rumblecrest three of
                         // its ten. Taking the floor off and pinning the stack gives
                         // the dock a real viewport, and a real viewport is what makes
                         // a ScrollView scroll.
@@ -597,7 +597,7 @@ struct ComponentDetailView: View {
         dialRows.filter { $0.label == nil }
     }
     /// Put the channels in a left column when they are SHORT and there is a shared
-    /// row to sit beside. Long channel rows (the Friedman's six) still stack —
+    /// row to sit beside. Long channel rows (the Fremont's six) still stack —
     /// squeezing those into a third of the width would undo the point.
     private var splitLeftColumn: Bool {
         !channelRows.isEmpty && !sharedRows.isEmpty
@@ -695,8 +695,8 @@ struct ComponentDetailView: View {
                     let binding = store.binding(itemId: id, param: param.name)
                     let options = param.options ?? []
                     let selected = Int(binding.wrappedValue.rounded())
-                    // A switch that belongs to a channel dims with it — the Twin's
-                    // and the JC-120's BRIGHT switches are per-channel, so the one
+                    // A switch that belongs to a channel dims with it — the Tandem's
+                    // and the RM-140's BRIGHT switches are per-channel, so the one
                     // you are not hearing should read the same way its knobs do.
                     let off = rowIsOffChannel(param.rowLabel)
                     VStack(alignment: .leading, spacing: 6) {
@@ -752,7 +752,7 @@ struct ComponentDetailView: View {
         }
         // 52, NOT 42, in the compact case. A caption (14) over a 30 pt button row
         // with 6 pt between them needs 50, so the dense layout — which is what
-        // every amp with an FX section gets, the Katana included — was drawing its
+        // every amp with an FX section gets, the Kabuto included — was drawing its
         // switch strip 8 pt shorter than its own contents and clipping the bottom
         // off the buttons.
         .frame(height: compact ? 52 : 56)
@@ -767,7 +767,7 @@ struct ComponentDetailView: View {
     /// gains a PAGE PICKER, because the alternative does not fit: the app is
     /// landscape-only, so the whole panel has ~400 pt of height, of which the
     /// knob row and the switch strip already take more than half. Stacking a
-    /// Katana's twenty-six controls into one scrolling column left a ~70 pt
+    /// Kabuto's twenty-six controls into one scrolling column left a ~70 pt
     /// window to hunt through them in. Paging spends the axis that IS abundant —
     /// the FX page scrolls sideways, one card per block.
     private func sliderDock(id: UUID) -> some View {
@@ -847,7 +847,7 @@ struct ComponentDetailView: View {
     /// controls twice, and their labels are deliberately identical because that
     /// is what is screen-printed on the chassis — on the faceplate the channel
     /// name sits above the row and settles it. The dock has no rows, so without
-    /// the prefix the Friedman's dock is two GAINs, two VOLUMEs and two MASTERs
+    /// the prefix the Fremont's dock is two GAINs, two VOLUMEs and two MASTERs
     /// with nothing to choose between them.
     ///
     /// The two shades are the faceplate's, and mean the same things there: a
@@ -1050,19 +1050,22 @@ struct ComponentDetailView: View {
     /// — written in ONE store mutation, so recalling one is a single compile and
     /// therefore a single structural swap through the fade/park barrier, not
     /// twenty-six of them. Nothing about `GearItem` changed to make this work:
-    /// the panel already IS a `[String: Double]`, and `catalogVersion` stays at
-    /// 3, which is what keeps the player's saved rig loadable.
+    /// the panel already IS a `[String: Double]`, and the store lives beside
+    /// `rig_state.json` rather than inside it, which is what keeps the player's
+    /// saved rig loadable when it changes.
     private func channelStrip(id: UUID) -> some View {
-        let name = store.item(id)?.name ?? ""
+        let ampItem = store.item(id)
+        let name = ampItem?.name ?? ""
+        let ampID = ampItem.flatMap { GearCatalog.id(for: $0) }
         return VStack(alignment: .leading, spacing: 8) {
             Text("tap to recall · hold to store the whole panel")
                 .font(.caption2)
                 .foregroundStyle(RigTheme.textMuted)
             HStack(spacing: 6) {
-                ForEach(0..<KatanaChannelStore.channelCount, id: \.self) { ch in
-                    let filled = KatanaChannelStore.isOccupied(channel: ch, ampName: name)
+                ForEach(0..<KabutoChannelStore.channelCount, id: \.self) { ch in
+                    let filled = KabutoChannelStore.isOccupied(channel: ch, ampName: name, catalogID: ampID)
                     Button {
-                        _ = store.recallKatanaChannel(ch, itemId: id)
+                        _ = store.recallKabutoChannel(ch, itemId: id)
                     } label: {
                         VStack(spacing: 2) {
                             Text("CH \(ch + 1)").font(.caption.weight(.semibold))
@@ -1077,7 +1080,7 @@ struct ComponentDetailView: View {
                     .buttonStyle(.plain)
                     .simultaneousGesture(
                         LongPressGesture(minimumDuration: 0.6).onEnded { _ in
-                            _ = store.saveKatanaChannel(ch, itemId: id)
+                            _ = store.saveKabutoChannel(ch, itemId: id)
                         }
                     )
                 }

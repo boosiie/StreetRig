@@ -6,13 +6,13 @@
 //  are all an LFO moving a filter or a short delay:
 //
 //    • Tremolo  (TR-2)                — LFO on AMPLITUDE.
-//    • Phaser   (Phase 90, Small Stone) — LFO on a cascade of first-order ALL-PASS
+//    • Phaser   (Swirl72, SmallSlate) — LFO on a cascade of first-order ALL-PASS
 //                                          filters; dry+wet sum → sweeping notches.
-//    • Univibe  (Deja'Vibe)          — like a phaser but with STAGGERED all-pass
+//    • Univibe  (Lucid'Vibe)          — like a phaser but with STAGGERED all-pass
 //                                          stages + a touch of amplitude throb.
-//    • Chorus   (CE-2, Small Clone)  — LFO on a ~15 ms modulated DELAY, low
+//    • Chorus   (CE-2, SmallMime)  — LFO on a ~15 ms modulated DELAY, low
 //                                          feedback → detuned shimmer.
-//    • Flanger  (M117R, El. Mistress)— LFO on a ~2 ms modulated delay + feedback
+//    • Flanger  (M117R, El. Siren)— LFO on a ~2 ms modulated delay + feedback
 //                                          → moving harmonic notches ("jet").
 //
 //  Chorus/flanger need a short delay line; phaser/univibe need all-pass state;

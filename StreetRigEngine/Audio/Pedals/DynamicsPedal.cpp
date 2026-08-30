@@ -22,7 +22,7 @@ void DynamicsPedal::prepare(double sampleRate, int numChannels) {
     sampleRate_ = sampleRate > 0 ? sampleRate : 48000.0;
     numChannels_ = std::clamp(numChannels, 1, kMaxChannels);
 
-    // Compressor ballistics: fast attack (~5 ms, Dyna-Comp-like), medium release
+    // Compressor ballistics: fast attack (~5 ms, Damper-Comp-like), medium release
     // (~180 ms). Gate opens near-instantly (~1 ms); its release is knob-set.
     compAtkCoeff_    = onePole(0.005, sampleRate_);
     compRelCoeff_    = onePole(0.180, sampleRate_);

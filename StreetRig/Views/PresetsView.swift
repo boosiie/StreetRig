@@ -574,7 +574,7 @@ struct PresetsView: View {
                                  headline: saved.ampHeadline)
                         if !saved.pedals.isEmpty {
                             boardBlock(saved.pedals.map {
-                                (model: $0.model, settings: saved.settings(for: $0))
+                                (model: saved.currentName($0.model), settings: saved.settings(for: $0))
                             })
                         }
                         footswitchBlock(saved)
@@ -659,7 +659,7 @@ struct PresetsView: View {
                             .foregroundStyle(.black)
                             .frame(width: 13, height: 13)
                             .background(Circle().fill(RigTheme.trim))
-                        Text(slot.model ?? "empty")
+                        Text(slot.model.map(saved.currentName) ?? "empty")
                             .font(.system(size: 10.5, weight: slot.model == nil ? .regular : .semibold))
                             .foregroundStyle(slot.model == nil ? RigTheme.textMuted
                                                                : RigTheme.textPrimary)

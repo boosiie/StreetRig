@@ -20,20 +20,20 @@ namespace streetrig {
 DrivePedal::Voice DrivePedal::voiceFor(int voicing) noexcept {
     Voice v;
     switch (voicing) {
-        case TubeScreamer:   // soft clip + signature ~720 Hz mid hump, tight lows
+        case ValveShrieker:   // soft clip + signature ~720 Hz mid hump, tight lows
             v = {100.0, 720.0, 0.8, 6.0,  0,0,0, Soft, 0.15f, 1.00f, 1.00f, false, 0.50f}; break;
-        case Bluesbreaker:   // transparent, open, low-gain
+        case BluesBlazer:     // transparent, open, low-gain
             v = { 80.0,   0,0,0,          0,0,0, Soft, 0.05f, 0.70f, 1.10f, false, 0.50f}; break;
-        case Klon:           // "transparent" + treble tilt, high headroom (low drive)
+        case Chiron:                 // "transparent" + treble tilt, high headroom (low drive)
             v = { 95.0, 2000.0, 0.7, 3.0, 0,0,0, Soft, 0.10f, 0.60f, 1.15f, false, 0.55f}; break;
-        case KingOfTone:     // Bluesbreaker-derived, fuller mids
+        case KingOfTone:     // BluesBlazer-derived, fuller mids
             v = { 85.0, 500.0, 0.8, 3.0,  0,0,0, Soft, 0.10f, 0.90f, 1.05f, false, 0.50f}; break;
-        case OCD:            // MOSFET, amp-like, brighter, gainier, asymmetric
+        case FIXATION:                // MOSFET, amp-like, brighter, gainier, asymmetric
             v = { 90.0, 2500.0, 0.7, 2.0, 0,0,0, Hard, 0.20f, 1.15f, 0.95f, false, 0.50f}; break;
         case DS1:            // hard asymmetric, mid-forward, buzzy
             v = {110.0, 800.0, 0.7, 2.0,  0,0,0, Hard, 0.25f, 1.00f, 0.95f, false, 0.45f}; break;
-        case MetalZone:      // tight, percussive, upper-mid forward — the Puppets
-                             // / Black Album rhythm voicing, not the fizzy MT-2.
+        case MetalRealm:        // tight, percussive, upper-mid forward — the Puppets
+                             // / Black Album rhythm voicing, not the fizzy stock voicing.
             // RETUNED TOWARD A METALLICA RHYTHM TONE, and every number moved for
             // a reason you can hear:
             //   preHz 120 -> 155   the clipper was being fed low end it could not
@@ -58,13 +58,13 @@ DrivePedal::Voice DrivePedal::voiceFor(int voicing) noexcept {
             // the string. Mush at the bottom means preHz went back down; a tone
             // that disappears behind a band means the scoop went back to -12.
             v = {155.0, 2500.0, 0.7, 5.0, 650.0, 0.9, -7.0, Hard, 0.10f, 1.20f, 0.85f, false, 0.60f}; break;
-        case RAT:            // LM308 hard symmetric, bright, aggressive
+        case SHREW:                   // LM308 hard symmetric, bright, aggressive
             v = {100.0, 3000.0, 0.7, 3.0, 0,0,0, Hard, 0.00f, 1.30f, 0.85f, false, 0.45f}; break;
-        case BigMuff:        // two cascaded soft stages + mid scoop, thick sustain
+        case BigMitt:             // two cascaded soft stages + mid scoop, thick sustain
             v = { 70.0,   0,0,0, 1000.0, 0.8, -8.0, Soft, 0.05f, 1.40f, 0.60f, true, 0.15f};  break;
-        case FuzzFace:       // round asymmetric germanium fuzz, full lows, dynamic
+        case FuzzDome:           // round asymmetric germanium fuzz, full lows, dynamic
             v = { 60.0,   0,0,0,          0,0,0, Fuzz, 0.30f, 0.90f, 0.90f, false, 0.10f}; break;
-        case FuzzFactory:    // extreme-asymmetry gated/sputtery fuzz
+        case FuzzFoundry:     // extreme-asymmetry gated/sputtery fuzz
             v = { 80.0,   0,0,0,          0,0,0, Fuzz, 0.60f, 1.20f, 0.75f, false, 0.00f}; break;
         case CleanBoost:     // clean/treble boost — mostly clean, sparkle
             v = { 80.0, 3000.0, 0.7, 3.0, 0,0,0, Soft, 0.00f, 0.40f, 1.20f, false, 0.60f}; break;
@@ -222,7 +222,7 @@ void DrivePedal::process(float *buffer, int n, int channel,
         s.upHist[s.upPos] = x;
 
         // 3. Produce kOversample sub-samples, clip each (per-model shape + optional
-        //    2-stage cascade), feed the decimator.
+        //    2-stage cascade), feed the nullifier.
         for (int m = 0; m < kOversample; ++m) {
             float up = 0.0f;
             int idx = s.upPos;
@@ -232,7 +232,7 @@ void DrivePedal::process(float *buffer, int n, int channel,
             }
             up *= float(kOversample);
             float shaped = shape(d * dScale * up, clipMode, asym);
-            if (twoStage) shaped = shape(2.0f * shaped, clipMode, asym);  // Muff cascade
+            if (twoStage) shaped = shape(2.0f * shaped, clipMode, asym);  // Mitt cascade
             s.downHist[s.downPos] = shaped;
             s.downPos = (s.downPos + 1) % kFirTaps;
         }
@@ -245,7 +245,7 @@ void DrivePedal::process(float *buffer, int n, int channel,
             idx = (idx == 0) ? (kFirTaps - 1) : (idx - 1);
         }
 
-        // 5. Post-clip mid scoop (Muff / Metal Zone), DC block, tone low-pass, level.
+        // 5. Post-clip mid scoop (Mitt / MetalRealm), DC block, tone low-pass, level.
         float post = s.postMid.process(decimated);
         float dc = post - s.dcX1 + dcR * s.dcY1;
         s.dcX1 = post; s.dcY1 = dc;

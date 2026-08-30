@@ -130,7 +130,7 @@ void AnalogAmp::configure(const AmpProfile &p) noexcept {
     // what keeps the Legacy voicing byte-identical.
     //
     // A corner AT OR ABOVE the base Nyquist is skipped rather than designed. The
-    // JC-120's Miller poles sit at 25 kHz — above 48 kHz Nyquist — which is
+    // RM-140's Miller poles sit at 25 kHz — above 48 kHz Nyquist — which is
     // physically "this stage does not roll off inside the audio band", but which
     // an RBJ design turns into nonsense coefficients (the first build of this
     // produced NaN for the whole amp). Skipping is both the correct filter and
@@ -205,7 +205,7 @@ void AnalogAmp::process(float *buffer, int n, int channel, float drive) noexcept
         s.upHist[s.upPos] = x;
 
         // 3. Produce kOversample sub-samples, run the WHOLE stage cascade on each
-        //    (one up/down conversion covers N stages), feed the decimator.
+        //    (one up/down conversion covers N stages), feed the nullifier.
         float decimated = 0.0f;
         for (int m = 0; m < kOversample; ++m) {
             // Polyphase interpolation for sub-phase m: taps fir_[m + j*kOversample].

@@ -155,7 +155,7 @@ public final class RigAUParameterBridge {
             // ONLY LINK KNOBS THE AMP ACTUALLY HAS. `pushContinuousToParameters`
             // reads `values[param] ?? 0`, so a link to a knob this model does not
             // expose would push knob-0 — e.g. Volume 0.2× on every amp that is not
-            // a Katana, silencing it. The per-item knob list is the authority.
+            // a Kabuto, silencing it. The per-item knob list is the authority.
             let owns = Set(amp.parameters.map(\.name))
             list.append(ParamLink(itemId: id, param: "Gain",
                                   address: UInt64(SRParamAmpDrive.rawValue),

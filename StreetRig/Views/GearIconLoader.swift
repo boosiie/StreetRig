@@ -7,13 +7,22 @@
 //  hand-drawn `GearArtView` vector art everywhere that piece is shown (the MY
 //  GEAR rail, the GEAR LIBRARY tab, cards, the rig stage, and the zoom detail).
 //
-//  HOW IT WORKS — no manifest, no data-model change, no in-app UI:
-//    A piece is matched to an asset purely by NAME CONVENTION at render time.
-//    Take the piece's display name, slug it (see `slug(_:)`), and look for an
-//    image of that name in `Assets.xcassets`. If one exists it wins; if not,
-//    the caller falls back to the existing procedural art. This mirrors the
-//    `GearItem.modelName` .usdz seam, but resolved by name instead of a stored
-//    field — so already-saved rigs keep working untouched.
+//  HOW IT WORKS — no manifest, no in-app UI:
+//    A piece is matched to an asset by its CATALOG ID (`GearCatalog.id(for:)`) —
+//    the permanent identifier written out beside each model in
+//    `RigStore.allModels`. Look for an image of that name in `Assets.xcassets`;
+//    if one exists it wins, and if not the caller falls back to the procedural
+//    art.
+//
+//    It used to key off the DISPLAY NAME, slugged. That worked right up until a
+//    model was renamed, at which point the picture silently stopped resolving —
+//    no error, no log, just the grey procedural box where a drawing had been. It
+//    happened twice, and both times the only cure was to throw the player's saved
+//    rig away (`RigStore.catalogVersion`). An id cannot be renamed, so it cannot
+//    do that; the display name is now ordinary text.
+//
+//    Gear with no catalog entry — anything hand-named — still resolves by
+//    slugging its name, which is the only key it has.
 //
 //  ALSO THE 3D STAGE. The icon is no longer 2D-only: when no custom `.usdz`
 //  exists, `ProceduralAmp` textures the amp head's and cabinet's front faces
@@ -22,8 +31,9 @@
 //  library, the rail AND the diorama.
 //
 //  TO ADD A CUSTOM ICON (designer workflow — see GearIcons-README.md):
-//    1. Slug the piece's name with the rule below ("ProCon RAT" ->
-//       "procon-rat").
+//    1. Take the piece's catalog ID from `RigStore.allModels` ("ProForge SHREW"
+//       is filed under "proforge-shrew"). For a NEW model, mint one with
+//       `slug(_:)` below, then never change it.
 //    2. Create `StreetRig/Assets.xcassets/<slug>.imageset/` on disk, drop in a
 //       PNG (or a preserve-vector PDF) and a `Contents.json`. Xcode-16
 //       synchronized file groups pick it up automatically — no project.pbxproj
@@ -41,7 +51,11 @@ import UIKit
 /// catalog — could be swapped later without touching call sites.
 enum GearIconLoader {
 
-    /// Turn a gear display name into its asset name.
+    /// Turn a name into a slug.
+    ///
+    /// This is how a catalog ID is MINTED (once, when a model is first added) and
+    /// how gear with no catalog entry is resolved. It is NOT how a shipped model
+    /// is looked up any more — see `uiImage(for:)`.
     ///
     /// Rule (this MUST stay in lock-step with GearIcons-README.md):
     ///   lowercase, replace every maximal run of characters NOT in `[a-z0-9]`
@@ -49,11 +63,11 @@ enum GearIconLoader {
     ///   Regex form: replace `[^a-z0-9]+` with `-`, then trim `-`.
     ///
     /// Examples:
-    ///   "Ibonez Tube Screamer"         -> "ibonez-tube-screamer"
-    ///   "electro-harmonium BIG MUFF π" -> "electro-harmonium-big-muff"
-    ///   "Fullstone Deja'Vibe"          -> "fullstone-deja-vibe"
-    ///   "Marswell JCM800 2203"         -> "marswell-jcm800-2203"
-    ///   "Fandor Bassman '59"           -> "fandor-bassman-59"
+    ///   "Iberon Valve Shrieker"         -> "iberon-valve-shrieker"
+    ///   "electro-galvanic BIG MITT Ω" -> "electro-galvanic-big-mitt"
+    ///   "Fullbrook Lucid'Vibe"          -> "fullbrook-lucid-vibe"
+    ///   "Marswell MSW900 2140"         -> "marswell-msw900-2140"
+    ///   "Fandor Bassdude '59"           -> "fandor-bassdude-59"
     static func slug(_ name: String) -> String {
         let dashed = name
             .lowercased()
@@ -89,7 +103,11 @@ enum GearIconLoader {
         // header placeholders use `GearItem(name: "", ...)`) -> skip lookup and
         // let the procedural art render, exactly as today.
         guard let item else { return nil }
-        let key = slug(item.name)
+        // Identity, not the display name: a piece's art is filed under its frozen
+        // `catalogID` (see GearCatalog), so re-titling a model no longer orphans
+        // its picture. Gear with no catalog entry — anything hand-made — still
+        // resolves by slugging its name, which is the only key it has.
+        let key = GearCatalog.id(for: item) ?? slug(item.name)
         guard !key.isEmpty else { return nil }
 
         // 1. Bespoke, per-piece icon.

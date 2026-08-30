@@ -1,7 +1,7 @@
-# Making Every Amp Sound Like a Different Amp — Architecture & Katana Specification
+# Making Every Amp Sound Like a Different Amp — Architecture & Kabuto Specification
 
 **Status:** decision-ready · **Date:** 2026-08-19 · **Scope:** the per-amp voicing architecture for
-StreetRig's DSP engine (`StreetRigEngine/Audio/`), with the **VOSS Katana 100** specified in full as
+StreetRig's DSP engine (`StreetRigEngine/Audio/`), with the **BRIG Kabuto 100** specified in full as
 both the first profile and the template every other amp is expressed in.
 
 > Companion to `research/pedal-emulation-approaches.md` (the same problem for the 47 pedals) and
@@ -13,8 +13,8 @@ both the first profile and the template every other amp is expressed in.
 fixed voicing (95 Hz high-pass → asymmetric `tanh` at 4× oversampling → 8 kHz low-pass) and
 `ToneStack` is one fixed 4-band EQ with hard-coded centres (100 / 650 / 3200 / 6000 Hz). The amp's
 *name* is read in exactly two places — `ParameterMap.cabSlot(name:)` picks one of two cab IRs, and
-`ParameterMap.ampUsesNeural(name:)` returns a hard-coded `true`. A Marswell JCM800, a Fandor Twin
-Reverb, a Volt AC30 and a Rolund JC-120 are, in the DSP, the same amp with different artwork.
+`ParameterMap.ampUsesNeural(name:)` returns a hard-coded `true`. A Marswell MSW900, a Fandor Tandem
+Reverb, a Vane HV28 and a Rondell RM-140 are, in the DSP, the same amp with different artwork.
 
 **Direction chosen (decided by the project owner — recorded, not re-litigated):**
 
@@ -26,25 +26,25 @@ Reverb, a Volt AC30 and a Rolund JC-120 are, in the DSP, the same amp with diffe
    circuit modeling for the analogous gain-stage problem. **The neural rail is preserved as a slot
    inside the profile** (`AmpProfile::neuralModel`) so a rights-cleared capture can later ride the
    same architecture without rework — see §2.6.
-2. **Full Katana panel scope** — five characters, the variation switch, 3-band EQ + presence,
+2. **Full Kabuto panel scope** — five characters, the variation switch, 3-band EQ + presence,
    gain / volume / master, 0.5 W / 50 W / 100 W power control, the Booster / Mod / FX / Delay /
    Reverb section, and channel presets.
-3. **Delay and reverb ship as shared `PedalChain` blocks**, not Katana-internal FX. They also
-   unblock the five currently-silent catalog pedals (VOSS Digital Delay, DUNLAP ECHOPLEX,
-   electro-harmonium MEMORY MAN, VOSS Reverb, electro-harmonium HOLY GRAIL). The Katana's FX section
+3. **Delay and reverb ship as shared `PedalChain` blocks**, not Kabuto-internal FX. They also
+   unblock the five currently-silent catalog pedals (BRIG Digital Delay, DUNRIDGE ECHOREEL,
+   electro-galvanic REVERIE MATE, BRIG Reverb, electro-galvanic GOLDEN FLEECE). The Kabuto's FX section
    *routes through* those shared blocks.
 4. **Verification is ear-tuning on real hardware** through an iRig. Every hard-coded number
    therefore ships with a listening cue and a confidence flag — §11.
 
-**The tension, resolved up front.** The Katana is itself a digital modeling amp: simulating it is
-simulating a simulator. Its "Brown" is Boss's model of a modded Marshall; its "Clean" is a
-Roland/JC-flavoured clean. **This is an asset.** It means the Katana's five characters are a natural
+**The tension, resolved up front.** The Kabuto is itself a digital modeling amp: simulating it is
+simulating a simulator. Its "Brown" is Brig's model of a modded Marswell; its "Clean" is a
+Rondell/JC-flavoured clean. **This is an asset.** It means the Kabuto's five characters are a natural
 stress test of the schema: each character must be expressible as a profile in *exactly* the same
-schema a standalone Marshall or Fender profile uses. §4 does that — all ten Katana character ×
-variation voicings are ordinary `AmpProfile` rows sitting in the same table as the JCM800 and the
-Twin. **If a character had needed a special case the schema could not express, the schema would be
+schema a standalone Marswell or Fandor profile uses. §4 does that — all ten Kabuto character ×
+variation voicings are ordinary `AmpProfile` rows sitting in the same table as the MSW900 and the
+Tandem. **If a character had needed a special case the schema could not express, the schema would be
 wrong.** Two came close and both were absorbed by adding one general field each: the Acoustic
-character's speakerless voicing became `AmpProfile::bypassCab`, and the Vox Cut control (a knob that
+character's speakerless voicing became `AmpProfile::bypassCab`, and the Vane Cut control (a knob that
 works *backwards*) became a negative `ToneBand::rangeScale`. Both fields are now available to every
 amp.
 
@@ -59,8 +59,8 @@ amp.
    preamp stage, an idealized flat-at-noon tone stack, no power amp, no transformer, and a cab IR.
    §1 grounds each subsystem in circuit reality and states what the first pass should model.
 2. **The single highest-value change is the tone stack's `noonDB`.** A real passive TMB stack is
-   *not* flat with the knobs at noon — a Fender scoops ~11 dB at ~400 Hz, a Marshall ~7 dB at
-   ~650 Hz, a Vox barely scoops at all and is mid-*forward*. StreetRig's `ToneStack` is flat at
+   *not* flat with the knobs at noon — a Fandor scoops ~11 dB at ~400 Hz, a Marswell ~7 dB at
+   ~650 Hz, a Vane barely scoops at all and is mid-*forward*. StreetRig's `ToneStack` is flat at
    noon for every amp, which is precisely why they all sound the same even before the gain stages
    are considered. One new field per band fixes the largest audible gap for almost no CPU.
 3. **The deliverable is `struct AmpProfile`** (§2) — a `constexpr`-friendly POD resolved once at
@@ -69,9 +69,9 @@ amp.
    audio-thread allocation. Selected from a catalog name by `ParameterMap.ampProfile(...)`, mirroring
    `ParameterMap.pedalVoicing(name:category:)`. `AmpVoicing::Legacy = 0` reproduces today's voicing
    **exactly**, and any amp not in the table resolves to it — that is the back-compat guarantee.
-4. **The schema is proved on six catalog amps with concrete numbers** (§3): `Marswell JCM800 2203`,
-   `Fandor Twin Reverb`, `Volt AC30`, `Rolund JC-120 Jazz Chorus`, `Fandor Bassman '59`, and the ten
-   `VOSS Katana 100` voicings. No Katana-specific special cases exist anywhere in the schema.
+4. **The schema is proved on six catalog amps with concrete numbers** (§3): `Marswell MSW900 2140`,
+   `Fandor Tandem Reverb`, `Vane HV28`, `Rondell RM-140 Velvet Chorus`, `Fandor Bassdude '59`, and the ten
+   `BRIG Kabuto 100` voicings. No Kabuto-specific special cases exist anywhere in the schema.
 5. **Keep one oversampled region, add one small one.** The preamp cascade widens inside `AnalogAmp`'s
    existing 4× region (from one waveshaper to N stages). The tone stack stays exactly where it is, at
    base rate, with its coefficient double-buffer untouched — only the *design inputs* become
@@ -80,7 +80,7 @@ amp.
 6. **Per-amp voicing is very likely CPU-negative, not positive** (§10). Profiled amps turn the
    neural rail *off* (`ampUsesNeural` returns false when a profile exists), and RealtimeSafety.md
    records that the LSTM forward pass dominates the ≈5.7 % amp→cab cost. Removing ~4–5 % of LSTM and
-   adding ~2–3 % of profile chain lands the full Katana panel comfortably inside the ~7.74 %
+   adding ~2–3 % of profile chain lands the full Kabuto panel comfortably inside the ~7.74 %
    full-board budget — probably below it.
 7. **Structural vs continuous, decided per control** (§9.2). Character and Variation are structural
    (they redesign filters → fade/park rebuild). **Power is continuous** — it maps to four smoothly
@@ -92,10 +92,10 @@ amp.
    known-good constants, so the implementation is transcription rather than invention, which is this
    document's whole purpose. Neither adds reported latency; the cab convolver's 128 samples stays
    the only latency in the graph.
-9. **Ship in two phases** (§12). **Phase A** (prompt 002) is the profile architecture + Katana core
+9. **Ship in two phases** (§12). **Phase A** (prompt 002) is the profile architecture + Kabuto core
    (characters, variation, EQ, power amp) and is independently shippable: on its own it makes the six
    catalog amps measurably and audibly different. **Phase B** (prompt 003) is the shared delay +
-   reverb blocks, the Katana FX section and presets.
+   reverb blocks, the Kabuto FX section and presets.
 
 ---
 
@@ -113,22 +113,22 @@ should, and roughly what it costs.
 | 4 | Output transformer / speaker damping | ❌ not modeled | ⚠️ partial — two first-order rolloffs; frequency-dependent damping deferred | ~6 flops |
 | 5 | Cabinet | ✅ partitioned-FFT IR convolver | ✅ unchanged; grow the slot count | unchanged (< 0.2 % measured) |
 
-### 1.1 Preamp gain staging — why a JCM800 is tight and a Twin is loud-and-clean
+### 1.1 Preamp gain staging — why a MSW900 is tight and a Tandem is loud-and-clean
 
 A waveshaper's *character* is set less by its transfer curve than by **what reaches it**. Between two
 cascaded valve stages sit three first-order filters, and they are the reason two amps with the same
 clipping curve sound nothing alike:
 
-- **The coupling capacitor + next grid leak** form a high-pass. Small coupling caps (Marshall
+- **The coupling capacitor + next grid leak** form a high-pass. Small coupling caps (Marswell
   0.0022 µF in the cascade) shave bass *before* the next stage distorts, so lows stay articulate under
-  gain. Big caps (Fender 0.1 µF) pass everything, so the whole spectrum distorts together and gets
-  flubby — which is why Fenders are voiced not to distort at all.
+  gain. Big caps (Fandor 0.1 µF) pass everything, so the whole spectrum distorts together and gets
+  flubby — which is why Fandors are voiced not to distort at all.
 - **The cathode-bypass network** is the differentiator most models omit. A fully bypassed cathode
-  (Fender's 1.5 k + 25 µF ≈ 4 Hz corner) amplifies the entire band flat. A *partially* bypassed
-  cathode (Marshall's 2.7 k + 0.68 µF) is a **shelf**: the corner is not `1/(2πR_k C_k)` but
+  (Fandor's 1.5 k + 25 µF ≈ 4 Hz corner) amplifies the entire band flat. A *partially* bypassed
+  cathode (Marswell's 2.7 k + 0.68 µF) is a **shelf**: the corner is not `1/(2πR_k C_k)` but
   `1/(2π (R_k ∥ 1/g_m) C_k)`, which for a 12AX7 (`1/g_m ≈ 600 Ω`) lands near **480 Hz, lifting
   roughly +8 dB above it**. Everything below 480 Hz gets ~8 dB *less* gain into the next stage. That
-  single shelf is most of the "crispy-crunchy" Marshall high-treble character — and StreetRig models
+  single shelf is most of the "crispy-crunchy" Marswell high-treble character — and StreetRig models
   none of it today.
 - **The Miller pole** (stage output low-pass, ~15–25 kHz) rolls the top before the next stage's clip,
   keeping cascaded gain from turning into fizz.
@@ -139,25 +139,25 @@ circuit.** Using biquads here would cost 3× for no extra truth. This is a delib
 
 ### 1.2 Tone stack — the real differentiator, and the one currently wrong
 
-Fender, Marshall and Vox all use the same **TMB** network Fender shipped in the 1957 5F6-A Bassman.
+Fandor, Marswell and Vane all use the same **TMB** network Fandor shipped in the 1957 5F6-A Bassdude.
 They differ in component values, and those values move three things that matter:
 
 | | Slope resistor | Mid pot | Mid-notch centre | Scoop at noon | Character |
 |---|---|---|---|---|---|
-| **Fender** (AB763 / 5F6-A) | 100 k | 10 k (blackface) / 250 k (tweed) | **~400 Hz** | **deep** | scooped, big clean headroom |
-| **Marshall** (JTM45 → JCM800) | **33 k** | 25 k | **~650–700 Hz** | shallow | mid-forward, "present" |
-| **Vox** (AC30 top boost) | — (2-band + post-PI Cut) | none | ~700 Hz nominal | **none — mid-forward** | chime; the Cut control works *backwards* |
+| **Fandor** (AB763 / 5F6-A) | 100 k | 10 k (blackface) / 250 k (tweed) | **~400 Hz** | **deep** | scooped, big clean headroom |
+| **Marswell** (JTM45 → MSW900) | **33 k** | 25 k | **~650–700 Hz** | shallow | mid-forward, "present" |
+| **Vane** (HV28 top boost) | — (2-band + post-PI Cut) | none | ~700 Hz nominal | **none — mid-forward** | chime; the Cut control works *backwards* |
 
 Three consequences for the schema:
 
 1. **A passive stack is not flat at noon.** It is a fixed scoop plus a large insertion loss (roughly
    −12 to −16 dB, recovered by the following stage). `ToneStack` today is flat at noon for every amp.
    **`ToneBand::noonDB` is the field that fixes this**, and it is the cheapest large win available.
-2. **The controls interact.** On a Fender, turning Bass up *deepens* the mid notch, because the mid
+2. **The controls interact.** On a Fandor, turning Bass up *deepens* the mid notch, because the mid
    pot's resistance below its wiper is added to the treble filter's resistance. This is captured by
    one scalar, `ToneStackVoicing::bassEatsMid`, applied when coefficients are recomputed — i.e. on the
    main thread, at **zero audio-thread cost**.
-3. **A knob can run backwards.** The Vox Cut attenuates treble as you turn it *up*. Expressed as a
+3. **A knob can run backwards.** The Vane Cut attenuates treble as you turn it *up*. Expressed as a
    negative `ToneBand::rangeScale`, with no special case.
 
 We keep the idealized shelf/peak/shelf/shelf realization (four RBJ biquads) rather than digitizing
@@ -172,18 +172,18 @@ oversight — §13 Open Question 7.
 
 Four behaviours, all currently absent:
 
-- **Headroom / output-stage clipping.** Where the output valves run out of swing. A Twin's 6L6 pair
-  with a stiff supply has enormous headroom; an AC30's cathode-biased EL84 quartet runs out early and
-  *that* is the AC30. Modeled as `PowerAmpVoicing::headroom` — the linear level at which the output
+- **Headroom / output-stage clipping.** Where the output valves run out of swing. A Tandem's 6L6 pair
+  with a stiff supply has enormous headroom; an HV28's cathode-biased EL84 quartet runs out early and
+  *that* is the HV28. Modeled as `PowerAmpVoicing::headroom` — the linear level at which the output
   stage begins to clip — plus a clip family (`ClassAB` symmetric with a crossover knee, `ClassA`
   asymmetric and early, `SolidState` hard, `Clean` bypassed).
 - **Sag.** The supply droops under load and recovers with a time constant, so a hard chord ducks and
-  blooms back. Tube-rectified amps (Bassman '59, GZ34) sag hard; solid-state-rectified amps (Twin)
-  barely do; the JC-120 does not at all. Modeled as an envelope follower reducing `headroom`:
+  blooms back. Tube-rectified amps (Bassdude '59, GZ34) sag hard; solid-state-rectified amps (Tandem)
+  barely do; the RM-140 does not at all. Modeled as an envelope follower reducing `headroom`:
   `sagDepth` (0–1) and `sagTauMs`. Five flops.
 - **The negative-feedback loop.** A global NFB loop from the output transformer back to the phase
-  inverter reduces gain, tightens the low end and *darkens* the top. Marshall and Fender use it
-  heavily; **the AC30 has none**, which is a large part of why it feels loose and touch-responsive.
+  inverter reduces gain, tightens the low end and *darkens* the top. Marswell and Fandor use it
+  heavily; **the HV28 has none**, which is a large part of why it feels loose and touch-responsive.
   Modeled as a static shelf `nfbHz` / `nfbDB` (negative dB = more feedback = tighter and darker),
   with `nfbDB = 0` meaning no NFB at all.
 - **Presence.** In a real amp presence is **not an EQ band** — it is a control *inside the NFB loop*
@@ -198,11 +198,11 @@ Four behaviours, all currently absent:
   need a delay-free feedback path around a nonlinearity — an implicit solve on the audio thread,
   which is the wrong trade for the audible gain. What *does* change is that presence becomes
   **per-amp**: its corner (`presenceHz`), its range (`presenceScale`), and its very existence
-  (`presenceScale = 0` — the JC-120 has no presence control) now come from the profile instead of
+  (`presenceScale = 0` — the RM-140 has no presence control) now come from the profile instead of
   being hard-coded at 6 kHz / ±9 dB for everything.
 
-- **Class A vs Class AB.** Class A (AC30) compresses early and asymmetrically, generating even
-  harmonics; Class AB (Marshall, Fender) stays linear longer, then clips symmetrically with a
+- **Class A vs Class AB.** Class A (HV28) compresses early and asymmetrically, generating even
+  harmonics; Class AB (Marswell, Fandor) stays linear longer, then clips symmetrically with a
   crossover artefact. Captured by `PowerAmpVoicing::clip` + `asym` + `headroom` together, not by a
   separate flag.
 
@@ -212,7 +212,7 @@ A real OT is a bandpass with load-dependent behaviour: it rolls off below ~60–
 ~8–11 kHz, and its LF response *depends on the speaker's impedance curve*, which is what makes a
 cranked amp "bloom". Phase A models the two rolloffs (`otLowHz`, `otHighHz`) as first-order filters —
 six flops, and enough to separate a small EL84 OT (80 Hz / 8 kHz) from a big 6L6 OT (45 Hz / 11 kHz)
-from the JC-120's transformerless direct-coupled output (30 Hz / 14 kHz). **The frequency-dependent
+from the RM-140's transformerless direct-coupled output (30 Hz / 14 kHz). **The frequency-dependent
 damping — the true bloom — is deliberately deferred**; it needs a speaker impedance model in the
 feedback path and belongs with the cab work, not the amp work. Recorded in §12 as a Phase C item.
 
@@ -225,7 +225,7 @@ algorithm**: `AmpCabProcessor::kNumCabSlots = 4` and only **two** IRs ship
 `StreetRigDSPUnit.loadToneAssets`.
 
 Six amps want six distinct boxes (4×12 V30, 2×12 alnico, 2×12 Jensen, 4×10 tweed, 1×12 JC, 1×12
-Katana). **Four slots is not enough — grow `kNumCabSlots` to 8.** The cost is four extra empty
+Kabuto). **Four slots is not enough — grow `kNumCabSlots` to 8.** The cost is four extra empty
 `std::vector<float>` members (≈96 bytes); the IRs themselves are not bundled by this work (the
 constraint forbids downloading assets), so slots 2–7 ship **empty**, and an empty slot installs a
 unit impulse, i.e. a transparent cab — already the behaviour of `AmpCabProcessor::setActiveCabSlot`.
@@ -263,11 +263,11 @@ namespace streetrig {
 /// from DrivePedal::Clip: the amp side needs Clean (bypass the nonlinearity
 /// entirely) and the two output-stage families.
 enum class AmpClip : int {
-    Clean      = 0,  ///< no nonlinearity at all — acoustic voicing, JC-120 headroom
+    Clean      = 0,  ///< no nonlinearity at all — acoustic voicing, RM-140 headroom
     Triode     = 1,  ///< asymmetric tanh — the preamp valve
     Pentode    = 2,  ///< harder knee, more odd harmonics — EL84/EL34 output valve
     ClassAB    = 3,  ///< symmetric push-pull with a crossover knee
-    SolidState = 4   ///< hard clip — JC-120 and the Katana power section
+    SolidState = 4   ///< hard clip — RM-140 and the Kabuto power section
 };
 
 enum class ToneShape : int { LowShelf = 0, Peak = 1, HighShelf = 2 };
@@ -278,7 +278,7 @@ enum class ToneShape : int { LowShelf = 0, Peak = 1, HighShelf = 2 };
 struct PreampStage {
     double  couplingHz = 20.0;      ///< interstage high-pass (coupling cap × grid leak), Hz
     double  cathodeHz  = 0.0;       ///< cathode-bypass shelf corner, Hz. 0 = fully bypassed (flat)
-    float   cathodeDB  = 0.0f;      ///< lift ABOVE cathodeHz, dB. The Marshall crunch lives here
+    float   cathodeDB  = 0.0f;      ///< lift ABOVE cathodeHz, dB. The Marswell crunch lives here
     double  millerHz   = 20000.0;   ///< stage-output low-pass (Miller capacitance), Hz
     float   gain       = 1.0f;      ///< linear gain into this stage's nonlinearity
     float   asym       = 0.05f;     ///< clip bias → even harmonics (tube-like)
@@ -287,12 +287,12 @@ struct PreampStage {
 
 /// One tone-stack band. `noonDB` is what the PASSIVE network does with the knob at
 /// noon — the field today's ToneStack is missing, and the single biggest reason a
-/// Fender and a Marshall currently sound the same.
+/// Fandor and a Marswell currently sound the same.
 struct ToneBand {
     double    hz         = 100.0;
     double    q          = 0.707;
     float     rangeScale = 1.0f;    ///< × the bus dB (1.0 = today's ±12 / ±9 swing).
-                                    ///< NEGATIVE inverts the knob — the Vox "Cut" control.
+                                    ///< NEGATIVE inverts the knob — the Vane "Cut" control.
                                     ///< 0 = this amp has no such control (knob is inert).
     float     noonDB     = 0.0f;    ///< static contribution with the knob at noon
     ToneShape shape      = ToneShape::LowShelf;
@@ -334,7 +334,7 @@ struct AmpProfile {
     PowerAmpVoicing  power;
 
     int   cabSlot   = 0;            ///< preferred IR slot
-    bool  bypassCab = false;        ///< true = no speaker in the model (Katana ACOUSTIC)
+    bool  bypassCab = false;        ///< true = no speaker in the model (Kabuto ACOUSTIC)
     float outTrim   = 1.0f;         ///< level match across profiles
 
     /// Optional per-amp neural capture (resource base name, static storage).
@@ -346,19 +346,19 @@ struct AmpProfile {
 /// Profile ids. APPEND-ONLY. MUST match ParameterMap.amp* (Swift).
 enum AmpVoicing : int {
     Legacy      = 0,   ///< today's fixed voicing — the universal fallback
-    JCM800      = 1,
-    TwinReverb  = 2,
-    AC30        = 3,
-    JC120       = 4,
-    Bassman59   = 5,
-    // 6..9 reserved for four of the five remaining catalog amps (Marswell Plexi Super
-    // Lead 1959, Freedman BE-100, Mesa Boogey Dual Rectifier, Tangerine Rockerverb 100);
-    // Marswell DSL40C and anything later take 20+, which is open.
-    KatanaAcousticA = 10, KatanaAcousticB = 11,
-    KatanaCleanA    = 12, KatanaCleanB    = 13,
-    KatanaCrunchA   = 14, KatanaCrunchB   = 15,
-    KatanaLeadA     = 16, KatanaLeadB     = 17,
-    KatanaBrownA    = 18, KatanaBrownB    = 19
+    MSW900      = 1,
+    TandemReverb  = 2,
+    HV28        = 3,
+    RM-140       = 4,
+    Bassdude59   = 5,
+    // 6..9 reserved for four of the five remaining catalog amps (Marswell Clearpane Super
+    // Lead 1042, Fremont GX-140, Mesquite Bootleg Dual Reactor, Tangerine Rumblecrest 100);
+    // Marswell VCX45C and anything later take 20+, which is open.
+    KabutoAcousticA = 10, KabutoAcousticB = 11,
+    KabutoCleanA    = 12, KabutoCleanB    = 13,
+    KabutoCrunchA   = 14, KabutoCrunchB   = 15,
+    KabutoLeadA     = 16, KabutoLeadB     = 17,
+    KabutoBrownA    = 18, KabutoBrownB    = 19
 };
 
 /// THE ONE AUDITABLE TABLE — the exact shape of DrivePedal::voiceFor(int).
@@ -367,9 +367,9 @@ AmpProfile profileFor(int voicing) noexcept;
 } // namespace streetrig
 ```
 
-**Why the Katana characters are top-level profiles and not a nested "character" field.** Because the
-generalization test demands it. `KatanaBrownA` is an ordinary row in `profileFor` sitting between
-`Bassman59` and nothing special; it has no field the JCM800 lacks. If characters were a sub-structure
+**Why the Kabuto characters are top-level profiles and not a nested "character" field.** Because the
+generalization test demands it. `KabutoBrownA` is an ordinary row in `profileFor` sitting between
+`Bassdude59` and nothing special; it has no field the MSW900 lacks. If characters were a sub-structure
 the schema would be admitting that a modeling amp's voicing is a different *kind* of thing from a
 real amp's voicing — which is exactly the failure this document exists to avoid.
 
@@ -392,9 +392,9 @@ catalog name, so it survives the re-badging, and specific models before generic 
 ```
 // ParameterMap.swift — mirrors streetrig::AmpVoicing (C++). Keep in lockstep.
 public static let ampLegacy = 0
-public static let ampJCM800 = 1, ampTwinReverb = 2, ampAC30 = 3,
-                  ampJC120  = 4, ampBassman59  = 5
-public static let ampKatanaBase = 10        // + character*2 + variation
+public static let ampMSW900 = 1, ampTandemReverb = 2, ampHV28 = 3,
+                  ampRM-140  = 4, ampBassdude59  = 5
+public static let ampKabutoBase = 10        // + character*2 + variation
 
 static func ampProfile(name: String, values: [String: Double]) -> Int
 ```
@@ -403,12 +403,12 @@ Resolution rules, in order:
 
 | Match on lowercased name | Returns |
 |---|---|
-| contains `"katana"` | `ampKatanaBase + character*2 + variation`, where `character = Int(values["Character"] ?? 2)` clamped 0…4 and `variation = Int(values["Variation"] ?? 0)` clamped 0…1 |
-| contains `"jcm800"` or `"2203"` | `ampJCM800` |
-| contains `"twin"` | `ampTwinReverb` |
-| contains `"ac30"` | `ampAC30` |
-| contains `"jc-120"` or `"jc120"` or `"jazz chorus"` | `ampJC120` |
-| contains `"bassman"` | `ampBassman59` |
+| contains `"kabuto"` | `ampKabutoBase + character*2 + variation`, where `character = Int(values["Character"] ?? 2)` clamped 0…4 and `variation = Int(values["Variation"] ?? 0)` clamped 0…1 |
+| contains `"msw900"` or `"2140"` | `ampMSW900` |
+| contains `"tandem"` | `ampTandemReverb` |
+| contains `"hv28"` | `ampHV28` |
+| contains `"rm-140"` or `"rm-140"` or `"velvet chorus"` | `ampRM-140` |
+| contains `"bassdude"` | `ampBassdude59` |
 | anything else | **`ampLegacy`** |
 
 `Character` is stored 0–4 (Acoustic, Clean, Crunch, Lead, Brown) and `Variation` 0–1 — deliberately
@@ -464,12 +464,12 @@ Two guarantees follow, and both are mechanically checkable:
 
    For `Legacy`, **every** one of these is at its neutral value except the input HP, the single
    stage, the last stage's 8 kHz `millerHz` and the four tone bands — so the power stage is a total
-   no-op and the signal path is byte-for-byte today's. For Katana Acoustic, `power.clip == Clean`
+   no-op and the signal path is byte-for-byte today's. For Kabuto Acoustic, `power.clip == Clean`
    skips the output clip while `presenceScale 0.6` and the OT rolloffs still run, which is correct:
    an acoustic preamp has no output valves but does have a tone shelf and a bandwidth.
 2. **Unknown amps resolve to Legacy.** `ampProfile(name:values:)` returns `ampLegacy` for anything
    it does not recognize, so every already-owned rig, every factory preset (which reference
-   pre-rename names like `"Marshall JCM800"` and `"Fender Deluxe"`, see
+   pre-rename names like `"Marswell MSW900"` and `"Fandor Deluxe"`, see
    `StreetRigDSPUnit.makeFactoryRigs`), and every saved host session sounds exactly as it does now.
 
 **Exit test for Phase A:** the offline harness
@@ -508,18 +508,18 @@ values, **M** = derived from topology, **L** = educated guess (these are what §
 
 | Amp | `inputHz` | `brightHz` / `brightDB` | Stages | Stage detail — `couplingHz`, `cathodeHz`/`cathodeDB`, `millerHz`, `gain`, `asym`, `clip` | Conf |
 |---|---|---|---|---|---|
-| **Marswell JCM800 2203** | 72 | 1500 / +4 | **3** | S1 `32, 480/+8, 15000, 2.2, 0.10, Triode`<br>S2 `40, 674/+6, 12000, 2.4, 0.14, Triode`<br>S3 `48, 0/0, 10000, 1.6, 0.08, Triode` | H (cathode corners), M (gains) |
-| **Fandor Twin Reverb** | 30 | 2500 / +3 | **2** | S1 `20, 0/0, 22000, 1.5, 0.03, Triode`<br>S2 `25, 0/0, 20000, 1.4, 0.03, Triode` | H (fully bypassed cathodes), M |
-| **Volt AC30** | 40 | 3000 / +4 | **2** | S1 `25, 0/0, 20000, 1.7, 0.06, Triode`<br>S2 `30, 250/+5, 16000, 2.0, 0.10, Triode` | M |
-| **Rolund JC-120** | 25 | 0 / 0 | **2** | S1 `15, 0/0, 25000, 1.2, 0.00, SolidState`<br>S2 `18, 0/0, 25000, 1.2, 0.00, SolidState` | H (no bright cap, no bias asymmetry), M |
-| **Fandor Bassman '59** | 32 | 1000 / +3 | **2** | S1 `22, 180/+3, 18000, 1.9, 0.08, Triode`<br>S2 `28, 0/0, 18000, 1.8, 0.12, Triode` | M |
-| **VOSS Katana 100** (Crunch A) | 60 | 1800 / +3 | **3** | S1 `34, 420/+6, 16000, 2.0, 0.10, Triode`<br>S2 `42, 600/+5, 13000, 2.1, 0.12, Triode`<br>S3 `50, 0/0, 11000, 1.5, 0.07, Triode` | L (Boss publishes nothing) |
+| **Marswell MSW900 2140** | 72 | 1500 / +4 | **3** | S1 `32, 480/+8, 15000, 2.2, 0.10, Triode`<br>S2 `40, 674/+6, 12000, 2.4, 0.14, Triode`<br>S3 `48, 0/0, 10000, 1.6, 0.08, Triode` | H (cathode corners), M (gains) |
+| **Fandor Tandem Reverb** | 30 | 2500 / +3 | **2** | S1 `20, 0/0, 22000, 1.5, 0.03, Triode`<br>S2 `25, 0/0, 20000, 1.4, 0.03, Triode` | H (fully bypassed cathodes), M |
+| **Vane HV28** | 40 | 3000 / +4 | **2** | S1 `25, 0/0, 20000, 1.7, 0.06, Triode`<br>S2 `30, 250/+5, 16000, 2.0, 0.10, Triode` | M |
+| **Rondell RM-140** | 25 | 0 / 0 | **2** | S1 `15, 0/0, 25000, 1.2, 0.00, SolidState`<br>S2 `18, 0/0, 25000, 1.2, 0.00, SolidState` | H (no bright cap, no bias asymmetry), M |
+| **Fandor Bassdude '59** | 32 | 1000 / +3 | **2** | S1 `22, 180/+3, 18000, 1.9, 0.08, Triode`<br>S2 `28, 0/0, 18000, 1.8, 0.12, Triode` | M |
+| **BRIG Kabuto 100** (Crunch A) | 60 | 1800 / +3 | **3** | S1 `34, 420/+6, 16000, 2.0, 0.10, Triode`<br>S2 `42, 600/+5, 13000, 2.1, 0.12, Triode`<br>S3 `50, 0/0, 11000, 1.5, 0.07, Triode` | L (Brig publishes nothing) |
 
-Read the differences: the Twin's cathodes are fully bypassed (`cathodeHz = 0`) and its couplings are
+Read the differences: the Tandem's cathodes are fully bypassed (`cathodeHz = 0`) and its couplings are
 wide open (20–25 Hz) — it amplifies the whole band flat, which is why it stays clean and loud. The
-JCM800 shelves +8 dB above 480 Hz in the very first stage and high-passes at 32/40/48 Hz between
+MSW900 shelves +8 dB above 480 Hz in the very first stage and high-passes at 32/40/48 Hz between
 stages — it distorts the mids and upper mids while keeping the lows out of the clipper, which is why
-it is tight. The JC-120 uses `SolidState` clips with zero asymmetry — no even harmonics, no tube
+it is tight. The RM-140 uses `SolidState` clips with zero asymmetry — no even harmonics, no tube
 warmth, by design.
 
 ### 3.2 Tone stack
@@ -536,56 +536,56 @@ change. One control, one owner, per profile.
 
 | Amp | Bass (0) | Mid (1) | Treble (2) | Presence (3) | `insertionDB` | `bassEatsMid` | Conf |
 |---|---|---|---|---|---|---|---|
-| **Marswell JCM800 2203** | `90 / 0.70 / 1.0 / −1` | `650 / 0.85 / 0.9 / **−7**` | `2300 / 0.70 / 1.1 / +1` | *skipped* (`rangeScale 0`) | −14 | 0.35 | H (centres), M (noon) |
-| **Fandor Twin Reverb** | `80 / 0.70 / 1.1 / +1` | `400 / 0.90 / 0.8 / **−11**` | `3200 / 0.70 / 1.2 / +2` | *skipped* | −16 | **0.55** | H (centres), M (noon) |
-| **Volt AC30** | `120 / 0.70 / 0.9 / 0` | `700 / 0.60 / **0.35** / **+2**` | `3500 / 0.70 / 1.2 / +2` | *skipped* | −12 | 0.15 | M |
-| **Rolund JC-120** | `90 / 0.70 / 1.1 / 0` | `500 / 0.80 / 1.1 / −3` | `4000 / 0.70 / 1.1 / +1` | *skipped* | **−6** | 0.10 | M |
-| **Fandor Bassman '59** | `85 / 0.70 / 1.1 / 0` | `420 / 0.80 / **1.3** / −6` | `2600 / 0.70 / 1.1 / +1` | *skipped* | −13 | 0.45 | M |
-| **VOSS Katana 100** (all characters) | `110 / 0.70 / 1.0 / †` | `550 / 0.80 / 1.0 / †` | `3000 / 0.70 / 1.0 / †` | *skipped* | **0** | 0.10 | M |
+| **Marswell MSW900 2140** | `90 / 0.70 / 1.0 / −1` | `650 / 0.85 / 0.9 / **−7**` | `2300 / 0.70 / 1.1 / +1` | *skipped* (`rangeScale 0`) | −14 | 0.35 | H (centres), M (noon) |
+| **Fandor Tandem Reverb** | `80 / 0.70 / 1.1 / +1` | `400 / 0.90 / 0.8 / **−11**` | `3200 / 0.70 / 1.2 / +2` | *skipped* | −16 | **0.55** | H (centres), M (noon) |
+| **Vane HV28** | `120 / 0.70 / 0.9 / 0` | `700 / 0.60 / **0.35** / **+2**` | `3500 / 0.70 / 1.2 / +2` | *skipped* | −12 | 0.15 | M |
+| **Rondell RM-140** | `90 / 0.70 / 1.1 / 0` | `500 / 0.80 / 1.1 / −3` | `4000 / 0.70 / 1.1 / +1` | *skipped* | **−6** | 0.10 | M |
+| **Fandor Bassdude '59** | `85 / 0.70 / 1.1 / 0` | `420 / 0.80 / **1.3** / −6` | `2600 / 0.70 / 1.1 / +1` | *skipped* | −13 | 0.45 | M |
+| **BRIG Kabuto 100** (all characters) | `110 / 0.70 / 1.0 / †` | `550 / 0.80 / 1.0 / †` | `3000 / 0.70 / 1.0 / †` | *skipped* | **0** | 0.10 | M |
 | **`Legacy`** (today, unchanged) | `100 / 0.70 / 1.0 / 0` | `650 / 0.70 / 1.0 / 0` | `3200 / 0.70 / 1.0 / 0` | `6000 / 0.70 / **1.0** / 0` | 0 | 0.00 | — (matches the code) |
 
-† The Katana shares all four band centres, Qs and ranges across its ten voicings, but each voicing
+† The Kabuto shares all four band centres, Qs and ranges across its ten voicings, but each voicing
 carries its own `noonDB` set — the "Tone `noonDB` B/M/T/P" column of §4.3. They average close to zero,
 which is the point (see below).
 
 Three things this table proves:
 
-- **The Vox Cut is expressible with no special case** — `power.presenceScale = −0.8` (§3.3), and the
+- **The Vane Cut is expressible with no special case** — `power.presenceScale = −0.8` (§3.3), and the
   knob works backwards, which is what the real control does. The same negative-scale mechanism is
   available on any of the four tone bands too.
-- **"This amp has no such control" is expressible** — `power.presenceScale = 0.0` on the JC-120. The
+- **"This amp has no such control" is expressible** — `power.presenceScale = 0.0` on the RM-140. The
   shelf still exists in the DSP, contributes nothing, and the per-item knob list (§7.8) simply does
   not show a Presence knob for that amp.
-- **The Katana is the one amp whose stack really is flat at noon** (`noonDB ≈ 0`, `insertionDB = 0`),
-  because it is a digital EQ Boss designed to be neutral at centre. Which is exactly why StreetRig's
-  current fixed `ToneStack` already, accidentally, sounds most like a Katana — and least like
+- **The Kabuto is the one amp whose stack really is flat at noon** (`noonDB ≈ 0`, `insertionDB = 0`),
+  because it is a digital EQ Brig designed to be neutral at centre. Which is exactly why StreetRig's
+  current fixed `ToneStack` already, accidentally, sounds most like a Kabuto — and least like
   everything else.
 
 ### 3.3 Power amp and output transformer
 
 | Amp | `headroom` | `clip` | `asym` | `sagDepth` / `sagTauMs` | `nfbHz` / `nfbDB` | `presenceHz` / `presenceScale` | `otLowHz` / `otHighHz` | Conf |
 |---|---|---|---|---|---|---|---|---|
-| **Marswell JCM800 2203** | 0.75 | `ClassAB` | 0.05 | 0.18 / 45 | 2200 / −3.0 | 3500 / 1.0 | 65 / 9000 | M |
-| **Fandor Twin Reverb** | **1.60** | `ClassAB` | 0.02 | **0.06** / 30 | 1800 / **−5.0** | 4500 / 0.8 | 45 / 11000 | H (heavy NFB, stiff supply), M |
-| **Volt AC30** | **0.55** | **`ClassA`** | **0.18** | **0.35** / 80 | **0 / 0.0** | 4000 / **−0.8** | 80 / 8000 | H (cathode bias, no NFB), M |
-| **Rolund JC-120** | **3.00** | **`SolidState`** | 0.00 | **0.00** / 0 | 0 / 0.0 | 6000 / **0.0** | 30 / 14000 | H |
-| **Fandor Bassman '59** | 0.85 | `ClassAB` | 0.10 | **0.30** / 60 | 2500 / −2.0 | 3000 / 0.9 | 70 / 8500 | H (GZ34 sag), M |
-| **VOSS Katana 100** | per voicing, §4.3 (× power scale, §4.4) | `ClassAB` | 0.04 | per voicing / 40 | 2400 / −3.0 | 5000 / per voicing | 55 / 10000 | L |
+| **Marswell MSW900 2140** | 0.75 | `ClassAB` | 0.05 | 0.18 / 45 | 2200 / −3.0 | 3500 / 1.0 | 65 / 9000 | M |
+| **Fandor Tandem Reverb** | **1.60** | `ClassAB` | 0.02 | **0.06** / 30 | 1800 / **−5.0** | 4500 / 0.8 | 45 / 11000 | H (heavy NFB, stiff supply), M |
+| **Vane HV28** | **0.55** | **`ClassA`** | **0.18** | **0.35** / 80 | **0 / 0.0** | 4000 / **−0.8** | 80 / 8000 | H (cathode bias, no NFB), M |
+| **Rondell RM-140** | **3.00** | **`SolidState`** | 0.00 | **0.00** / 0 | 0 / 0.0 | 6000 / **0.0** | 30 / 14000 | H |
+| **Fandor Bassdude '59** | 0.85 | `ClassAB` | 0.10 | **0.30** / 60 | 2500 / −2.0 | 3000 / 0.9 | 70 / 8500 | H (GZ34 sag), M |
+| **BRIG Kabuto 100** | per voicing, §4.3 (× power scale, §4.4) | `ClassAB` | 0.04 | per voicing / 40 | 2400 / −3.0 | 5000 / per voicing | 55 / 10000 | L |
 
-The AC30 row is the one to read carefully: `ClassA` + `headroom 0.55` + `asym 0.18` + `sagDepth 0.35`
-+ **`nfbDB = 0`** together *are* "cathode-biased EL84s with no negative feedback". The JC-120 row is
+The HV28 row is the one to read carefully: `ClassA` + `headroom 0.55` + `asym 0.18` + `sagDepth 0.35`
++ **`nfbDB = 0`** together *are* "cathode-biased EL84s with no negative feedback". The RM-140 row is
 its opposite in every field. Neither needed a flag the other lacks.
 
 ### 3.4 Cab pairing, trim and engine
 
 | Amp | Intended box | Phase A slot (only 2 IRs bundled) | Target slot when IRs exist | `bypassCab` | `outTrim` | `neuralModel` |
 |---|---|---|---|---|---|---|
-| **Marswell JCM800 2203** | 4×12 V30 | **0** | 0 | false | 1.00 | `nullptr` |
-| **Fandor Twin Reverb** | 2×12 Jensen | **1** | 2 | false | 0.95 | `nullptr` |
-| **Volt AC30** | 2×12 alnico blue | **1** | 3 | false | 1.00 | `nullptr` |
-| **Rolund JC-120** | 2×12 JC (bright) | **1** | 4 | false | 0.95 | `nullptr` |
-| **Fandor Bassman '59** | 4×10 tweed | **0** | 5 | false | 1.05 | `nullptr` |
-| **VOSS Katana 100** | 1×12 | **1** | 6 | false (Acoustic: **true**) | 1.00 | `nullptr` |
+| **Marswell MSW900 2140** | 4×12 V30 | **0** | 0 | false | 1.00 | `nullptr` |
+| **Fandor Tandem Reverb** | 2×12 Jensen | **1** | 2 | false | 0.95 | `nullptr` |
+| **Vane HV28** | 2×12 alnico blue | **1** | 3 | false | 1.00 | `nullptr` |
+| **Rondell RM-140** | 2×12 JC (bright) | **1** | 4 | false | 0.95 | `nullptr` |
+| **Fandor Bassdude '59** | 4×10 tweed | **0** | 5 | false | 1.05 | `nullptr` |
+| **BRIG Kabuto 100** | 1×12 | **1** | 6 | false (Acoustic: **true**) | 1.00 | `nullptr` |
 
 `ParameterMap.cabSlot(name:)` keeps its current substring behaviour for Legacy amps; for profiled
 amps `AmpProfile::cabSlot` wins. The Phase A column is what actually ships — with two IRs, the six
@@ -594,7 +594,7 @@ recorded limitation, not a design flaw.
 
 ---
 
-## 4. The Katana in full
+## 4. The Kabuto in full
 
 ### 4.1 What the panel is, and how it decomposes
 
@@ -611,29 +611,29 @@ recorded limitation, not a design flaw.
 | Booster / Mod / FX / Delay / Reverb | 5 effect blocks | `PedalChain` slots across three spans, §4.5 |
 | Channel memories | preset recall | `RigStore.PersistedState` / AUv3 presets, §4.6 |
 
-**Volume vs Master is not cosmetic.** On a real Katana, Volume sets how hard the character drives the
-power section and Master sets the room level — which is exactly why Katana players talk about the two
+**Volume vs Master is not cosmetic.** On a real Kabuto, Volume sets how hard the character drives the
+power section and Master sets the room level — which is exactly why Kabuto players talk about the two
 knobs the way they do. StreetRig has only had `ampDrive` (into the preamp) and `ampMakeup` (final
 out). Adding `SRParamAmpVolume` *between the tone stack and the power amp* makes the topology correct
-and gives every amp — not just the Katana — a working master-volume architecture. Legacy amps default
+and gives every amp — not just the Kabuto — a working master-volume architecture. Legacy amps default
 it to unity, so nothing changes for them.
 
 ### 4.2 The five characters as five profiles
 
-Each character is Boss's model of something. Voiced accordingly — exact per-variation numbers are in
+Each character is Brig's model of something. Voiced accordingly — exact per-variation numbers are in
 §4.3; this table is the intent behind them.
 
-| Character | What Boss is modeling | Preamp shape | The fields that carry the character |
+| Character | What Brig is modeling | Preamp shape | The fields that carry the character |
 |---|---|---|---|
 | **Acoustic** | An acoustic / DI preamp, **not a guitar amp** | 1 stage, `AmpClip::Clean` — no nonlinearity at all | **`bypassCab = true`**, `power.clip = Clean`, `headroom 4.0`, `sagDepth 0`, `nfbDB 0`, `otHighHz 16000` |
-| **Clean** | Roland JC-120 (Var A) / Fender (Var B) | 2 stages. **A** fully bypassed cathodes + `SolidState` clip; **B** shelves stage 2 at 300 Hz and uses `Triode` | high `headroom` (2.20 / 1.70), `sagDepth` 0.05 / 0.10 |
-| **Crunch** | A driven tube amp — Vox chime (A) into plexi push (B) | 3 stages, partially bypassed cathodes | `headroom` 1.00 / 0.90, `sagDepth` ~0.20. This is the reference row in §3 |
+| **Clean** | Rondell RM-140 (Var A) / Fandor (Var B) | 2 stages. **A** fully bypassed cathodes + `SolidState` clip; **B** shelves stage 2 at 300 Hz and uses `Triode` | high `headroom` (2.20 / 1.70), `sagDepth` 0.05 / 0.10 |
+| **Crunch** | A driven tube amp — Vane chime (A) into clearpane push (B) | 3 stages, partially bypassed cathodes | `headroom` 1.00 / 0.90, `sagDepth` ~0.20. This is the reference row in §3 |
 | **Lead** | Thick, saturated modern high gain | **4 stages**, aggressive interstage high-pass | `headroom` 0.85 / 0.80, `sagDepth` ~0.25, mid-forward `noonDB` |
-| **Brown** | Modded Marshall / EVH "brown sound" | **4 stages**, hottest gains, tightest lows (`inputHz` up to 105) | `headroom` 0.80 / 0.75, `sagDepth` ~0.29, the highest stage gains in the table |
+| **Brown** | Modded Marswell / EVH "brown sound" | **4 stages**, hottest gains, tightest lows (`inputHz` up to 105) | `headroom` 0.80 / 0.75, `sagDepth` ~0.29, the highest stage gains in the table |
 
 ### 4.3 All ten voicings — character × variation
 
-**The variation rule.** Boss does not publish what Variation changes per character, and it differs
+**The variation rule.** Brig does not publish what Variation changes per character, and it differs
 per character on the real amp. Rather than guess ten unrelated things, Phase A adopts one *stated,
 consistent* rule that is easy to A/B against hardware and easy to correct per character afterwards:
 
@@ -649,9 +649,9 @@ highest-value rows for the owner's ear-tuning pass.
 | 10 | **Acoustic A** (bright, steel-string) | 1 | `1.0` | 40 | `20` | `0/0` | 4.00 | 0.00 | `+2 / −4 / +4` | 0.60 | **true** | 0.90 |
 | 11 | **Acoustic B** (warm, nylon-ish) | 1 | `1.0` | 45 | `26` | `0/0` | 4.00 | 0.00 | `+3 / −2 / +1` | 0.40 | **true** | 0.90 |
 | 12 | **Clean A** (JC-flavoured) | 2 | `1.3, 1.3` | 30 | `18, 22` | `0/0`, `0/0` | 2.20 | 0.05 | `0 / −2 / +1` | 0.90 | false | 1.00 |
-| 13 | **Clean B** (Fender-ish, earlier breakup) | 2 | `1.6, 1.5` | 36 | `24, 30` | `0/0`, `300/+3` | 1.70 | 0.10 | `+1 / −4 / +2` | 1.00 | false | 1.00 |
+| 13 | **Clean B** (Fandor-ish, earlier breakup) | 2 | `1.6, 1.5` | 36 | `24, 30` | `0/0`, `300/+3` | 1.70 | 0.10 | `+1 / −4 / +2` | 1.00 | false | 1.00 |
 | 14 | **Crunch A** (chime, edge of breakup) | 3 | `2.0, 2.1, 1.5` | 60 | `34, 42, 50` | `420/+6`, `600/+5`, `0/0` | 1.00 | 0.20 | `0 / −2 / 0` | 1.00 | false | 1.00 |
-| 15 | **Crunch B** (plexi push) | 3 | `2.4, 2.5, 1.6` | 72 | `44, 54, 62` | `480/+8`, `674/+6`, `0/0` | 0.90 | 0.22 | `−1 / 0 / +1` | 1.10 | false | 0.95 |
+| 15 | **Crunch B** (clearpane push) | 3 | `2.4, 2.5, 1.6` | 72 | `44, 54, 62` | `480/+8`, `674/+6`, `0/0` | 0.90 | 0.22 | `−1 / 0 / +1` | 1.10 | false | 0.95 |
 | 16 | **Lead A** (smooth, sustaining) | 4 | `2.3, 2.5, 2.4, 1.4` | 80 | `50, 60, 70, 76` | `500/+6`, `650/+6`, `700/+5`, `0/0` | 0.85 | 0.25 | `−1 / +2 / 0` | 1.00 | false | 0.85 |
 | 17 | **Lead B** (tighter, more attack) | 4 | `2.6, 2.8, 2.6, 1.4` | 95 | `62, 74, 86, 92` | `560/+7`, `720/+7`, `780/+6`, `0/0` | 0.80 | 0.26 | `−2 / +1 / +2` | 1.15 | false | 0.82 |
 | 18 | **Brown A** (classic brown) | 4 | `2.5, 2.7, 2.6, 1.5` | 85 | `54, 66, 78, 84` | `450/+7`, `620/+7`, `700/+6`, `0/0` | 0.80 | 0.28 | `0 / +3 / +1` | 1.05 | false | 0.85 |
@@ -701,7 +701,7 @@ postMakeup      = min(1 / headroomScale, 8.0)  // keep perceived LOUDNESS roughl
 | **0.5 W** | 0.071 | **0.14** | 1.60 | 1.25 | 7.14 |
 
 The 0.5 W row is deliberately **conservative**: physically it is −23 dB of headroom, and we ship
-−17 dB. A real Katana at 0.5 W is heavily power-saturated but still musical because the clipping is
+−17 dB. A real Kabuto at 0.5 W is heavily power-saturated but still musical because the clipping is
 soft and the OT plus speaker filter the result; our first pass errs toward musical. §11 carries the
 row with the listening cue for pushing it either way.
 
@@ -712,7 +712,7 @@ quieter than 100 W, which matches expectation.
 **This is a continuous control** (§9.2): the bus carries `headroomScale` directly on
 `SRParamAmpPower`, `sagScale` / `otLowScale` / `postMakeup` are derived from it in C++, and every one
 of them is de-zippered with the existing ~5 ms one-pole. Switching 100 W → 0.5 W is a smooth 5 ms
-glide, not a fade/park rebuild. This matters: on a real Katana the power switch is instant and
+glide, not a fade/park rebuild. This matters: on a real Kabuto the power switch is instant and
 click-free, and a rebuild would be audibly worse than the hardware.
 
 ### 4.5 The FX section, and the routing that most sims get wrong
@@ -736,10 +736,10 @@ Two things sims routinely get wrong, both of which this routing fixes:
 2. **Booster and Mod belong pre-preamp**, where a real pedal in front of the amp sits, so the boost
    actually drives the character into saturation instead of just making it louder.
 
-Boss's Tone Studio also allows a *post-everything* placement (the "post-reverb" loop position). To
+Brig's Tone Studio also allows a *post-everything* placement (the "post-reverb" loop position). To
 support all three, `PedalChain` gains **two split points and three spans**:
 
-| Span | Slots | Where the kernel runs it | Katana blocks |
+| Span | Slots | Where the kernel runs it | Kabuto blocks |
 |---|---|---|---|
 | **PRE** | `0 … splitPre−1` | before `AmpCabProcessor::processPreamp` | Booster, Mod |
 | **MID** | `splitPre … splitPost−1` | after the tone stack, before the power amp | FX, Delay, Reverb |
@@ -747,25 +747,25 @@ support all three, `PedalChain` gains **two split points and three spans**:
 
 That is two integers and a `processSpan(buffer, n, channel, first, last)` refactor of
 `PedalChain::process`. No new slots, no new allocation. As a side benefit the whole app gets a real
-FX loop, not just the Katana.
+FX loop, not just the Kabuto.
 
 Per-block engine mapping — every one either already exists or is Phase B:
 
-| Katana block | Selected effect | StreetRig engine | Type / voicing | Span | Status |
+| Kabuto block | Selected effect | StreetRig engine | Type / voicing | Span | Status |
 |---|---|---|---|---|---|
 | **Booster** | Boost / Clean Boost | `DrivePedal` | `typeDrive` / `voiceCleanBoost` (14) | PRE | ✅ exists |
-| | Blues Drive | `DrivePedal` | `typeDrive` / `voiceBluesbreaker` (4) | PRE | ✅ exists |
-| | OD-1 / Crunch | `DrivePedal` | `typeDrive` / `voiceTubeScreamer` (3) | PRE | ✅ exists |
-| | Tube Drive | `DrivePedal` | `typeDrive` / `voiceOCD` (7) | PRE | ✅ exists |
+| | Blues Drive | `DrivePedal` | `typeDrive` / `voiceBluesBlazer` (4) | PRE | ✅ exists |
+| | OD-1 / Crunch | `DrivePedal` | `typeDrive` / `voiceValveShrieker` (3) | PRE | ✅ exists |
+| | Tube Drive | `DrivePedal` | `typeDrive` / `voiceFixation` (7) | PRE | ✅ exists |
 | | Distortion | `DrivePedal` | `typeDrive` / `voiceDS1` (8) | PRE | ✅ exists |
-| | Metal / Metal Zone | `DrivePedal` | `typeDrive` / `voiceMetalZone` (9) | PRE | ✅ exists |
-| | Fuzz | `DrivePedal` | `typeDrive` / `voiceFuzzFace` (12) | PRE | ✅ exists |
+| | Metal / MetalRealm | `DrivePedal` | `typeDrive` / `voiceMetalRealm` (9) | PRE | ✅ exists |
+| | Fuzz | `DrivePedal` | `typeDrive` / `voiceFuzzDome` (12) | PRE | ✅ exists |
 | **Mod** | Chorus | `ModulationPedal` | `typeModulation` / `modChorus` (0) | PRE | ✅ exists |
 | | Flanger | `ModulationPedal` | `typeModulation` / `modFlanger` (1) | PRE | ✅ exists |
 | | Phaser | `ModulationPedal` | `typeModulation` / `modPhaser` (2) | PRE | ✅ exists |
 | | Tremolo | `ModulationPedal` | `typeModulation` / `modTremolo` (3) | PRE | ✅ exists |
 | | Vibrato / Rotary | `ModulationPedal` | `typeModulation` / `modUnivibe` (4) | PRE | 🟡 stand-in (true rotary deferred) |
-| | Pedal Bend / Harmonist / Slicer | — | `typeTransparent` | PRE | ⛔ deferred (pitch family) |
+| | Pedal Bend / Chorister / Slicer | — | `typeTransparent` | PRE | ⛔ deferred (pitch family) |
 | **FX** | Compressor | `DynamicsPedal` | `typeCompressor` (3) | MID | ✅ exists |
 | | EQ | `EqPedal` | `typeEq` (2) | MID | ✅ exists |
 | | Wah | `WahPedal` | `typeWah` (5) | MID | ✅ exists |
@@ -775,26 +775,26 @@ Per-block engine mapping — every one either already exists or is Phase B:
 | **Reverb** | Room / Hall / Plate / Spring | **new** `ReverbPedal` | **`typeReverb` (9)** | MID | 🔜 Phase B, §5 |
 
 **Nothing in the Booster/Mod/FX columns needs new DSP.** Phase B builds exactly two engines and the
-Katana FX section is complete except the pitch family, which is already the deferred item in
+Kabuto FX section is complete except the pitch family, which is already the deferred item in
 `research/pedal-emulation-approaches.md` §7 Phase 4 — no contradiction introduced.
 
 ### 4.6 Channel presets
 
-A Katana channel memory is "the whole panel, stored". StreetRig already round-trips exactly that:
+A Kabuto channel memory is "the whole panel, stored". StreetRig already round-trips exactly that:
 
 | Layer | Existing mechanism | What changes |
 |---|---|---|
-| **In-app** | `RigStore.PersistedState { collection, rig, arSlots, catalogVersion }` written to `rig_state.json` | **nothing structural.** A channel is a stored snapshot of the Katana `GearItem.values` dictionary. `values` is `[String: Double]`, so `Character`, `Variation`, `Power` and the FX knobs ride along automatically |
+| **In-app** | `RigStore.PersistedState { collection, rig, arSlots, catalogVersion }` written to `rig_state.json` | **nothing structural.** A channel is a stored snapshot of the Kabuto `GearItem.values` dictionary. `values` is `[String: Double]`, so `Character`, `Variation`, `Power` and the FX knobs ride along automatically |
 | **AUv3 host** | `StreetRigDSPUnit.fullState` / `fullStateForDocument` carry the serialized snapshot under the stable key `"streetrig.rig.v1"`, alongside `super`'s parameter dictionary | **nothing.** The key is stable; new `values` entries are additive inside the blob |
-| **Factory presets** | `StreetRigDSPUnit.factoryRigs` → `makeFactoryRigs()`, self-contained `PersistedState`s | **add Katana rigs** — e.g. "Katana Crunch", "Katana Brown Lead". Appending presets is safe; existing preset *numbers* must not be reordered, because a host may have stored `preset.number` |
+| **Factory presets** | `StreetRigDSPUnit.factoryRigs` → `makeFactoryRigs()`, self-contained `PersistedState`s | **add Kabuto rigs** — e.g. "Kabuto Crunch", "Kabuto Brown Lead". Appending presets is safe; existing preset *numbers* must not be reordered, because a host may have stored `preset.number` |
 | **User presets** | `saveUserPreset` / `presetState(for:)`, `.srpreset` plists in Application Support | **nothing** |
 
-**Recommendation: model Katana channels as AUv3 user presets plus one in-app addition** — a
-`channels: [[String: Double]]?` array on the Katana `GearItem` would require a `GearItem` schema
+**Recommendation: model Kabuto channels as AUv3 user presets plus one in-app addition** — a
+`channels: [[String: Double]]?` array on the Kabuto `GearItem` would require a `GearItem` schema
 change and therefore a `catalogVersion` bump, which **discards the player's saved rig**
 (`RigStore.load` returns `nil` for a stale generation and the caller re-seeds). Not worth it. Instead
 store channels as four named user presets, which already works end to end, and expose them in the app
-as a Katana-specific preset strip reading the same `.srpreset` store. Zero schema risk.
+as a Kabuto-specific preset strip reading the same `.srpreset` store. Zero schema risk.
 
 The exact channel count on the hardware (4 vs 8 across generations) is §13 Open Question 1; the
 mapping above is count-agnostic.
@@ -832,7 +832,7 @@ orders of magnitude bigger, so the per-slot pattern stops scaling.
 | Owner | `PedalChain::arena_` — a single `std::vector<float>` | one allocation, one owner |
 | Allocated in | `PedalChain::prepare(sampleRate, numChannels)` (setup thread) | already the allocation point for every engine |
 | **Never** resized after | enforced by sizing for the worst case | `prepare()` is the only allocation site; `configureSlot` only assigns pointers |
-| `kMaxDelaySeconds` | **2.0 s** | covers Echoplex (~0.7 s), Memory Man (~0.55 s), DD-8's musically useful range |
+| `kMaxDelaySeconds` | **2.0 s** | covers Echoreel (~0.7 s), ReverieMate (~0.55 s), DD-8's musically useful range |
 | Per-slot block | `ceil(2.0 × sampleRate)` floats **per channel**, rounded up to a power of two → `131072` @ 48 kHz | power-of-two lets the read/write pointers use a mask instead of a modulo |
 | Total | `8 slots × 2 ch × 131072 × 4 B` = **8.0 MB** @ 48 kHz | acceptable on iOS; drop `kMaxDelaySeconds` to 1.0 for 4.0 MB if profiling says otherwise (§11) |
 | Reverb draws from the same block | Dattorro's whole tank is ≈ 0.35 s of line | one block serves either engine — a slot is a delay **or** a reverb, never both |
@@ -848,9 +848,9 @@ the memory story auditable in one line rather than eight.
 
 | Voicing | Catalog pedals | Read interpolation | Feedback-path colour | Modulation |
 |---|---|---|---|---|
-| **Digital** (0) | VOSS Digital Delay | linear | one-pole LP @ **8 kHz** (stops runaway brightness) | none |
-| **Tape** (1) | DUNLAP ECHOPLEX | **Hermite (cubic)** | `tanh` soft-clip at 0.85 + one-pole LP @ **4 kHz** + high shelf +3 dB @ 3 kHz (the EP-3 preamp) | wow 0.5 Hz ±0.30 %, flutter 6.0 Hz ±0.05 % |
-| **BBD** (2) | electro-harmonium MEMORY MAN | **Hermite (cubic)** | soft compress-in / expand-out (companding), one-pole LP @ **2.5 kHz** | chorus 0.4 Hz ±0.8 % on the read pointer |
+| **Digital** (0) | BRIG Digital Delay | linear | one-pole LP @ **8 kHz** (stops runaway brightness) | none |
+| **Tape** (1) | DUNRIDGE ECHOREEL | **Hermite (cubic)** | `tanh` soft-clip at 0.85 + one-pole LP @ **4 kHz** + high shelf +3 dB @ 3 kHz (the ER-3 preamp) | wow 0.5 Hz ±0.30 %, flutter 6.0 Hz ±0.05 % |
+| **BBD** (2) | electro-galvanic REVERIE MATE | **Hermite (cubic)** | soft compress-in / expand-out (companding), one-pole LP @ **2.5 kHz** | chorus 0.4 Hz ±0.8 % on the read pointer |
 
 **Why a naive time change clicks, and the two fixes.** The read pointer is `writePos − delaySamples`.
 If `delaySamples` jumps between buffers, the read pointer teleports and the output waveform has a step
@@ -875,7 +875,7 @@ Parameter mapping on the existing per-slot generic params (all five used, all wi
 | `Param1` | Feedback / Sustain / Repeats | 0…1 | `norm · 0.95` | 0 → 0.95 (self-oscillates near the top, as the hardware does) |
 | `Param2` | Mix / Blend / E.Level | wet 0…1 | `norm · 0.8`, dry fixed at 1.0 | additive wet send, matching pedal behaviour |
 | `Param3` | Tone (voicing default when the pedal has no Tone knob) | Hz | `1200 · 2^(norm·3.0)` | 1.2 kHz → 9.6 kHz feedback-path LP |
-| `Param4` | Mod Depth (Memory Man's Depth; 0 for others) | 0…1 | `norm` | 0 → 1 |
+| `Param4` | Mod Depth (ReverieMate's Depth; 0 for others) | 0…1 | `norm` | 0 → 1 |
 
 ### 5.3 Reverb
 
@@ -894,7 +894,7 @@ Schroeder's cost — about two biquad chains' worth, which is nothing against th
 It needs ≈ 0.35 s of total line length, comfortably inside a 2.0 s arena block.
 
 Parameter mapping on the existing Decay / Tone / Mix knobs (`GearCategory.reverb.parameters`, and
-`PedalSpec` maps HOLY GRAIL's single `"Reverb"` knob onto Mix):
+`PedalSpec` maps GOLDEN FLEECE's single `"Reverb"` knob onto Mix):
 
 | Field | Knob | DSP unit | Curve | First pass |
 |---|---|---|---|---|
@@ -995,7 +995,7 @@ Every symbol below was read in the repo, not recalled.
 
 ```c
     // --- Prompt 004: per-amp voicing ---
-    SRParamAmpVolume = 12, ///< Channel volume INTO the power amp (unity = 1.0). Katana "Volume".
+    SRParamAmpVolume = 12, ///< Channel volume INTO the power amp (unity = 1.0). Kabuto "Volume".
     SRParamAmpPower  = 13  ///< Power-amp headroom scale (1.0 = 100 W, 0.70 = 50 W, 0.14 = 0.5 W).
 ```
 
@@ -1132,7 +1132,7 @@ Swift. Three consequences, all good:
 **One filter in `buildLinks` must widen.** Its pedal loop is guarded
 `where pedal.category == .overdrive`, so only drive pedals currently get host→UI links. Phase B must
 extend it to `.delay` and `.reverb` (and, while there, the other already-audible families), or the
-Katana's Delay/Reverb knobs will move the sound from the app but will not follow host automation.
+Kabuto's Delay/Reverb knobs will move the sound from the app but will not follow host automation.
 `Character`, `Variation` and `Power` do **not** get `ParamLink`s for the first two — they are
 structural, and structural state travels in the rig blob, not on the parameter bus. `Power` does get
 one, using the nearest-neighbour inverse above.
@@ -1183,18 +1183,18 @@ amp branches to `PedalSpec`, not to restructure anything:
 
 ```
 case .amp, .comboAmp:
-    if n.contains("katana") {
+    if n.contains("kabuto") {
         return p(["Gain","Bass","Mid","Treble","Presence","Volume","Master",
                   "Character","Variation","Power"])
     }
-    if n.contains("jc-120") || n.contains("jazz chorus") {
+    if n.contains("rm-140") || n.contains("velvet chorus") {
         return p(["Gain","Bass","Mid","Treble","Bright","Master"])   // no Presence — §3.2
     }
     return category.parameters                                        // the existing six
 ```
 
 Two consumers still take the **category** route and must be switched to `item.parameters`, or they
-will show the wrong knobs for a Katana:
+will show the wrong knobs for a Kabuto:
 
 | File:line | Current | Required |
 |---|---|---|
@@ -1227,7 +1227,7 @@ additive: an old `rig_state.json` simply lacks them.
 | `cabSelect` range | `0…3` | `0…7` | widening a max is safe; every stored 0–3 stays valid |
 | `fullState` / `fullStateForDocument` | key `"streetrig.rig.v1"` + `super`'s params | unchanged key | new `GearItem.values` entries ride inside the blob; new params ride in `super`'s dictionary |
 | `syncParameterTree(from:)` | sets 10 amp addresses + per-slot fields | `+ SRParamAmpVolume`, `+ SRParamAmpPower`, and `maxParams` already computes `stride − Drive = 5`, so `Param3/4` flow with no change | — |
-| `factoryPresets` | `makeFactoryRigs()` | append Katana rigs | **never reorder** — a host may have stored `preset.number` |
+| `factoryPresets` | `makeFactoryRigs()` | append Kabuto rigs | **never reorder** — a host may have stored `preset.number` |
 | `applyRig` → `applyHotSwap` | fade/park barrier | unchanged; `configureAmp` and `setPedalSplits` join `applyStructure` | — |
 
 **What must stay stable for already-saved host sessions:** every existing `SRParameterAddress` value
@@ -1287,7 +1287,7 @@ continuous path either does nothing or zippers.
 The precedent to follow is recorded in `RigGraphCompiler.compile`: `enabled` was **deliberately
 removed** from the signature so AR footswitch stomps stay on the continuous path.
 
-### 9.2 Per Katana control
+### 9.2 Per Kabuto control
 
 | Control | Path | Why |
 |---|---|---|
@@ -1311,7 +1311,7 @@ removed** from the signature so AR footswitch stomps stay on the continuous path
 `cabSlot`, `isCombo`.
 
 Note that **Character and Variation need no signature fields of their own.** They are already baked
-into `ampProfile` by `ampProfile(name:values:)` = `ampKatanaBase + character*2 + variation` (§2.4), so
+into `ampProfile` by `ampProfile(name:values:)` = `ampKabutoBase + character*2 + variation` (§2.4), so
 turning the Character selector changes the profile id, which changes the signature, which triggers the
 rebuild. One field, three controls, no way for them to drift apart.
 
@@ -1342,7 +1342,7 @@ convolver ≈ 0.2 %, pedals ≈ 2 %.
 | Dattorro reverb, one slot | ~60 flops | **+0.2 … +0.3 %** |
 | Delay, one slot (Hermite + tape colour) | ~40 flops | **+0.15 … +0.25 %** |
 
-**Verdict: the full Katana panel fits, and Phase A is very likely net *cheaper* than today.** A
+**Verdict: the full Kabuto panel fits, and Phase A is very likely net *cheaper* than today.** A
 profiled amp replaces ~4.5–5 % of LSTM with ~1.5–2.5 % of profile chain. Even loading every FX block
 (booster + mod + FX + delay + reverb, five slots) the board should land near or below the current
 7.74 %.
@@ -1373,7 +1373,7 @@ profiled amp replaces ~4.5–5 % of LSTM with ~1.5–2.5 % of profile chain. Eve
 | 2. Drop the preamp oversampling 4× → 2× for `Clean`-family stages (they barely clip) | ~0.4 % | nothing — a clean stage generates no images to fold |
 | 3. Cap `stageCount` at 3, fold Lead/Brown's fourth stage into a higher gain on stage 3 | ~0.5 % | slightly less compound saturation on the two highest-gain voicings |
 | 4. Run the power stage at base rate (no 2× region) | ~0.3 % | mild aliasing on the output-stage clip; masked by the OT low-pass and the cab IR |
-| 5. Skip the output-stage **clip and its 2× oversampler** when `headroom > 2.0` (Acoustic, JC-120, Twin); the NFB/presence/OT sub-blocks still run | ~0.4 % on those amps | none — those stages never reach clipping anyway. **Do this unconditionally; it is free** |
+| 5. Skip the output-stage **clip and its 2× oversampler** when `headroom > 2.0` (Acoustic, RM-140, Tandem); the NFB/presence/OT sub-blocks still run | ~0.4 % on those amps | none — those stages never reach clipping anyway. **Do this unconditionally; it is free** |
 
 ---
 
@@ -1403,49 +1403,49 @@ guess. Spend tuning time on the L rows first.
 
 | Parameter | First pass | Plausible range | What to listen for | Conf |
 |---|---|---|---|---|
-| Twin `mid.noonDB` | **−11 dB** | −8 … −14 | Clean chords with everything at noon. Should sound scooped and glassy, *not* boxy. If it sounds nasal, go more negative; if chords vanish in a band mix, back off | M |
-| Twin `mid.hz` | 400 Hz | 350 … 500 | The scoop should sit under the low strings' body. Too high = thin; too low = muddy | H |
-| Twin `bassEatsMid` | 0.55 | 0.3 … 0.8 | Turn Bass from 3 to 8. Mids should visibly hollow out — that interaction *is* the Fender stack. No change = raise | M |
-| JCM800 `mid.noonDB` | **−7 dB** | −4 … −10 | Should be noticeably *more* mid-present than the Twin at identical knob settings. If a JCM800 and a Twin still sound alike at noon, this row and the Twin's are the first suspects | M |
-| JCM800 `mid.hz` | 650 Hz | 600 … 750 | Palm-muted riffing should have "bark". Too low = woolly; too high = honky | H |
-| AC30 `mid.noonDB` | **+2 dB** | 0 … +4 | The AC30 must be the *only* mid-forward amp of the six. If it sounds scooped, the sign is wrong | M |
-| AC30 `power.presenceScale` | **−0.8** | −0.5 … −1.2 | Turn Presence **up**: the amp must get *darker* (this is the Vox Cut). If it brightens, the sign is wrong | H |
-| JC-120 `insertionDB` | −6 dB | −3 … −10 | JC's EQ is active, so it should lose far less level than the passive stacks. If the JC is much quieter than the Twin at matched knobs, raise | M |
-| Katana all-band `noonDB` | ≈ 0 | −2 … +2 | The Katana must be the flattest-at-noon of the six. If it sounds coloured with the EQ centred, zero these | M |
+| Tandem `mid.noonDB` | **−11 dB** | −8 … −14 | Clean chords with everything at noon. Should sound scooped and glassy, *not* boxy. If it sounds nasal, go more negative; if chords vanish in a band mix, back off | M |
+| Tandem `mid.hz` | 400 Hz | 350 … 500 | The scoop should sit under the low strings' body. Too high = thin; too low = muddy | H |
+| Tandem `bassEatsMid` | 0.55 | 0.3 … 0.8 | Turn Bass from 3 to 8. Mids should visibly hollow out — that interaction *is* the Fandor stack. No change = raise | M |
+| MSW900 `mid.noonDB` | **−7 dB** | −4 … −10 | Should be noticeably *more* mid-present than the Tandem at identical knob settings. If a MSW900 and a Tandem still sound alike at noon, this row and the Tandem's are the first suspects | M |
+| MSW900 `mid.hz` | 650 Hz | 600 … 750 | Palm-muted riffing should have "bark". Too low = woolly; too high = honky | H |
+| HV28 `mid.noonDB` | **+2 dB** | 0 … +4 | The HV28 must be the *only* mid-forward amp of the six. If it sounds scooped, the sign is wrong | M |
+| HV28 `power.presenceScale` | **−0.8** | −0.5 … −1.2 | Turn Presence **up**: the amp must get *darker* (this is the Vane Cut). If it brightens, the sign is wrong | H |
+| RM-140 `insertionDB` | −6 dB | −3 … −10 | JC's EQ is active, so it should lose far less level than the passive stacks. If the JC is much quieter than the Tandem at matched knobs, raise | M |
+| Kabuto all-band `noonDB` | ≈ 0 | −2 … +2 | The Kabuto must be the flattest-at-noon of the six. If it sounds coloured with the EQ centred, zero these | M |
 | `power.presenceScale` (default) | 1.0 | 0.6 … 1.4 | Presence should add air and edge without hiss. Hissy = lower; inaudible = raise | M |
 
 ### 11.3 Preamp cascade
 
 | Parameter | First pass | Plausible range | What to listen for | Conf |
 |---|---|---|---|---|
-| JCM800 S1 `cathodeHz` / `cathodeDB` | **480 Hz / +8 dB** | 350–650 Hz / +5…+11 dB | Palm mutes should be tight and percussive. **Flubby palm mutes = raise the Hz.** Thin and brittle = lower it or reduce the dB | H |
-| JCM800 S2 `cathodeHz` / `cathodeDB` | 674 Hz / +6 dB | 500–850 Hz / +4…+9 dB | Upper-mid "bark" on power chords. Too much = honky and nasal | H |
-| JCM800 stage `couplingHz` | 32 / 40 / 48 Hz | 20–70 Hz | Low E chugs should stay defined under gain. Mushy = raise all three ~10 Hz | M |
-| Twin stage `cathodeHz` | **0 (fully bypassed)** | keep at 0 | The Twin must amplify bass and treble equally. Any shelving here and it stops being a Twin | H |
-| Twin stage `gain` | 1.5 / 1.4 | 1.2 … 2.0 | Should stay clean to Gain ≈ 8 and only then break up politely. Distorting at 5 = lower | M |
-| AC30 S2 `cathodeHz`/`dB` | 250 Hz / +5 dB | 150–400 Hz / +3…+7 dB | Top-boost chime on open chords. Missing = lower Hz slightly and raise dB | M |
-| JC-120 stage `asym` | **0.00** | keep at 0 | Zero even harmonics — clinically clean. Any warmth means the asymmetry leaked in | H |
-| Katana Crunch A stage gains | 2.0 / 2.1 / 1.5 | ±30 % | With Gain at noon it should sit *right at* edge-of-breakup. Already crunchy at 3 = lower; clean at 7 = raise | L |
-| Katana Brown B stage gains | 2.9 / 3.1 / 2.9 | ±25 % | Should be the most saturated of the ten and still articulate on fast runs. Mushy on fast picking = raise `couplingHz`, not lower the gain | L |
-| Katana `inputHz` per character | 40 → 105 Hz | 30 … 120 | Higher-gain characters need a higher input HP. If Brown is flubby on the low string, raise toward 120 | L |
+| MSW900 S1 `cathodeHz` / `cathodeDB` | **480 Hz / +8 dB** | 350–650 Hz / +5…+11 dB | Palm mutes should be tight and percussive. **Flubby palm mutes = raise the Hz.** Thin and brittle = lower it or reduce the dB | H |
+| MSW900 S2 `cathodeHz` / `cathodeDB` | 674 Hz / +6 dB | 500–850 Hz / +4…+9 dB | Upper-mid "bark" on power chords. Too much = honky and nasal | H |
+| MSW900 stage `couplingHz` | 32 / 40 / 48 Hz | 20–70 Hz | Low E chugs should stay defined under gain. Mushy = raise all three ~10 Hz | M |
+| Tandem stage `cathodeHz` | **0 (fully bypassed)** | keep at 0 | The Tandem must amplify bass and treble equally. Any shelving here and it stops being a Tandem | H |
+| Tandem stage `gain` | 1.5 / 1.4 | 1.2 … 2.0 | Should stay clean to Gain ≈ 8 and only then break up politely. Distorting at 5 = lower | M |
+| HV28 S2 `cathodeHz`/`dB` | 250 Hz / +5 dB | 150–400 Hz / +3…+7 dB | Top-boost chime on open chords. Missing = lower Hz slightly and raise dB | M |
+| RM-140 stage `asym` | **0.00** | keep at 0 | Zero even harmonics — clinically clean. Any warmth means the asymmetry leaked in | H |
+| Kabuto Crunch A stage gains | 2.0 / 2.1 / 1.5 | ±30 % | With Gain at noon it should sit *right at* edge-of-breakup. Already crunchy at 3 = lower; clean at 7 = raise | L |
+| Kabuto Brown B stage gains | 2.9 / 3.1 / 2.9 | ±25 % | Should be the most saturated of the ten and still articulate on fast runs. Mushy on fast picking = raise `couplingHz`, not lower the gain | L |
+| Kabuto `inputHz` per character | 40 → 105 Hz | 30 … 120 | Higher-gain characters need a higher input HP. If Brown is flubby on the low string, raise toward 120 | L |
 | Stage `millerHz` (all amps) | 10–25 kHz descending | 8 … 30 kHz | Fizz on the top of a high-gain voicing = lower the last stage's Miller to ~9 kHz | M |
 
 ### 11.4 Power amp
 
 | Parameter | First pass | Plausible range | What to listen for | Conf |
 |---|---|---|---|---|
-| AC30 `headroom` | **0.55** | 0.4 … 0.8 | Must compress and bloom noticeably by Volume 6. Still clean at 8 = lower | M |
-| Twin `headroom` | **1.60** | 1.2 … 2.5 | Must stay clean with Volume maxed. Any grit = raise | H |
-| JC-120 `headroom` | **3.00** | 2.5 … 4.0 | Must *never* break up. If it does, raise — and check `power.clip` is `SolidState` | H |
-| Bassman `sagDepth` | **0.30** | 0.15 … 0.45 | Hit a hard chord: it should duck then bloom back over ~60 ms. No duck = raise; pumping/seasick = lower | H |
-| Bassman `sagTauMs` | 60 ms | 30 … 120 | Too short = the duck sounds like a click. Too long = the amp sounds broken | M |
-| AC30 `nfbDB` | **0 (no NFB)** | keep at 0 | Must feel loose and touch-responsive vs the Marshall's tightness. If it feels tight, NFB leaked in | H |
-| Twin `nfbDB` | **−5.0 dB** | −3 … −8 | Should feel the *tightest* of the six. Loose or woofy = go more negative | M |
+| HV28 `headroom` | **0.55** | 0.4 … 0.8 | Must compress and bloom noticeably by Volume 6. Still clean at 8 = lower | M |
+| Tandem `headroom` | **1.60** | 1.2 … 2.5 | Must stay clean with Volume maxed. Any grit = raise | H |
+| RM-140 `headroom` | **3.00** | 2.5 … 4.0 | Must *never* break up. If it does, raise — and check `power.clip` is `SolidState` | H |
+| Bassdude `sagDepth` | **0.30** | 0.15 … 0.45 | Hit a hard chord: it should duck then bloom back over ~60 ms. No duck = raise; pumping/seasick = lower | H |
+| Bassdude `sagTauMs` | 60 ms | 30 … 120 | Too short = the duck sounds like a click. Too long = the amp sounds broken | M |
+| HV28 `nfbDB` | **0 (no NFB)** | keep at 0 | Must feel loose and touch-responsive vs the Marswell's tightness. If it feels tight, NFB leaked in | H |
+| Tandem `nfbDB` | **−5.0 dB** | −3 … −8 | Should feel the *tightest* of the six. Loose or woofy = go more negative | M |
 | Class AB crossover knee | 0.02 asym | 0 … 0.08 | A faint "grainy" edge as notes decay to silence = the crossover artefact. Present but not buzzy is right | L |
-| `otLowHz` (EL84 / 6L6) | 80 / 45 Hz | 35 … 100 | The AC30 should sound smaller than the Twin on the low string even through the same cab | M |
-| `otHighHz` (EL84 / 6L6 / SS) | 8 k / 11 k / 14 k | 7 … 16 kHz | The JC should be the brightest and the AC30 the most rolled-off | M |
+| `otLowHz` (EL84 / 6L6) | 80 / 45 Hz | 35 … 100 | The HV28 should sound smaller than the Tandem on the low string even through the same cab | M |
+| `otHighHz` (EL84 / 6L6 / SS) | 8 k / 11 k / 14 k | 7 … 16 kHz | The JC should be the brightest and the HV28 the most rolled-off | M |
 
-### 11.5 Katana power control
+### 11.5 Kabuto power control
 
 | Parameter | First pass | Plausible range | What to listen for | Conf |
 |---|---|---|---|---|
@@ -1475,15 +1475,15 @@ guess. Spend tuning time on the L rows first.
 
 | Phase | Prompt | Scope | Exit criteria |
 |---|---|---|---|
-| **A — Profile architecture + Katana core** | **002** | `AmpProfile` schema + `profileFor` table; `AnalogAmp` stage cascade; profile-voiced `ToneStack`; new `PowerAmp`; `SRParamAmpVolume`/`SRParamAmpPower`; `SRKernelConfigureAmp`; `ParameterMap.ampProfile`; `RigDSPPlan` + signature; per-item amp knobs in `PedalSpec`; `kNumCabSlots` 4 → 8; the six profiles + all ten Katana voicings; power control | **(1)** Legacy null test bit-exact. **(2)** Six-amp differentiation test passes: every pair differs measurably in per-octave RMS. **(3)** Power switch click-free under the sweep test. **(4)** `SRKernelBenchmarkFullNsPerSample` at or below today's 7.74 %. **(5)** No saved rig or host session changes behaviour |
-| **B — Shared time-based blocks + Katana FX** | **003** | `PedalChain::Delay`/`Reverb` + the arena; three-span split (`splitPre`/`splitPost`); the three delay voicings; the Dattorro plate; `ParameterMap` type/param mapping; `Param3`/`Param4` on the AU tree; Katana FX block mapping; Katana factory presets | **(1)** All five silent catalog pedals audible. **(2)** Zero audio-thread allocation (arena sized in `prepare`). **(3)** No reported-latency change. **(4)** FX routing audibly differs pre vs mid vs post. **(5)** Katana presets round-trip through `fullState` |
-| **C — deferred** | later | Frequency-dependent OT/speaker damping (true bloom); authored or licensed IRs for slots 2–7; per-amp neural captures; the pitch family (Katana's Octave/Harmonist/Defretter/Ring Mod, and the four catalog pitch pedals); true rotary; looper/tuner | — |
+| **A — Profile architecture + Kabuto core** | **002** | `AmpProfile` schema + `profileFor` table; `AnalogAmp` stage cascade; profile-voiced `ToneStack`; new `PowerAmp`; `SRParamAmpVolume`/`SRParamAmpPower`; `SRKernelConfigureAmp`; `ParameterMap.ampProfile`; `RigDSPPlan` + signature; per-item amp knobs in `PedalSpec`; `kNumCabSlots` 4 → 8; the six profiles + all ten Kabuto voicings; power control | **(1)** Legacy null test bit-exact. **(2)** Six-amp differentiation test passes: every pair differs measurably in per-octave RMS. **(3)** Power switch click-free under the sweep test. **(4)** `SRKernelBenchmarkFullNsPerSample` at or below today's 7.74 %. **(5)** No saved rig or host session changes behaviour |
+| **B — Shared time-based blocks + Kabuto FX** | **003** | `PedalChain::Delay`/`Reverb` + the arena; three-span split (`splitPre`/`splitPost`); the three delay voicings; the Dattorro plate; `ParameterMap` type/param mapping; `Param3`/`Param4` on the AU tree; Kabuto FX block mapping; Kabuto factory presets | **(1)** All five silent catalog pedals audible. **(2)** Zero audio-thread allocation (arena sized in `prepare`). **(3)** No reported-latency change. **(4)** FX routing audibly differs pre vs mid vs post. **(5)** Kabuto presets round-trip through `fullState` |
+| **C — deferred** | later | Frequency-dependent OT/speaker damping (true bloom); authored or licensed IRs for slots 2–7; per-amp neural captures; the pitch family (Kabuto's Octave/Chorister/Defretter/Ring Mod, and the four catalog pitch pedals); true rotary; looper/tuner | — |
 
 **Phase A is independently shippable and audibly meaningful on its own.** It is the phase that fixes
-the stated problem: after Phase A, and with no FX work at all, a JCM800 and a Twin Reverb and an AC30
-and a JC-120 are four different amps in the DSP — different cascade depths, different interstage
+the stated problem: after Phase A, and with no FX work at all, a MSW900 and a TandemReverb and an HV28
+and a RM-140 are four different amps in the DSP — different cascade depths, different interstage
 filtering, different tone-stack topologies and noon curves, different power-amp headroom, sag and
-feedback. The Katana arrives complete except its FX section, which is exactly the part that is
+feedback. The Kabuto arrives complete except its FX section, which is exactly the part that is
 supposed to be shared blocks anyway.
 
 **Explicitly deferred, and why:**
@@ -1494,8 +1494,8 @@ supposed to be shared blocks anyway.
 | IRs for cab slots 2–7 | This task may not download or bundle assets. The slots exist and are empty (transparent); the intended pairing is recorded in §3.4 |
 | Per-amp neural captures | No rights-cleared captures exist. The slot (`AmpProfile::neuralModel`) is specified so they drop in later with no architectural change |
 | Exact-network tone stack (bilinear-transformed 3rd-order transfer function) | Needs per-amp component values we cannot verify to the precision it demands. Four parametric bands + `noonDB` + one interaction term capture the audible differences. §13 Open Question 7 |
-| Katana pitch-family FX | Already Phase 4 in `research/pedal-emulation-approaches.md` §7. No contradiction |
-| Katana "Pushed" character (Gen 3's sixth) | Out of the stated five-character scope. It slots in as ids 20/21 with no schema change — which is itself a small proof the schema generalizes. §13 Open Question 2 |
+| Kabuto pitch-family FX | Already Phase 4 in `research/pedal-emulation-approaches.md` §7. No contradiction |
+| Kabuto "Pushed" character (Gen 3's sixth) | Out of the stated five-character scope. It slots in as ids 20/21 with no schema change — which is itself a small proof the schema generalizes. §13 Open Question 2 |
 
 ---
 
@@ -1504,16 +1504,16 @@ supposed to be shared blocks anyway.
 Things that could not be determined from the repo or from public technical knowledge, listed rather
 than silently guessed.
 
-1. **Katana channel-memory count.** Sources vary across generations (4 channel buttons; some
+1. **Kabuto channel-memory count.** Sources vary across generations (4 channel buttons; some
    generations bank them). §4.6's mapping is count-agnostic, but the UI needs a number.
 2. **Whether the Gen-3 "Pushed" character is in scope.** The stated scope is five characters; current
    hardware has six. Ids 20/21 are free.
-3. **What Variation actually changes per character.** Boss publishes nothing. §4.3 adopts one stated
+3. **What Variation actually changes per character.** Brig publishes nothing. §4.3 adopts one stated
    rule (B = hotter and tighter) applied consistently; the real amp may vary the rule per character.
    All ten rows are confidence **L** and are the top priority for the ear-tuning pass.
 4. **Who authors or licenses the four to six additional cab IRs.** Slots 2–7 exist and are empty.
    Until they are filled, six amps share two boxes.
-5. **Whether the JC-120 should expose a Bright switch instead of Presence.** §7.8 proposes it (the
+5. **Whether the RM-140 should expose a Bright switch instead of Presence.** §7.8 proposes it (the
    real amp has no presence control), but it is a product decision, and it is the first amp in the
    catalog whose knob set differs from the standard six.
 6. **Whether any amp should keep the neural rail once profiles exist.** §2.6 proposes
@@ -1525,9 +1525,9 @@ than silently guessed.
    promote most of §11.2 from **M** to **H** — the single highest-value follow-up research task.
 8. **Whether the 0.5 W headroom scale should be the physical 0.071 or the conservative 0.14.**
    §11.5 carries the row with cues in both directions; only an A/B against the hardware settles it.
-9. **Whether the three-span FX routing should be exposed in the app UI** or stay Katana-internal.
+9. **Whether the three-span FX routing should be exposed in the app UI** or stay Kabuto-internal.
    The mechanism is general (any rig gets an FX loop); the UI cost is a new control.
-10. **Whether `AmpProfile::bypassCab` should be user-overridable.** The Katana's Acoustic character
+10. **Whether `AmpProfile::bypassCab` should be user-overridable.** The Kabuto's Acoustic character
     sets it, but a player might reasonably want a cab on an acoustic voicing.
 
 ---
@@ -1545,11 +1545,11 @@ Same posture as `research/pedal-emulation-approaches.md` §6 and `research/3d-am
   not have the rights to**. This is the one place the "sounds like" path can create a rights problem,
   and it is exactly why §2.6 keeps the neural slot empty and why §1.5 leaves cab slots 2–7 unfilled
   rather than sourcing IRs from somewhere convenient.
-- **The Katana is a special case worth naming.** We are modeling a *modeling amp*. That does not
+- **The Kabuto is a special case worth naming.** We are modeling a *modeling amp*. That does not
   change the analysis: the behaviour being modeled — cascaded gain staging, tone-stack response,
   power-amp compression — is the same physics whether the original implemented it in valves or in
-  DSP. What must not happen is shipping Boss's own captures, IRs, presets or trademarks.
-- **Names:** keep the re-badged catalog (VOSS / Marswell / Fandor / Volt / Rolund / Ibonez / …) as it
+  DSP. What must not happen is shipping Brig's own captures, IRs, presets or trademarks.
+- **Names:** keep the re-badged catalog (BRIG / Marswell / Fandor / Vane / Rondell / Iberon / …) as it
   already is. Model the behaviour, not the trademark. Note that `RigStore.catalogVersion`'s comment
   makes these names load-bearing for artwork, so renaming is a coordinated change, not a cosmetic one.
 
@@ -1576,7 +1576,7 @@ Power amps, negative feedback and presence:
 - [Aiken Amps — What is Negative Feedback?](https://www.aikenamps.com/index.php/what-is-negative-feedback)
 - [Mojotone — Negative Feedback Loops: Taming Tone or Letting It Roar](https://mojotone.com/blogs/news/negative-feedback-loops-taming-tone-or-letting-it-roar)
 
-Boss Katana:
+Brig Kabuto:
 - [Wikipedia — Boss Katana](https://en.wikipedia.org/wiki/Boss_Katana) — reactive Class AB analog power section, Variable Power Control, the Variation button, the Brown character's EVH lineage
 - [BOSS — Katana: What's New in the Gen 3 Amplifier Series](https://articles.boss.info/boss-katana-whats-new-in-the-gen-3-amplifier-series/)
 - [BOSS — Advanced Tips and Tricks for the BOSS Katana](https://articles.boss.info/advanced-tips-and-tricks-for-the-boss-katana/)
@@ -1584,7 +1584,7 @@ Boss Katana:
 - [Using BOSS TONE STUDIO for KATANA (Roland PDF)](https://static.roland.com/assets/media/pdf/BTS_KATANA_eng03_W.pdf) — the Chain tab: effect order and pre/post-preamp placement
 - [Guitar Chalk — Boss Katana 100 Settings and Tone Tips](https://www.guitarchalk.com/boss-katana-100-settings/)
 
-Roland JC-120:
+Rondell RM-140:
 - [Roland — JC-120: The Clean Sound Revolution](https://articles.roland.com/roland-jc-120-the-clean-sound-revolution/)
 - [Guitar World — How Roland's JC-120 became the king of solid-state guitar amps](https://www.guitarworld.com/features/how-rolands-jc-120-became-the-king-of-solid-state-guitar-amps)
 

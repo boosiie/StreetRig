@@ -250,7 +250,7 @@ enum ProceduralGuitar {
 }
 
 #Preview {
-    GuitarModel3DView(item: GearItem(name: "Les Paul Standard", category: .guitar))
+    GuitarModel3DView(item: GearItem(name: "Lyle Preston Standard", category: .guitar))
         .frame(width: 150, height: 260)
         .background(RigTheme.background)
         .preferredColorScheme(.dark)

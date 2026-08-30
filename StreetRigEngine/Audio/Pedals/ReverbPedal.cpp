@@ -48,7 +48,7 @@ ReverbPedal::Voice ReverbPedal::voiceFor(int voicing) noexcept {
     Voice v;
     switch (voicing) {
     case Spring:
-        // electro-harmonium HOLY GRAIL. A spring is a dispersive transmission
+        // electro-galvanic GOLDEN FLEECE. A spring is a dispersive transmission
         // line: high frequencies travel faster than low ones, so a transient
         // arrives smeared into a rising chirp — the "boing". A cascade of
         // first-order all-passes in front of the tank produces that frequency-
@@ -78,7 +78,7 @@ ReverbPedal::Voice ReverbPedal::voiceFor(int voicing) noexcept {
         break;
 
     case Room:
-        // The Katana's ROOM block. Small, bright, fast — the tail should be over
+        // The Kabuto's ROOM block. Small, bright, fast — the tail should be over
         // before the next chord.
         v.preDelayMs = 3.0f;
         v.bandwidth  = 0.9990f;
@@ -101,7 +101,7 @@ ReverbPedal::Voice ReverbPedal::voiceFor(int voicing) noexcept {
         break;
 
     case Hall:
-        // The Katana's HALL block. The opposite end: a long pre-delay so the dry
+        // The Kabuto's HALL block. The opposite end: a long pre-delay so the dry
         // note speaks first, maximum diffusion, and the longest tail available.
         v.preDelayMs = 38.0f;     // was 32 — see the level note in `process`.
         v.bandwidth  = 0.9950f;
@@ -125,7 +125,7 @@ ReverbPedal::Voice ReverbPedal::voiceFor(int voicing) noexcept {
 
     case Plate:
     default:
-        // VOSS Reverb (RV-6). Dattorro's published plate, unmodified: this is
+        // BRIG Reverb (RV-6). Dattorro's published plate, unmodified: this is
         // the reference row, and the other three are stated departures from it.
         // Cue: Tone 10 should be a bright plate with NO metallic ring. If it
         // rings, the tank all-pass modulation is not running.
@@ -304,7 +304,7 @@ void ReverbPedal::process(float *buffer, int n, int channel, const float *params
         s.bandwidth = flushDenormal(s.bandwidth + bw * (x - s.bandwidth));
         x = s.bandwidth;
 
-        // ---- Spring dispersion (Holy Grail only) -------------------------
+        // ---- Spring dispersion (GoldenFleece only) -------------------------
         // A chain of first-order all-passes: unity magnitude, frequency-
         // dependent group delay. Highs arrive first, lows trail — the chirp.
         if (disp != 0.0f) {

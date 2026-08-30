@@ -60,10 +60,12 @@ enum PanelArt {
     /// Pixels per point in a baked plate — a canvas worth painting on.
     static let exportScale: CGFloat = 3
 
-    /// The plate file name for a piece: `ibonez-tube-screamer-panel`. Empty when
+    /// The plate file name for a piece: `iberon-tube-shrieker-panel`. Empty when
     /// the piece has no usable name (the library's placeholder headers).
     static func plateName(for item: GearItem) -> String {
-        let slug = GearIconLoader.slug(item.name)
+        // Same key as the icon: the piece's frozen `catalogID`, falling back to a
+        // slugged name for gear the catalog has never heard of.
+        let slug = GearCatalog.id(for: item) ?? GearIconLoader.slug(item.name)
         return slug.isEmpty ? "" : "\(slug)-panel"
     }
 
@@ -122,7 +124,7 @@ struct PanelKnobLayout: Decodable {
         /// Degrees between detents on a rotary. Matches the painted markings.
         let step: Double?
         /// The indicators that answer the switch. A column of them is normal —
-        /// the Ketana names its amp type with six lamps, not with a caption — so
+        /// the Kabuto names its amp type with six lamps, not with a caption — so
         /// each says which positions light it.
         private let lamps: [Lamp]?
         var indicators: [Lamp] { lamps ?? [] }

@@ -5,12 +5,12 @@
 //  Two small, expression-controlled pedals that are really just a filter and a
 //  gain:
 //
-//    • WahPedal (.wah: Cry Baby / V847 / Bad Horsie) — a resonant peak that the
-//      treadle ("Position") sweeps. The Cry Baby is a bandpass boosting ~+18 dB
+//    • WahPedal (.wah: WeepingWillow / V921 / Wild Pony) — a resonant peak that the
+//      treadle ("Position") sweeps. The WeepingWillow is a bandpass boosting ~+18 dB
 //      at a peak that sweeps ~450 Hz→1.6 kHz; a single high-Q peaking biquad with
 //      a swept centre reproduces the classic vocal "wah".
 //
-//    • VolumePedal (.volume: VP JR / FV-500H) — a smoothed, treadle-controlled
+//    • VolumePedal (.volume: SWELL MINI / LV-320H) — a smoothed, treadle-controlled
 //      gain with an audio (square-law) taper.
 //
 //  Both are driven by the "Position" knob today; a real expression pedal / auto-

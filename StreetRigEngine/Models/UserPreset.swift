@@ -39,13 +39,26 @@
 //      snapshot's are not: the board's order IS what the player arranged with
 //      `movePedal`, and re-sorting it would quietly undo a deliberate choice.
 //
-//  NAMES, NEVER UUIDS — the same rule `RigPreset` obeys, for a sharper reason
-//  here. A `GearItem.id` is only meaningful inside the CURRENT collection: remove
-//  that pedal from the rail, or let a future `catalogVersion` bump re-seed the
-//  collection, and every id in a saved slot becomes a dangling reference the
-//  player can neither see nor repair. Names survive both, and they mean one
-//  resolve path — `RigStore.catalog.first { $0.name == name }` — serves the nine
-//  factory presets and the player's four alike.
+//  NEVER UUIDS. A `GearItem.id` is only meaningful inside the CURRENT collection:
+//  remove that pedal from the rail, or let a `catalogVersion` bump re-seed the
+//  collection, and every UUID in a saved slot becomes a dangling reference the
+//  player can neither see nor repair.
+//
+//  CATALOG ID FIRST, NAME SECOND. A slot records both: the display name, which is
+//  what a human reading this file needs, and the frozen `catalogID` beside it,
+//  which is what actually resolves. The reason is the rule the catalog rename
+//  established — THE ID IS THE IDENTITY AND THE NAME IS DERIVED FROM IT. `name`
+//  is a stored property, so a rename lands in the catalog while every file on
+//  disk goes on naming the old string; `RigStore.load` re-derives `rig_state.json`
+//  from ids for exactly that reason, and a slot keyed only by name would be the
+//  one place left where a rename silently breaks the player's own data.
+//
+//  THE NINE ARE DIFFERENT, AND THAT IS WHY THEY STILL USE NAMES. `RigPreset`'s
+//  names are SOURCE: a rename edits them in the same commit, and
+//  `RigPresets.problems()` fails the build if it does not. Nothing renames a file
+//  in the player's Documents folder. Same app, opposite guarantees, so the two
+//  resolve differently on purpose — see `catalogItem(named:)`, which tries the id,
+//  then the retired-name table, then the plain name.
 //
 //  ITS DATA COMES OFF THE PLAYER'S DISK, NOT OUT OF THIS FILE, which is why the
 //  validator below (`missingModels`) is a RUNTIME check and `RigPresets.problems()`
@@ -163,8 +176,8 @@ public struct UserPreset: Codable, Hashable, Identifiable, Sendable {
     /// MODEL rather than by id for the reason in the file header.
     ///
     /// The associated values are LABELLED, including the combo's, purely so the
-    /// synthesised `Codable` writes `{"combo":{"name":"Volt AC30"}}` instead of
-    /// `{"combo":{"_0":"Volt AC30"}}`. This file ends up in the player's Documents
+    /// synthesised `Codable` writes `{"combo":{"name":"Vane HV28"}}` instead of
+    /// `{"combo":{"_0":"Vane HV28"}}`. This file ends up in the player's Documents
     /// folder and somebody will read it.
     public enum Amp: Codable, Hashable, Sendable {
         case stack(head: String, cab: String)
@@ -225,6 +238,27 @@ public struct UserPreset: Codable, Hashable, Identifiable, Sendable {
     /// alone rather than failing the whole slot over an item the library never
     /// offered in the first place.
     public var guitar: String
+    /// SAVED DISPLAY NAME → the model's FROZEN CATALOG ID, for every piece this
+    /// slot names.
+    ///
+    /// THE ID IS THE IDENTITY AND THE NAME IS DERIVED FROM IT. That rule arrived
+    /// with the catalog rename (see `GearItem.catalogID` and
+    /// `RigStore.refreshedFromCatalog`), and it exists because `name` is a stored
+    /// property: a rename lands in the catalog and every file already on disk goes
+    /// on naming the old string, with nothing anywhere to say so. `rig_state.json`
+    /// is re-derived from ids on load for exactly that reason.
+    ///
+    /// A slot keyed only by name would therefore be the one place in the app where
+    /// a rename still silently breaks the player's own data — and unlike the nine
+    /// factory presets, whose names are source and get renamed in the same commit,
+    /// nothing renames a file in the player's Documents folder. So the id travels
+    /// with the name, resolution prefers it, and a rename becomes free here too.
+    ///
+    /// A dictionary rather than an id on each of `Amp`/`Pedal`/`ARSlotSnapshot`
+    /// because it is additive: files written before this field decode with it
+    /// empty and fall through to the retired-name table, which is exactly the
+    /// path `GearItem.init` already takes for the same reason.
+    public var catalogIDs: [String: String]
     /// In BOARD order, which is what the player arranged — see the file header.
     public var pedals: [Pedal]
     /// Exactly three, in switch order.
@@ -239,6 +273,7 @@ public struct UserPreset: Codable, Hashable, Identifiable, Sendable {
                 amp: Amp,
                 ampValues: [String: Double],
                 guitar: String,
+                catalogIDs: [String: String] = [:],
                 pedals: [Pedal],
                 arSlots: [ARSlotSnapshot]) {
         self.schemaVersion = schemaVersion
@@ -250,6 +285,7 @@ public struct UserPreset: Codable, Hashable, Identifiable, Sendable {
         self.amp = amp
         self.ampValues = ampValues
         self.guitar = guitar
+        self.catalogIDs = catalogIDs
         // A hand-edited file is a real input, so the ceiling every other add path
         // in the app obeys is enforced here too rather than trusted.
         self.pedals = Array(pedals.prefix(RigStore.maxPedalsOnBoard))
@@ -274,16 +310,44 @@ public struct UserPreset: Codable, Hashable, Identifiable, Sendable {
 
     // MARK: What it is made of, in words
 
-    public var ampName: String {
+    /// THE NAMES EXACTLY AS THE RECORD HOLDS THEM. These are what resolution and
+    /// wiring key on — never the display names below.
+    ///
+    /// The distinction is not pedantry; conflating the two cost a real bug. Every
+    /// lookup in `apply` (`ids[head]`, `ids[cab]`, `ids[$0.model]`) reads straight
+    /// out of the record, so the map has to be keyed by what the record says. Point
+    /// `modelNames` at the DISPLAY names instead and a renamed amp resolves fine,
+    /// gets its knob values written, and then fails to wire up — returning false
+    /// having already mutated the collection, which is precisely the half-applied
+    /// state `apply`'s resolve-first contract exists to prevent.
+    public var rawAmpName: String {
         switch amp {
         case .stack(let head, _): return head
         case .combo(let name):    return name
         }
     }
 
-    public var cabName: String? {
+    public var rawCabName: String? {
         switch amp {
         case .stack(_, let cab): return cab
+        case .combo:             return nil
+        }
+    }
+
+    /// The amp's name AS THE CATALOG CALLS IT TODAY, not as it was written at
+    /// save time — see `currentName`. FOR DISPLAY ONLY: a recipe pane printing a
+    /// retired name beside a rig that shows the new one is the same class of lie
+    /// the id-keying exists to stop, but resolution must use `rawAmpName`.
+    public var ampName: String {
+        switch amp {
+        case .stack(let head, _): return currentName(head)
+        case .combo(let name):    return currentName(name)
+        }
+    }
+
+    public var cabName: String? {
+        switch amp {
+        case .stack(_, let cab): return currentName(cab)
         case .combo:             return nil
         }
     }
@@ -293,8 +357,8 @@ public struct UserPreset: Codable, Hashable, Identifiable, Sendable {
     /// to be able to resolve before it touches anything. The guitar is not in here
     /// on purpose; see `guitar`.
     public var modelNames: [String] {
-        var names = [ampName]
-        if let cabName { names.append(cabName) }
+        var names = [rawAmpName]
+        if let rawCabName { names.append(rawCabName) }
         names.append(contentsOf: pedals.map(\.model))
         return names
     }
@@ -314,11 +378,11 @@ public struct UserPreset: Codable, Hashable, Identifiable, Sendable {
     }
 
     /// What an unnamed slot is called. Deliberately the slot's own number rather
-    /// than something derived from the amp: a truncated "Mesa Boogey Dual R" reads
+    /// than something derived from the amp: a truncated "Mesquite Bootleg Dual R" reads
     /// as a bug, and "SLOT 3" reads as a thing waiting to be named — which it is.
     public static func fallbackName(forSlot slot: Int) -> String { "SLOT \(slot + 1)" }
 
-    /// What the list row prints under the name, e.g. "Freedman BE-100 · 3 pedals".
+    /// What the list row prints under the name, e.g. "Fremont GX-140 · 3 pedals".
     public var summary: String {
         let count = pedals.count
         let board = count == 0 ? "no pedals" : "\(count) pedal\(count == 1 ? "" : "s")"
@@ -338,12 +402,39 @@ public struct UserPreset: Codable, Hashable, Identifiable, Sendable {
         AmpHeadline.resolve(ampValues)
     }
 
+    // MARK: Resolving a saved name against today's catalog
+
+    /// The one place a saved name becomes a catalog item, in the order that keeps
+    /// a rename free: FROZEN ID first, the retired-name table second, and a plain
+    /// name match last.
+    ///
+    /// The last step is not dead code — it catches a hand-edited file, and a slot
+    /// written before `catalogIDs` existed naming gear that was never renamed.
+    /// The middle step is what `GearItem.init` already does with the same table,
+    /// and having both here means a slot saved before the rename resolves without
+    /// a migration pass over the file.
+    public func catalogItem(named savedName: String) -> GearItem? {
+        if let id = catalogIDs[savedName],
+           let byID = RigStore.catalog.first(where: { $0.catalogID == id }) { return byID }
+        if let id = GearCatalog.retiredID(forName: savedName),
+           let retired = RigStore.catalog.first(where: { $0.catalogID == id }) { return retired }
+        return RigStore.catalog.first { $0.name == savedName }
+    }
+
+    /// What to PRINT for a piece this slot named. The name the catalog uses today
+    /// when it still resolves, and the saved name when it does not — a slot whose
+    /// gear is gone should say what it was, since that is the only fact left that
+    /// helps the player understand what changed.
+    public func currentName(_ savedName: String) -> String {
+        catalogItem(named: savedName)?.name ?? savedName
+    }
+
     /// A pedal's settings IN PANEL ORDER, labelled the way its own faceplate
     /// labels them. Same construction as `RigPreset.settings(for:)`, built from a
     /// throwaway `GearItem` because a dictionary has no order and "Level 7 · Tone
-    /// 6 · Overdrive 3" is a Tube Screamer described backwards.
+    /// 6 · Overdrive 3" is a Valve Shrieker described backwards.
     public func settings(for pedal: Pedal) -> [(label: String, value: Double)] {
-        guard let entry = RigPreset.catalogItem(named: pedal.model) else { return [] }
+        guard let entry = catalogItem(named: pedal.model) else { return [] }
         let spec = GearItem(name: entry.name, category: entry.category)
         return spec.parameters.compactMap { parameter in
             pedal.values[parameter.name].map { (parameter.displayName, $0) }
@@ -368,7 +459,7 @@ public struct UserPreset: Codable, Hashable, Identifiable, Sendable {
     /// has to be told, in the shipping build, that the slot cannot load and why —
     /// without being told it is their fault, because it is not.
     public var missingModels: [String] {
-        modelNames.filter { RigPreset.catalogItem(named: $0) == nil }
+        modelNames.filter { catalogItem(named: $0) == nil }
     }
 
     /// False when this slot names gear that is gone. Such a slot still renders,
@@ -392,7 +483,7 @@ public struct UserPreset: Codable, Hashable, Identifiable, Sendable {
     // MARK: - Decoding
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, id, slot, name, icon, savedAt, amp, ampValues, guitar, pedals, arSlots
+        case schemaVersion, id, slot, name, icon, savedAt, amp, ampValues, guitar, catalogIDs, pedals, arSlots
     }
 
     /// Hand-written, for exactly the reason `Profile`'s is: the synthesised
@@ -420,6 +511,10 @@ public struct UserPreset: Codable, Hashable, Identifiable, Sendable {
         amp           = lenient(Amp.self, .amp) ?? .stack(head: "", cab: "")
         ampValues     = lenient([String: Double].self, .ampValues) ?? [:]
         guitar        = lenient(String.self, .guitar) ?? ""
+        // Empty for every file written before ids travelled with the names. That
+        // is the designed path, not a degraded one — `catalogItem(named:)` falls
+        // through to the retired-name table, which is what such a file needs.
+        catalogIDs    = lenient([String: String].self, .catalogIDs) ?? [:]
         pedals        = Array((lenient([Pedal].self, .pedals) ?? []).prefix(RigStore.maxPedalsOnBoard))
         arSlots       = UserPreset.normalise(lenient([ARSlotSnapshot].self, .arSlots) ?? [])
     }
@@ -499,12 +594,24 @@ extension RigStore {
                                       isOn: slot.isOn)
         }
 
+        // THE IDS, CAPTURED AT SAVE TIME, keyed by the name written beside them.
+        // Everything the slot names goes in — the amp section, the board, the
+        // guitar and whatever is on the footswitches, which can include a pedal
+        // that is owned but not currently on the board.
+        var ids: [String: String] = [:]
+        for piece in [ampItem, cabinetItem, guitar].compactMap({ $0 })
+                   + pedalItems
+                   + arSlots.compactMap({ $0.pedalId.flatMap(item) }) {
+            if let catalogID = piece.catalogID { ids[piece.name] = catalogID }
+        }
+
         return UserPreset(slot: slot,
                           name: name,
                           icon: icon,
                           amp: amp,
                           ampValues: ampItem?.values ?? [:],
                           guitar: guitar?.name ?? "",
+                          catalogIDs: ids,
                           pedals: board,
                           arSlots: switches)
     }
@@ -551,9 +658,12 @@ extension RigStore {
     public func apply(_ preset: UserPreset) -> Bool {
         // 1. RESOLVE. Nothing below this block mutates, and nothing above it does
         //    either, so an early return here leaves the rig untouched.
-        var wanted: [(entry: GearItem, values: [String: Double]?)] = []
+        // `saved` rides along because a renamed piece resolves to an entry whose
+        // name no longer matches the record — and every wiring lookup below is
+        // keyed by what the record says.
+        var wanted: [(saved: String, entry: GearItem, values: [String: Double]?)] = []
         for name in preset.modelNames {
-            guard let entry = RigStore.catalog.first(where: { $0.name == name }) else { return false }
+            guard let entry = preset.catalogItem(named: name) else { return false }
             let values: [String: Double]?
             switch entry.category {
             case .amp, .comboAmp:  values = preset.ampValues
@@ -563,13 +673,13 @@ extension RigStore {
             case .cabinet:         values = nil
             default:               values = preset.pedals.first { $0.model == name }?.values
             }
-            wanted.append((entry, values))
+            wanted.append((name, entry, values))
         }
 
         // 2. OWN IT AND DIAL IT IN. `ownedInstance` matches by MODEL, so a slot
         //    reuses the copy already in the rail rather than adding a second one.
         var ids: [String: UUID] = [:]
-        for (entry, values) in wanted {
+        for (saved, entry, values) in wanted {
             let id: UUID
             if let owned = ownedInstance(of: entry) {
                 id = owned.id
@@ -585,7 +695,12 @@ extension RigStore {
             if let values, let index = collection.firstIndex(where: { $0.id == id }) {
                 collection[index].values = values
             }
-            ids[entry.name] = id
+            // KEYED BY THE SAVED NAME, not the catalog's current one. Every
+            // lookup below (`head`, `cab`, `$0.model`, the footswitches) comes
+            // out of the record, so keying this by `entry.name` would miss on
+            // exactly the renamed gear the id lookup just successfully resolved
+            // — the restore would resolve everything and then fail to wire it up.
+            ids[saved] = id
         }
 
         // 3. WIRE IT UP.
@@ -603,7 +718,12 @@ extension RigStore {
 
         // The guitar is resolved against the COLLECTION, not the catalog, and a
         // miss is survivable — see `UserPreset.guitar` for the whole argument.
-        if let owned = collection.first(where: { $0.category == .guitar && $0.name == preset.guitar }) {
+        // Id first here too, so a renamed guitar restores. Falls back to the name
+        // for slots written before ids travelled.
+        let guitarID = preset.catalogIDs[preset.guitar] ?? GearCatalog.retiredID(forName: preset.guitar)
+        if let owned = collection.first(where: { $0.category == .guitar
+                                                && ($0.catalogID != nil && $0.catalogID == guitarID
+                                                    || $0.name == preset.guitar) }) {
             rig.guitarId = owned.id
         }
 

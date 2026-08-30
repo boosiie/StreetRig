@@ -121,14 +121,14 @@ enum AmpScene {
     /// The amp faceplate knobs, in panel order — single source of truth is the
     /// data model, so the 3D knobs never drift from `GearItem.values`.
     ///
-    /// PER ITEM, not per category: a Katana's faceplate carries Volume and three
-    /// selectors the shared six do not, and a JC-120 has no Presence. Drawing the
+    /// PER ITEM, not per category: a Kabuto's faceplate carries Volume and three
+    /// selectors the shared six do not, and a RM-140 has no Presence. Drawing the
     /// category's list would put the wrong knobs on the model — and, worse, cache
     /// knob nodes under names the item never sets, so they would sit frozen at
     /// noon. `knobParamNames` (no argument) stays as the fallback for the generic
     /// procedural head, which is built before any item is known.
     ///
-    /// GROUPED controls are excluded: the Katana's five FX blocks are a panel
+    /// GROUPED controls are excluded: the Kabuto's five FX blocks are a panel
     /// SECTION, not faceplate knobs, and drawing fifteen more rotaries across a
     /// 3D amp face would turn a recognisable amp into a mixing desk.
     static func knobParamNames(for item: GearItem?) -> [String] {
@@ -230,8 +230,8 @@ enum ProceduralAmp {
     /// The stack for a specific amp + cabinet, art-textured where art exists.
     ///
     /// KNOB COLLISION, resolved: the head art already has that amp's real knob
-    /// row drawn on it — six on the JCM800's gold panel, nine along the bottom
-    /// of the Dual Rectifier — so adding the procedural knob nodes on top would
+    /// row drawn on it — six on the MSW900's gold panel, nine along the bottom
+    /// of the Dual Reactor — so adding the procedural knob nodes on top would
     /// give every art-textured head TWO sets of knobs, in different places, at
     /// different sizes. There is no per-amp knob geometry to align to (the rows
     /// genuinely differ per model), so the live knobs are DROPPED on the art
@@ -529,10 +529,10 @@ enum ProceduralAmp {
 }
 
 #Preview {
-    AmpModel3DView(item: GearItem(name: "Marswell JCM800 2203", category: .amp,
+    AmpModel3DView(item: GearItem(name: "Marswell MSW900 2140", category: .amp,
                                   values: ["Gain": 8, "Bass": 6, "Mid": 3,
                                            "Treble": 7, "Presence": 5, "Master": 4]),
-                   cabinet: GearItem(name: "Marswell 1960A 4x12", category: .cabinet))
+                   cabinet: GearItem(name: "Marswell 2415A 4x12", category: .cabinet))
         .frame(width: 240, height: 200)
         .background(RigTheme.background)
         .preferredColorScheme(.dark)

@@ -8,7 +8,7 @@
 //  WHY THIS EXISTS. Everything the app has built up to now is a builder: drag a
 //  cab onto a head, drag a pedal off the rail, tap it, turn six knobs. That is
 //  the point of the app and it is not going away — but it is also the wrong
-//  first five minutes for somebody who just wants to hear what a Rectifier
+//  first five minutes for somebody who just wants to hear what a Reactor
 //  sounds like. A preset is the answer to "make it sound like X" without
 //  learning what a presence control does first, and it is a teaching surface as
 //  much as a shortcut: the detail pane prints every knob it is about to set, so
@@ -17,8 +17,8 @@
 //  THE NUMBERS ARE THE POINT, AND THEY ARE REAL. A preset is not a hidden DSP
 //  mode — there is nothing here the player could not dial by hand. Each one
 //  names catalog models by the name the library shows and sets knobs by the name
-//  the faceplate prints, which is why `ampValues` for a Rectifier talks about
-//  "Gain 2" and one for a JCM800 talks about "Gain": those are the keys those
+//  the faceplate prints, which is why `ampValues` for a Reactor talks about
+//  "Gain 2" and one for a MSW900 talks about "Gain": those are the keys those
 //  two panels actually persist (see `PedalSpec` in Gear.swift).
 //
 //  THE CHANNEL RULE IS COPIED FROM THE COMPILER, DELIBERATELY. `RigGraphCompiler`
@@ -136,10 +136,10 @@ public struct RigPreset: Identifiable, Hashable {
     /// A pedal's settings IN PANEL ORDER, labelled the way its own faceplate
     /// labels them. Built from a throwaway `GearItem` rather than from the
     /// dictionary, because a dictionary has no order and "Level 7 · Tone 6 ·
-    /// Overdrive 3" is a Tube Screamer described backwards.
+    /// Overdrive 3" is a ValveShrieker described backwards.
     public func settings(for pedal: Pedal) -> [(label: String, value: Double)] {
         guard let entry = RigPreset.catalogItem(named: pedal.model) else { return [] }
-        let spec = GearItem(name: entry.name, category: entry.category)
+        let spec = GearItem(catalogID: entry.catalogID, name: entry.name, category: entry.category)
         return spec.parameters.compactMap { parameter in
             pedal.values[parameter.name].map { (parameter.displayName, $0) }
         }
@@ -168,7 +168,7 @@ public enum RigPresets {
     /// also enough: past three the fourth pedal is nearly always a second thing
     /// doing the first thing's job.
     ///
-    /// GATES ON THE HIGH-GAIN ONES, on purpose. A Rectifier on channel 2 with a
+    /// GATES ON THE HIGH-GAIN ONES, on purpose. A Reactor on channel 2 with a
     /// boost in front of it roars between notes — that is what the amp does and
     /// what this app is copying — so the presets that ask for that gain ship the
     /// pedal that answers for it. See `FAQView`.
@@ -184,7 +184,7 @@ public enum RigPresets {
                  + "hand and a slow chorus behind it. Chords stay separate no matter how "
                  + "hard you hit them.",
             symbol: "drop",
-            amp: .combo("Fandor Twin Reverb"),
+            amp: .combo("Fandor Tandem Reverb"),
             ampValues: [
                 // VIBRATO — the channel with the reverb on it, so the compiler
                 // reads the " 2" row (see the header's channel rule).
@@ -196,7 +196,7 @@ public enum RigPresets {
                 "Gain": 4, "Treble": 6, "Bass": 5
             ],
             pedals: [
-                RigPreset.Pedal("MXP dyna comp", ["Sensitivity": 4, "Output": 6]),
+                RigPreset.Pedal("KRX damper comp", ["Sensitivity": 4, "Output": 6]),
                 RigPreset.Pedal("VOSS Chorus", ["Rate": 3, "Depth": 3.5]),
                 RigPreset.Pedal("VOSS Reverb", ["Decay": 3.5, "Tone": 6, "Mix": 2.5])
             ],
@@ -214,7 +214,7 @@ public enum RigPresets {
                  + "clean; dig in and it breaks up. That is the whole trick, and it is "
                  + "in the amp rather than the pedal.",
             symbol: "flame",
-            amp: .combo("Volt AC30"),
+            amp: .combo("Vane HV28"),
             ampValues: [
                 "CHANNEL": 0,                       // TOP BOOST
                 "Gain": 7, "Treble": 6, "Bass": 5.5,
@@ -226,8 +226,8 @@ public enum RigPresets {
                 "Gain 2": 5
             ],
             pedals: [
-                RigPreset.Pedal("MXP dyna comp", ["Sensitivity": 5, "Output": 6]),
-                RigPreset.Pedal("Marswell BLUES BREAKER", ["Gain": 4.5, "Tone": 6, "Volume": 6]),
+                RigPreset.Pedal("KRX damper comp", ["Sensitivity": 5, "Output": 6]),
+                RigPreset.Pedal("Marswell BLUES BLAZER", ["Gain": 4.5, "Tone": 6, "Volume": 6]),
                 RigPreset.Pedal("VOSS Reverb", ["Decay": 3, "Tone": 5.5, "Mix": 2])
             ],
             note: "No noise gate here, and that is a choice: this much gain is quiet "
@@ -239,21 +239,21 @@ public enum RigPresets {
         RigPreset(
             id: "crunch",
             name: "CRUNCH",
-            tagline: "A cranked plexi at the edge of breakup.",
+            tagline: "A cranked clearpane at the edge of breakup.",
             blurb: "No master volume, so the only way this amp distorts is to turn it "
                  + "all the way up — which is what makes it sound the way it does. The "
-                 + "Tube Screamer is set as a PUSH, not a distortion: barely any drive, "
+                 + "ValveShrieker is set as a PUSH, not a distortion: barely any drive, "
                  + "level well past noon, so it hits the front end harder.",
             symbol: "bolt",
-            amp: .stack(head: "Marswell Plaxi Super Lead 1959", cab: "Marswell 1960A 4x12"),
+            amp: .stack(head: "Marswell Clearpane Stellar Lead 1042", cab: "Marswell 2415A 4x12"),
             ampValues: [
                 "PATCH": 2,                          // JUMPERED, as everybody runs it
                 "Presence": 6, "Bass": 5.5, "Mid": 6, "Treble": 7,
                 "Gain": 7.5, "Volume": 6
             ],
             pedals: [
-                RigPreset.Pedal("Ibonez Tube Screamer", ["Overdrive": 3, "Tone": 5.5, "Level": 7]),
-                RigPreset.Pedal("VOSS Noise Suppressor", ["Threshold": 3, "Decay": 4])
+                RigPreset.Pedal("Iberon Valve Shrieker", ["Overdrive": 3, "Tone": 5.5, "Level": 7]),
+                RigPreset.Pedal("VOSS Noise Silencer", ["Threshold": 3, "Decay": 4])
             ],
             note: "Drive down, level up. A green overdrive in front of an already-loud "
                 + "amp is a volume pedal with a mid hump, and that is the job."
@@ -264,19 +264,19 @@ public enum RigPresets {
             id: "classic-rock",
             name: "CLASSIC ROCK",
             tagline: "The 4x12 sound. Mids up, gain past halfway.",
-            blurb: "A master-volume Marshall through its own 4x12 — the rhythm tone most "
+            blurb: "A master-volume Marswell through its own 4x12 — the rhythm tone most "
                  + "guitar records are made of. Mids are UP rather than scooped, which is "
                  + "what lets it be heard next to a snare, and a short delay sits behind "
                  + "it for size.",
             symbol: "amplifier",
-            amp: .stack(head: "Marswell JCM800 2203", cab: "Marswell 1960A 4x12"),
+            amp: .stack(head: "Marswell MSW900 2140", cab: "Marswell 2415A 4x12"),
             ampValues: [
                 "Presence": 6, "Bass": 5, "Mid": 6.5, "Treble": 6.5,
                 "Master": 6, "Gain": 7
             ],
             pedals: [
-                RigPreset.Pedal("Ibonez Tube Screamer", ["Overdrive": 3.5, "Tone": 6, "Level": 6.5]),
-                RigPreset.Pedal("VOSS Noise Suppressor", ["Threshold": 3.5, "Decay": 4]),
+                RigPreset.Pedal("Iberon Valve Shrieker", ["Overdrive": 3.5, "Tone": 6, "Level": 6.5]),
+                RigPreset.Pedal("VOSS Noise Silencer", ["Threshold": 3.5, "Decay": 4]),
                 RigPreset.Pedal("VOSS Digital Delay", ["Time": 4.5, "Feedback": 3, "Mix": 2])
             ],
             note: "MID at 6½ is the setting people undo first and miss most. Scooping it "
@@ -292,15 +292,15 @@ public enum RigPresets {
                  + "front to keep single notes from thinning out. The delay is set long "
                  + "and low — you should feel it rather than hear repeats.",
             symbol: "waveform.path",
-            amp: .stack(head: "Tangerine Rockervert 100", cab: "Tangerine PPC412"),
+            amp: .stack(head: "Tangerine Rumblecrest 100", cab: "Tangerine TSV412"),
             ampValues: [
                 "CHANNEL": 0,                        // DIRTY
                 "Gain": 7.5, "Bass": 5, "Mid": 7, "Treble": 6,
                 "Master": 6, "REVERB": 3
             ],
             pedals: [
-                RigPreset.Pedal("Ibonez Tube Screamer", ["Overdrive": 2.5, "Tone": 6.5, "Level": 7.5]),
-                RigPreset.Pedal("VOSS Noise Suppressor", ["Threshold": 4, "Decay": 3.5]),
+                RigPreset.Pedal("Iberon Valve Shrieker", ["Overdrive": 2.5, "Tone": 6.5, "Level": 7.5]),
+                RigPreset.Pedal("VOSS Noise Silencer", ["Threshold": 4, "Decay": 3.5]),
                 RigPreset.Pedal("VOSS Digital Delay", ["Time": 5.5, "Feedback": 4, "Mix": 2.5])
             ],
             note: "Sustain comes from the mids and the boost, not from more gain. Turning "
@@ -317,14 +317,14 @@ public enum RigPresets {
                  + "a pedal on top only makes it woollier. Tight, saturated and even "
                  + "across the neck.",
             symbol: "bolt.fill",
-            amp: .stack(head: "Freedman BE-100", cab: "Marswell 1960A 4x12"),
+            amp: .stack(head: "Fremont GX-140", cab: "Marswell 2415A 4x12"),
             ampValues: [
                 "CHANNEL": 1,                        // BE
                 "Presence": 6, "Bass": 5.5, "Mid": 5.5, "Treble": 6.5,
                 "Master": 6, "Gain": 8
             ],
             pedals: [
-                RigPreset.Pedal("VOSS Noise Suppressor", ["Threshold": 4.5, "Decay": 3]),
+                RigPreset.Pedal("VOSS Noise Silencer", ["Threshold": 4.5, "Decay": 3]),
                 RigPreset.Pedal("VOSS Digital Delay", ["Time": 4, "Feedback": 2.5, "Mix": 1.5])
             ],
             note: "The gate is not optional at this gain. Take it off the board and the "
@@ -337,12 +337,12 @@ public enum RigPresets {
             id: "metal",
             name: "METAL",
             tagline: "Scooped, tight, and shut up between notes.",
-            blurb: "A Rectifier on channel two through an oversized cab, boosted by an "
+            blurb: "A Reactor on channel two through an oversized cab, boosted by an "
                  + "overdrive with the drive almost off — the standard way to tighten a "
                  + "high-gain amp's low end without adding distortion. A graphic EQ "
                  + "carves the mids and a fast gate kills everything in the gaps.",
             symbol: "square.stack.3d.down.right",
-            amp: .stack(head: "Mesa Boogey Dual Ractifier", cab: "Mesa Boogey Oversized 4x12"),
+            amp: .stack(head: "Mesquite Bootleg Dual Reactor", cab: "Mesquite Bootleg Oversized 4x12"),
             ampValues: [
                 "CHANNEL": 1, "MODE": 1, "VOICE": 1,      // CH2 / PUSHED / MODERN
                 "Gain 2": 8.5, "Bass 2": 7, "Mid 2": 2.5, "Treble 2": 7,
@@ -351,15 +351,15 @@ public enum RigPresets {
                 "Gain": 6, "Bass": 6, "Mid": 4, "Treble": 6, "Presence": 6, "Master": 5
             ],
             pedals: [
-                RigPreset.Pedal("Ibonez Tube Screamer",
+                RigPreset.Pedal("Iberon Valve Shrieker",
                                 ["Overdrive": 0.5, "Tone": 6.5, "Level": 8]),
                 // The three bands the engine reads are 125, 500 and 4k (see
                 // ParameterMap.pedalParams); the rest are set so the drawn
                 // sliders are the V-shape the sound actually is.
-                RigPreset.Pedal("MXP ten band eq",
+                RigPreset.Pedal("KRX ten band eq",
                                 ["31": 5, "62": 6, "125": 6.5, "250": 4, "500": 2.5,
                                  "1k": 3, "2k": 5, "4k": 6.5, "8k": 6, "16k": 5, "Volume": 5]),
-                RigPreset.Pedal("VOSS Noise Suppressor", ["Threshold": 5.5, "Decay": 2.5])
+                RigPreset.Pedal("VOSS Noise Silencer", ["Threshold": 5.5, "Decay": 2.5])
             ],
             note: "OVERDRIVE at ½ and LEVEL at 8. The boost is there to shave bass off "
                 + "the amp's input, not to add gain — the amp has plenty."
@@ -370,24 +370,24 @@ public enum RigPresets {
             id: "fuzz",
             name: "FUZZ",
             tagline: "Torn, spitting and gloriously unstable.",
-            blurb: "Two transistors and almost nothing else, into a cranked plexi. Fuzz "
+            blurb: "Two transistors and almost nothing else, into a cranked clearpane. Fuzz "
                  + "is not distortion with more of it — it squares the wave off and "
                  + "collapses, which is why it sputters as a note dies. A phaser sits "
                  + "behind it because that is where it has always sat.",
             symbol: "aqi.high",
-            amp: .stack(head: "Marswell Plaxi Super Lead 1959", cab: "Marswell 1960A 4x12"),
+            amp: .stack(head: "Marswell Clearpane Stellar Lead 1042", cab: "Marswell 2415A 4x12"),
             ampValues: [
                 "PATCH": 2,
                 "Presence": 5.5, "Bass": 6, "Mid": 5.5, "Treble": 6.5,
                 "Gain": 8, "Volume": 7
             ],
             pedals: [
-                RigPreset.Pedal("DALLAS ARBITOR FUZZ FACE", ["Volume": 6.5, "Fuzz": 8.5]),
+                RigPreset.Pedal("DALTON ARMATURE FUZZ DOME", ["Volume": 6.5, "Fuzz": 8.5]),
                 // Set LOW and SLOW deliberately: the sputter as a fuzz note dies is
                 // the sound, and a gate set the way the metal preset sets one would
                 // remove exactly that.
-                RigPreset.Pedal("VOSS Noise Suppressor", ["Threshold": 3.5, "Decay": 5.5]),
-                RigPreset.Pedal("MXP phase 90", ["Speed": 3.5])
+                RigPreset.Pedal("VOSS Noise Silencer", ["Threshold": 3.5, "Decay": 5.5]),
+                RigPreset.Pedal("KRX swirl 72", ["Speed": 3.5])
             ],
             note: "Roll your guitar's volume back and a fuzz cleans up further than any "
                 + "overdrive will. Most of what people dislike about fuzz is it sitting "
@@ -404,7 +404,7 @@ public enum RigPresets {
                  + "single notes rather than riffs — everything here is about the "
                  + "space after the note.",
             symbol: "cloud",
-            amp: .combo("Rolund JC-120 Jazzy Chorus"),
+            amp: .combo("Rondell RM-140 Velvet Chorus"),
             ampValues: [
                 "CHANNEL": 1,                        // the channel with reverb and chorus
                 "Gain 2": 5, "Treble 2": 6.5, "Mid 2": 4.5, "Bass 2": 5.5,
@@ -414,7 +414,7 @@ public enum RigPresets {
             pedals: [
                 RigPreset.Pedal("VOSS Chorus", ["Rate": 2.5, "Depth": 5]),
                 RigPreset.Pedal("VOSS Digital Delay", ["Time": 6.5, "Feedback": 5.5, "Mix": 4]),
-                RigPreset.Pedal("electro-harmonium HOLY GRAIL", ["Reverb": 7])
+                RigPreset.Pedal("electro-galvanic GOLDEN FLEECE", ["Reverb": 7])
             ],
             note: "This amp's own chorus is on the faceplate and not in the engine yet, "
                 + "which is why there is a chorus pedal on the board doing that job."
@@ -487,7 +487,7 @@ extension RigStore {
             if let owned = ownedInstance(of: entry) {
                 id = owned.id
             } else {
-                let fresh = GearItem(name: entry.name, category: entry.category)
+                let fresh = GearItem(catalogID: entry.catalogID, name: entry.name, category: entry.category)
                 collection.append(fresh)
                 id = fresh.id
             }
@@ -551,7 +551,7 @@ extension RigPresets {
             /// The knob names a model's panel actually persists.
             func keys(of name: String) -> Set<String>? {
                 guard let entry = available[name] else { return nil }
-                return Set(GearItem(name: entry.name, category: entry.category)
+                return Set(GearItem(catalogID: entry.catalogID, name: entry.name, category: entry.category)
                             .parameters.map(\.name))
             }
 

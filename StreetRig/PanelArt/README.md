@@ -6,23 +6,23 @@ whole workflow: no Swift, no manifest, no `project.pbxproj` edit. The Xcode proj
 synchronized file groups, so a PNG dropped here is bundled on the next build.
 
 ```
-ibonez-tube-screamer-panel.png     ← the Tube Screamer's faceplate
-marswell-jcm800-2203-panel.png     ← the JCM800's
+iberon-tube-shrieker-panel.png     ← the ValveShrieker's faceplate
+marswell-msw900-2140-panel.png     ← the MSW900's
 category-overdrive-panel.png       ← every overdrive with no plate of its own
 ```
 
 ## Every amp has its own
 
 The eleven amp heads and combos each bake a **different** faceplate — gold brushed
-acrylic on the Marswells, silver on the Fandor Twin, cooler grey on the Rolund, copper on
-the Volt, gunmetal on the Mesa, matte black on the Freedman, the DSL40C and the Katana
+acrylic on the Marswells, silver on the Fandor Tandem, cooler grey on the Rondell, copper on
+the Vane, gunmetal on the Mesquite, matte black on the Fremont, the VCX45C and the Kabuto
 (told apart by their chassis trim: gold, white, amber), orange on the Tangerine, tweed on
-the Bassman. That baseline lives in
+the Bassdude. That baseline lives in
 [`Faceplate.swift`](../Views/Faceplate.swift), matched by substring on the model name.
 
 **One thing there is not in the PNG: whether the plate is light.** Knob captions are drawn
 dark on a light panel and light on a dark one, and that comes from `Faceplate.ampSpec`,
-not from the image. So if you repaint the Mesa's gunmetal plate cream, flip its `isLight`
+not from the image. So if you repaint the Mesquite's gunmetal plate cream, flip its `isLight`
 in `Faceplate.swift` too — otherwise you get white labels on a pale plate.
 
 ## What a plate is (and isn't)
@@ -79,8 +79,8 @@ place the knobs itself, or the app spaces them evenly across the panel and they 
 - The knob is *drawn* at `d`, but its **touch target** grows to 44 pt where the spacing
   allows, so a small faceplate knob is still draggable.
 
-Three plates ship one today — `marswell-jcm800-2203-panel.json` (six knobs),
-`marswell-plexi-super-lead-1959-panel.json` (six), and `freedman-be-100-panel.json`
+Three plates ship one today — `marswell-msw900-2140-panel.json` (six knobs),
+`marswell-clearpane-super-lead-1042-panel.json` (six), and `fremont-gx-140-panel.json`
 (nine: six for the gain channel, three for the clean one). Each was measured off its
 artwork's placement marks. A piece with a sidecar is also **never re-baked** by the exporter, even
 with `=force` — hand art is not something a baseline should bury.
@@ -108,18 +108,18 @@ segmented buttons under the panel drops it — you flick the switch on the amp i
 - Touching a switch **names it** — a bubble with the control and the position it just
   landed on, because a toggle on a faceplate has no caption at arm's length.
 - **`"style": "rotary"`** draws a selector the chassis TURNS rather than flicks — the
-  Jazzy Chorus picks VIB / OFF / CHOR with a knob, and a bat toggle in a painted knob
+  Velvet Chorus picks VIB / OFF / CHOR with a knob, and a bat toggle in a painted knob
   well reads as the wrong part. Add `"step"` for the degrees between detents (45 default),
   to match the markings painted around it.
 - **`lamps`** is optional: jewels that light while the switch sits on one of their `on`
-  positions. A column of them is normal — the Ketana names its amp type with a stack of
+  positions. A column of them is normal — the Kabuto names its amp type with a stack of
   six LEDs rather than a caption, so each lamp lists the one index it answers to.
   `color` is `#rrggbb`, defaulting to the app's amber.
 - A switch the sidecar does NOT name stays in the strip below, so a partly-marked plate
   never loses a control.
 - **Live controls are RINGED; dead ones are left alone.** A knob or switch that reaches
   the engine wears a thin amber ring (with a dark hairline outside it, so it still reads
-  on a plate whose own colour is nearly amber — the Rockervert's orange face). Anything
+  on a plate whose own colour is nearly amber — the Rumblecrest's orange face). Anything
   unmodelled simply goes unringed: no shade, no dimming. Marking the dead ones was the
   first cut and it scales backwards — an amp with seven unmodelled controls out of
   thirteen became a field of grey patches and looked broken rather than partly supported.
@@ -133,7 +133,7 @@ segmented buttons under the panel drops it — you flick the switch on the amp i
 ## What a control is actually called: `controls.txt`
 
 Anchors match by `GearParameter.name`, which is not always what the panel prints — the
-JCM800's PRE-AMP VOLUME is `Gain`, MIDDLE is `Mid`. Guess wrong and the layout is
+MSW900's PRE-AMP VOLUME is `Gain`, MIDDLE is `Mid`. Guess wrong and the layout is
 silently ignored. So the exporter writes `controls.txt` beside the plates: every piece
 with knobs, its dials in order, its switches and their options, and which of them have
 no engine behind them.
@@ -145,9 +145,9 @@ lowercase, every run of non-`[a-z0-9]` replaced by a single `-`, trimmed:
 
 | Component | Plate |
 |---|---|
-| `Ibonez Tube Screamer` | `ibonez-tube-screamer-panel.png` |
-| `electro-harmonium BIG MUFF π` | `electro-harmonium-big-muff-panel.png` |
-| `Fandor Bassman '59` | `fandor-bassman-59-panel.png` |
+| `Iberon Valve Shrieker` | `iberon-tube-shrieker-panel.png` |
+| `electro-galvanic BIG MITT Ω` | `electro-galvanic-big-mitt-panel.png` |
+| `Fandor Bassdude '59` | `fandor-bassdude-59-panel.png` |
 | *(any overdrive without its own)* | `category-overdrive-panel.png` |
 
 `.jpg` works too, but PNG is what the exporter bakes and the only format that can carry

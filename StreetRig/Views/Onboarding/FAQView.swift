@@ -178,7 +178,7 @@ enum FAQ {
             ],
             steps: [
                 "Swipe to GEAR LIBRARY and pick the Pedal tab.",
-                "Open the Noise Gate card and tap the VOSS Noise Suppressor. It is "
+                "Open the Noise Gate card and tap the VOSS Noise Silencer. It is "
                 + "yours now, and it appears in the MY GEAR rail.",
                 "Press its card in the rail until it lifts, then drag it onto the rig.",
                 "Tap it on the rig to zoom in, and set Threshold and Decay by ear."

@@ -2,7 +2,7 @@
 //  EqPedal.hpp
 //  StreetRig
 //
-//  A 3-band tone-shaping EQ pedal (the .eq category: GE-7 / ParaEq / 10-band).
+//  A 3-band tone-shaping EQ pedal (the .eq category: GE-7 / Parametric EQ / 10-band).
 //  This is the EASIEST family to make faithful — an EQ pedal IS a bank of
 //  filters, so a cascade of RBJ biquads reproduces its frequency response
 //  essentially exactly. This first pass exposes the three knobs the UI already

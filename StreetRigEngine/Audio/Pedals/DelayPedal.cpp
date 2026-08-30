@@ -23,7 +23,7 @@ DelayPedal::Voice DelayPedal::voiceFor(int voicing) noexcept {
     Voice v;
     switch (voicing) {
     case Tape:
-        // DUNLAP ECHOPLEX (EP-3). A tape loop is a record head, a moving piece
+        // DUNRIDGE ECHOREEL (ER-3). A tape loop is a record head, a moving piece
         // of oxide and a playback head, and all three colour EVERY pass: the
         // record amp saturates, the tape loses top and bottom, and the motor
         // never runs at exactly one speed. Because all of it is inside the
@@ -37,22 +37,22 @@ DelayPedal::Voice DelayPedal::voiceFor(int voicing) noexcept {
         // two came out 0.3 pp apart. Tape's HF loss is not first order — head-gap
         // loss, playback-head response and the tape's own self-erasure stack —
         // so it is modelled as two poles a little higher up, which lands the
-        // first repeat where an Echoplex's actually sits.
+        // first repeat where an Echoreel's actually sits.
         v.fbLowpassHz   = 4500.0f;    // cue: each repeat noticeably darker than
         v.twoPoleLP     = true;       // the last, gone by ~6 repeats
         v.fbHighpassHz  = 90.0f;      // head-gap loss at the bottom; also keeps
                                       // LF energy from stacking up in the loop
         v.satDrive      = 0.85f;      // record-stage soft clip (tanh knee)
-        // The famous EP-3 preamp, on the OUTPUT and applied once — and modelled
+        // The famous ER-3 preamp, on the OUTPUT and applied once — and modelled
         // as a broad MIDRANGE peak, not a treble shelf. The obvious reading
         // (+3 dB above 3 kHz) makes the tape voicing measure BRIGHTER at 2 kHz
         // than the digital one on the very first repeat, which contradicts every
-        // ear and the spec's own cue; what an EP-3 in a signal chain actually
+        // ear and the spec's own cue; what an ER-3 in a signal chain actually
         // adds is midrange girth, and its top end is limited by the tape, not
         // lifted by the amplifier.
         v.preampHz      = 1200.0f;
         v.preampQ       = 0.70f;
-        v.preampDB      = 3.0f;       // cue: an Echoplex in the chain should
+        v.preampDB      = 3.0f;       // cue: an Echoreel in the chain should
                                       // thicken the note even with Sustain at 0
         v.wowHz         = 0.5f;   v.wowDepth     = 0.0030f;  // ±0.30 % — cue:
         v.flutterHz     = 6.0f;   v.flutterDepth = 0.0005f;  // just perceptible.
@@ -61,7 +61,7 @@ DelayPedal::Voice DelayPedal::voiceFor(int voicing) noexcept {
         break;
 
     case BBD:
-        // Deluxe Memory Man. A bucket-brigade chip is an analog shift register:
+        // Deluxe ReverieMate. A bucket-brigade chip is an analog shift register:
         // the signal is clocked bucket to bucket, losing bandwidth and gaining
         // hiss the whole way, so the manufacturer wraps it in a COMPANDER —
         // squash going in, expand coming out — to keep the noise down. That
@@ -77,7 +77,7 @@ DelayPedal::Voice DelayPedal::voiceFor(int voicing) noexcept {
         // −86 dBFS, not −72. Reported by ear as "the delay creates a loud
         // background sound", and it is generated INSIDE the feedback loop, so
         // every repeat adds another helping and the running sum is roughly
-        // 1/(1−feedback) times one pass — at the Katana's pinned 0.38 that is
+        // 1/(1−feedback) times one pass — at the Kabuto's pinned 0.38 that is
         // 1.6×, and higher on a pedal set for long repeats. The compander then
         // EXPANDS it further on the way out, which is the mechanism that made a
         // number chosen as "a chip's quiet hiss" arrive as an audible wash.
@@ -85,14 +85,14 @@ DelayPedal::Voice DelayPedal::voiceFor(int voicing) noexcept {
         v.noiseFloor    = 0.00005f;   // gated by the envelope, so a dead tail
                                       // is still truly dead
         v.satDrive      = 0.0f;
-        v.wowHz         = 0.4f;   v.wowDepth = 0.0080f;   // the Memory Man's own
+        v.wowHz         = 0.4f;   v.wowDepth = 0.0080f;   // the ReverieMate's own
                                       // chorus section, riding the read pointer
         v.trim          = 1.0f;
         break;
 
     case Digital:
     default:
-        // VOSS Digital Delay (DD-8). The point of a digital delay is that the
+        // BRIG Digital Delay (DD-8). The point of a digital delay is that the
         // repeat is the SAME as what you played, so almost everything above is
         // deliberately absent. The one thing that is not is the feedback-path
         // low-pass: an unfiltered digital loop makes each repeat marginally
@@ -131,7 +131,7 @@ void DelayPedal::prepare(double sampleRate, int numChannels) noexcept {
 void DelayPedal::configure(int voicing) noexcept {
     voicing_ = std::clamp(voicing, 0, (int)BBD);
     v_ = voiceFor(voicing_);
-    // The EP-3 preamp is the only biquad in the block; everything else is first
+    // The ER-3 preamp is the only biquad in the block; everything else is first
     // order, because everything else it models is. Designed HERE, on the setup
     // thread — the render path evaluates no trigonometry.
     for (int c = 0; c < kMaxChannels; ++c) {
@@ -221,7 +221,7 @@ void DelayPedal::process(float *buffer, int n, int channel, const float *params)
 
     // Modulation. The tape voicing's wow and flutter are ALWAYS on (they are the
     // machine, not an effect); the BBD's chorus depth follows the pedal's own
-    // Depth knob, and the base depth is what a Memory Man does with Depth at
+    // Depth knob, and the base depth is what a ReverieMate does with Depth at
     // noon. Both are expressed as a FRACTION of the delay time, because that is
     // how a real speed variation behaves — a 0.3 % wow on a 600 ms echo wobbles
     // six times as far as on a 100 ms slap.
@@ -311,7 +311,7 @@ void DelayPedal::process(float *buffer, int n, int channel, const float *params)
             echo *= 1.0f - v_.compandAmount * (1.0f - e);
         }
 
-        // The EP-3 preamp: the machine's OUTPUT amplifier, downstream of the
+        // The ER-3 preamp: the machine's OUTPUT amplifier, downstream of the
         // playback head, so it colours each repeat exactly ONCE. It deliberately
         // does not sit in the loop — the tape's losses compound, an amplifier's
         // gain does not, and putting the lift inside the loop had it cancelling

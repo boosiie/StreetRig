@@ -36,14 +36,14 @@ import StreetRigEngine
 // MARK: - What's live
 
 /// THE MARK GOES ON WHAT WORKS. Shading everything dead was the obvious way round
-/// and it scales backwards: the Ketana has seven unmodelled controls out of
+/// and it scales backwards: the Kabuto has seven unmodelled controls out of
 /// thirteen, so a panel full of grey patches reads as a broken amp rather than as
 /// a working one with limits. Ringing the live controls instead means the marks
 /// thin out as an amp gets less supported, never thicken, and the eye lands on
 /// what it can actually use.
 ///
 /// Two rings, not one: amber says live, and the hairline outside it is what keeps
-/// the amber visible on a plate that is nearly the same colour — the Rockervert's
+/// the amber visible on a plate that is nearly the same colour — the Rumblecrest's
 /// orange face is within a few points of the app's amber, and a bare ring would
 /// vanish into it.
 struct LiveRing: View {
@@ -64,7 +64,7 @@ struct LiveRing: View {
                 .frame(width: outer, height: outer)
                 .blur(radius: max(1.5, diameter * 0.16))
             // A dark seat, so the amber still reads on a plate that IS amber —
-            // the Rockervert's orange face is within a few points of it.
+            // the Rumblecrest's orange face is within a few points of it.
             Circle()
                 .strokeBorder(.black.opacity(0.5), lineWidth: max(1.5, diameter * 0.20))
                 .frame(width: outer + gap, height: outer + gap)
@@ -163,7 +163,7 @@ struct PanelToggle: View {
 
 // MARK: - The selector that is a knob, not a toggle
 
-/// Some selectors are ROTARY on the real chassis — the Jazzy Chorus picks
+/// Some selectors are ROTARY on the real chassis — the Velvet Chorus picks
 /// VIB / OFF / CHOR with a knob, not a flick switch, and the artwork draws one.
 /// A bat toggle sitting in a painted knob well would read as the wrong part.
 ///

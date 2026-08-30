@@ -5,20 +5,20 @@
 //  The delay family (.delay) — ONE recirculating line, THREE genuinely different
 //  circuits around it. Until now `.delay` mapped to `typeTransparent`: the pedal
 //  held its position in the chain and passed audio through untouched, which made
-//  VOSS Digital Delay, DUNLAP ECHOPLEX and electro-harmonium MEMORY MAN mute
+//  BRIG Digital Delay, DUNRIDGE ECHOREEL and electro-galvanic REVERIE MATE mute
 //  decorations. This is the engine that makes them audible.
 //
-//    • DIGITAL (0) — VOSS Digital Delay / DD-8. Clean, full-bandwidth repeats.
+//    • DIGITAL (0) — BRIG Digital Delay / DD-8. Clean, full-bandwidth repeats.
 //      Linear interpolation, one feedback-path low-pass to stop the repeats from
 //      getting BRIGHTER than the dry (which is what an unfiltered loop does), and
 //      — the part that makes it digital — a CROSSFADE when the time changes, so
 //      the pitch never moves.
 //
-//    • TAPE (1) — DUNLAP ECHOPLEX / EP-3. Hermite reads, wow (0.5 Hz) and
+//    • TAPE (1) — DUNRIDGE ECHOREEL / ER-3. Hermite reads, wow (0.5 Hz) and
 //      flutter (6 Hz) on the read pointer, a saturating record stage and a
 //      two-pole 4.5 kHz roll-off on the RECORD side so every repeat is darker,
 //      softer and a
-//      little more wobbly than the one before it, plus the EP-3's output preamp
+//      little more wobbly than the one before it, plus the ER-3's output preamp
 //      — a broad midrange lift, applied once, downstream. Time changes SLEW, so
 //      turning the Time knob glides the pitch as dragging a tape head does.
 //
@@ -28,12 +28,12 @@
 //  companding all sit on the write path, where their effect compounds: repeat six
 //  has been through them six times. The machine's output amplifier is downstream
 //  of the playback head and colours each repeat exactly ONCE, so it sits outside
-//  the loop. Collapsing the two (a natural first cut) puts the EP-3 preamp's
+//  the loop. Collapsing the two (a natural first cut) puts the ER-3 preamp's
 //  upper-mid lift inside the loop, where it cancels the very bandwidth loss that
 //  makes tape sound like tape — measurably: with the lift inside, the tape
 //  voicing lost only 19 % of its top by repeat three against digital's 17 %.
 //
-//    • BBD (2) — Deluxe Memory Man. Hermite reads, a bucket-brigade voicing:
+//    • BBD (2) — Deluxe ReverieMate. Hermite reads, a bucket-brigade voicing:
 //      two-pole 2.5 kHz filtering, COMPANDING (compress in, expand out — the
 //      thing that actually makes a BBD sound like a BBD, because it squashes the
 //      quiet parts of every repeat and then re-expands them along with the
@@ -47,7 +47,7 @@
 //  new read positions over ~30 ms, which is inaudible and pitch-preserving),
 //  while a tape or bucket-brigade delay MUST change pitch (so its read pointer is
 //  slewed with a ~100 ms one-pole and the repeats glide). Implementing only the
-//  first would make the Echoplex sound like a rack unit; only the second would
+//  first would make the Echoreel sound like a rack unit; only the second would
 //  make the DD-8 sound broken. Both are here on purpose.
 //
 //  MEMORY: this engine OWNS NO BUFFER. Its line is a span of `PedalChain`'s one
@@ -126,7 +126,7 @@ private:
         float fbLowpassHz = 8000.0f;  ///< RECORD-side low-pass when no Tone knob
         float fbHighpassHz = 0.0f;    ///< record-side high-pass (tape head loss)
         float satDrive = 0.0f;        ///< 0 = no record-stage saturation
-        /// The EP-3's OUTPUT preamp, as a broad mid PEAK rather than a treble
+        /// The ER-3's OUTPUT preamp, as a broad mid PEAK rather than a treble
         /// shelf — see the .cpp for why the obvious shelf is the wrong shape.
         float preampHz = 0.0f;        ///< 0 = no preamp stage
         float preampQ = 0.7f;
@@ -169,7 +169,7 @@ private:
         float fbLP = 0.0f;              ///< one-pole low-pass state
         float fbLP2 = 0.0f;             ///< BBD's second pole
         float fbHPx1 = 0.0f, fbHPy1 = 0.0f;
-        Biquad preamp;                  ///< EP-3 upper-mid lift
+        Biquad preamp;                  ///< ER-3 upper-mid lift
         float dcX1 = 0.0f, dcY1 = 0.0f;
         float env = 0.0f;               ///< companding / noise envelope
         float wowPhase = 0.0f, flutterPhase = 0.0f;

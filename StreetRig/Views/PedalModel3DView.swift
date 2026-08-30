@@ -6,9 +6,9 @@
 //  a slightly-raked board, all in a SINGLE SceneKit view (one renderer for the
 //  whole board, not one per pedal — see research/3d-amp-rendering-options.md).
 //  Each pedal picks an ENCLOSURE ARCHETYPE from its name and category (see
-//  PedalArchetypes3D) so a wah is a hinged rocker, a Boss compact wears its
-//  tread plate and a Fuzz Face is round; colors and LED colors still mirror the
-//  vector `PedalArt` so a Tube Screamer reads green and a tuner white either way.
+//  PedalArchetypes3D) so a wah is a hinged rocker, a Brig compact wears its
+//  tread plate and a FuzzDome is round; colors and LED colors still mirror the
+//  vector `PedalArt` so a ValveShrieker reads green and a tuner white either way.
 //  Tap a pedal (hit-tested by node name) to open its control overlay. Gated by
 //  `FeatureFlags.amp3D` alongside the 3D amp; every other surface stays vector.
 //
@@ -310,11 +310,11 @@ enum ProceduralPedal {
 
 #Preview {
     PedalboardModel3DView(pedals: [
-        GearItem(name: "DUNLAP CRY BABY", category: .wah, values: ["Position": 2]),
-        GearItem(name: "Ibonez Tube Screamer", category: .overdrive),
-        GearItem(name: "MXP phase 90", category: .modulation),
-        GearItem(name: "VOSS Metal Zone", category: .overdrive),
-        GearItem(name: "DALLAS ARBITOR FUZZ FACE", category: .overdrive),
+        GearItem(name: "DUNRIDGE WEEPING WILLOW", category: .wah, values: ["Position": 2]),
+        GearItem(name: "Iberon Valve Shrieker", category: .overdrive),
+        GearItem(name: "KRX swirl 72", category: .modulation),
+        GearItem(name: "VOSS Metal Realm", category: .overdrive),
+        GearItem(name: "DALTON ARMATURE FUZZ DOME", category: .overdrive),
         GearItem(name: "VOSS Digital Delay", category: .delay),
     ])
     .frame(width: 520, height: 190)

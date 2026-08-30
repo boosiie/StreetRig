@@ -20,13 +20,13 @@
 //                                   cathode-bypass SHELF, a gain, a waveshaper
 //                                   and a Miller low-pass. The cathode shelf is
 //                                   the differentiator most models omit and is
-//                                   most of what makes a Marshall a Marshall.
+//                                   most of what makes a Marswell a Marswell.
 //    3. TONE STACK                — per-amp centres, Qs, ranges and — the field
 //                                   whose absence is why every amp currently
 //                                   sounds the same — `ToneBand::noonDB`. A real
 //                                   passive TMB network is NOT flat at noon: a
-//                                   Fender scoops ~11 dB at ~400 Hz, a Marshall
-//                                   ~7 dB at ~650 Hz, a Vox is mid-FORWARD.
+//                                   Fandor scoops ~11 dB at ~400 Hz, a Marswell
+//                                   ~7 dB at ~650 Hz, a Vane is mid-FORWARD.
 //    4. POWER AMP                 — headroom, clip family, sag, the global
 //                                   negative-feedback loop the presence control
 //                                   actually lives inside, and the output
@@ -61,13 +61,13 @@ namespace streetrig {
 
 /// Waveshaper families available to an amp stage. Deliberately a separate enum
 /// from `DrivePedal::Clip`: the amp side needs `Clean` (no nonlinearity at all —
-/// an acoustic preamp, a JC-120's headroom) and the two output-stage families.
+/// an acoustic preamp, a RM-140's headroom) and the two output-stage families.
 enum class AmpClip : int {
     Clean      = 0,  ///< no nonlinearity at all — the stage is a pure gain
     Triode     = 1,  ///< asymmetric tanh — the preamp valve
     Pentode    = 2,  ///< harder knee, more odd harmonics — EL84/EL34 output valve
     ClassAB    = 3,  ///< symmetric push-pull with a crossover knee
-    SolidState = 4   ///< hard clip — JC-120 and the Katana power section
+    SolidState = 4   ///< hard clip — RM-140 and the Kabuto power section
 };
 
 enum class ToneShape : int { LowShelf = 0, Peak = 1, HighShelf = 2 };
@@ -84,7 +84,7 @@ enum class ToneShape : int { LowShelf = 0, Peak = 1, HighShelf = 2 };
 struct PreampStage {
     double  couplingHz = 0.0;       ///< interstage high-pass (coupling cap × grid leak), Hz. 0 = skipped
     double  cathodeHz  = 0.0;       ///< cathode-bypass shelf corner, Hz. 0 = fully bypassed (flat)
-    float   cathodeDB  = 0.0f;      ///< lift ABOVE cathodeHz, dB. 0 = skipped. The Marshall crunch lives here
+    float   cathodeDB  = 0.0f;      ///< lift ABOVE cathodeHz, dB. 0 = skipped. The Marswell crunch lives here
     double  millerHz   = 0.0;       ///< stage-output low-pass (Miller capacitance), Hz. 0 = skipped
     float   gain       = 1.0f;      ///< linear gain into this stage's nonlinearity
     float   asym       = 0.05f;     ///< clip bias → even harmonics (tube-like)
@@ -95,14 +95,14 @@ struct PreampStage {
 ///
 /// `noonDB` is what the PASSIVE network does with the knob at NOON — the field
 /// the pre-profile `ToneStack` was missing, and the single biggest reason a
-/// Fender and a Marshall sounded the same. It is also the cheapest large win in
+/// Fandor and a Marswell sounded the same. It is also the cheapest large win in
 /// the whole change: it costs nothing at render time, because only the
 /// coefficient *design* (main thread) changes.
 struct ToneBand {
     double    hz         = 100.0;
     double    q          = 0.707;
     float     rangeScale = 1.0f;    ///< × the bus dB (1.0 = the ±12 / ±9 swing the knob sends).
-                                    ///< NEGATIVE inverts the knob — the Vox "Cut" control.
+                                    ///< NEGATIVE inverts the knob — the Vane "Cut" control.
                                     ///< 0 with noonDB 0 = no such control; the band is skipped
     float     noonDB     = 0.0f;    ///< static contribution with the knob at noon
     ToneShape shape      = ToneShape::LowShelf;
@@ -113,11 +113,11 @@ struct ToneStackVoicing {
     /// Static loss of the passive network, dB (negative). Applied at the tone
     /// stack's OUTPUT and recovered as makeup AFTER the power amp — which is the
     /// only placement where the field does anything: it is what decides how hard
-    /// the tone stack drives the output valves. A Fender's ~16 dB of insertion
+    /// the tone stack drives the output valves. A Fandor's ~16 dB of insertion
     /// loss is precisely why its power amp stays clean at settings that would
-    /// have an AC30 (~12 dB) compressing.
+    /// have an HV28 (~12 dB) compressing.
     float    insertionDB = 0.0f;
-    /// 0..1 — how much Bass BOOST deepens the mid notch. On a Fender, turning
+    /// 0..1 — how much Bass BOOST deepens the mid notch. On a Fandor, turning
     /// Bass up hollows the mids out, because the mid pot's resistance below its
     /// wiper adds to the treble filter's. One scalar, applied when coefficients
     /// are recomputed, i.e. on the main thread at zero audio-thread cost.
@@ -165,7 +165,7 @@ struct AmpProfile {
     PowerAmpVoicing  power;
 
     int   cabSlot   = 0;            ///< preferred IR slot
-    bool  bypassCab = false;        ///< true = no speaker in the model (Katana ACOUSTIC)
+    bool  bypassCab = false;        ///< true = no speaker in the model (Kabuto ACOUSTIC)
     float outTrim   = 1.0f;         ///< level match across profiles
 
     /// Optional per-amp neural capture (resource base name, STATIC storage — so
@@ -184,23 +184,23 @@ struct AmpProfile {
 /// exactly as `DrivePedal::Voicing` ↔ `ParameterMap.voice*` already are.
 enum AmpVoicing : int {
     Legacy      = 0,   ///< the pre-profile fixed voicing — the universal fallback
-    JCM800      = 1,
-    TwinReverb  = 2,
-    AC30        = 3,
-    JC120       = 4,
-    Bassman59   = 5,
+    MSW900      = 1,
+    TandemReverb  = 2,
+    HV28        = 3,
+    RM140      = 4,
+    Bassdude59   = 5,
     // 6..9 were reserved for four of the five remaining catalog amps and are now
-    // filled. Marswell DSL40C took 20; 21+ is open for anything later.
-    Plexi1959   = 6,
-    BE100       = 7,
-    DualRect    = 8,
-    Rockerverb  = 9,
-    KatanaAcousticA = 10, KatanaAcousticB = 11,
-    KatanaCleanA    = 12, KatanaCleanB    = 13,
-    KatanaCrunchA   = 14, KatanaCrunchB   = 15,
-    KatanaLeadA     = 16, KatanaLeadB     = 17,
-    KatanaBrownA    = 18, KatanaBrownB    = 19,
-    DSL40C          = 20
+    // filled. Marswell VCX45C took 20; 21+ is open for anything later.
+    Clearpane1042   = 6,
+    GX140      = 7,
+    DualReactor    = 8,
+    Rumblecrest  = 9,
+    KabutoAcousticA = 10, KabutoAcousticB = 11,
+    KabutoCleanA    = 12, KabutoCleanB    = 13,
+    KabutoCrunchA   = 14, KabutoCrunchB   = 15,
+    KabutoLeadA     = 16, KabutoLeadB     = 17,
+    KabutoBrownA    = 18, KabutoBrownB    = 19,
+    VCX45C          = 20
 };
 
 /// THE ONE AUDITABLE TABLE — the exact shape of `DrivePedal::voiceFor(int)`.
@@ -209,7 +209,7 @@ AmpProfile profileFor(int voicing) noexcept;
 
 /// Human-readable id → name. DEBUGGER AID: profile ids appear in
 /// `RigDSPPlan.signature` and in `SRKernelActiveAmpProfile`, and reading "14"
-/// off a breakpoint is not the same as reading "Katana Crunch A". Not on any
+/// off a breakpoint is not the same as reading "Kabuto Crunch A". Not on any
 /// audio or setup path.
 const char *ampVoicingName(int voicing) noexcept;
 

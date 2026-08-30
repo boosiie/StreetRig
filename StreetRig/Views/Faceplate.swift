@@ -8,8 +8,8 @@
 //  seam that had nothing per-component in it.
 //
 //  So the faceplate is a MODEL fact now, not a category one: gold brushed acrylic
-//  on the Marswells, silver on the Fandor, copper on the Volt, gunmetal on the
-//  Mesa, matte black on the Freedman and the Katana. Colour carries most of it;
+//  on the Marswells, silver on the Fandor, copper on the Vane, gunmetal on the
+//  Mesquite, matte black on the Fremont and the Kabuto. Colour carries most of it;
 //  the finish and the chassis trim band carry the rest, so the four black-panel
 //  amps still read as four different amps.
 //
@@ -40,8 +40,8 @@ enum Faceplate {
         case flat
         /// Rolled aluminium: fine horizontal grain under a broad sheen.
         case brushed
-        /// Brushed gold acrylic, the Marshall-style panel: vertical sheen band.
-        case plexi
+        /// Brushed gold acrylic, the Marswell-style panel: vertical sheen band.
+        case clearpane
         /// Matte paint: no grain, a faint speckle and a soft vignette.
         case painted
         /// Woven cloth, for the tweed-era combo.
@@ -62,19 +62,23 @@ enum Faceplate {
     /// them. Kept free of any call back into `GearArtView`, which consults this.
     static func ampSpec(for item: GearItem?) -> Spec? {
         guard let item, item.category == .amp || item.category == .comboAmp else { return nil }
-        let n = item.name.lowercased()
+        // Identity first: the plate colour is per MODEL, and a shipped amp must
+        // never lose it to a re-title. `plateTokenByID` maps a frozen catalogID to
+        // the row below that answers for it, so the substring pass is what an amp
+        // with no catalog entry — one somebody named themselves — falls back to.
+        let n = item.catalogID.flatMap { plateTokenByID[$0] } ?? item.name.lowercased()
 
         // --- Gold-panel Marswells -------------------------------------------
-        if n.contains("jcm800") {
-            return Spec(base: Color(red: 0.76, green: 0.60, blue: 0.24), finish: .plexi,
+        if n.contains("msw900") {
+            return Spec(base: Color(red: 0.76, green: 0.60, blue: 0.24), finish: .clearpane,
                         isLight: true, trim: Color(red: 0.20, green: 0.15, blue: 0.07))
         }
-        if n.contains("plexi") || n.contains("plaxi") || n.contains("super lead") {
-            // Brighter and brassier than the JCM800's — the plexi panels were.
-            return Spec(base: Color(red: 0.83, green: 0.69, blue: 0.33), finish: .plexi,
+        if n.contains("clearpane") || n.contains("stellar lead") {
+            // Brighter and brassier than the MSW900's — the clearpane panels were.
+            return Spec(base: Color(red: 0.83, green: 0.69, blue: 0.33), finish: .clearpane,
                         isLight: true, trim: Color(red: 0.24, green: 0.18, blue: 0.08))
         }
-        if n.contains("dsl40c") {
+        if n.contains("vcx45c") {
             // Black panel, gold chassis band: the modern Marswell, and the cue
             // that keeps it apart from the other three black plates.
             return Spec(base: Color(red: 0.10, green: 0.09, blue: 0.09), finish: .painted,
@@ -82,48 +86,48 @@ enum Faceplate {
         }
 
         // --- Black-panel boutique / high gain -------------------------------
-        if n.contains("be-100") || n.contains("freedman") {
-            // Cream, not black: the BE-100's own faceplate art is a tan panel, and
+        if n.contains("gx-140") || n.contains("fremont") {
+            // Cream, not black: the GX-140's own faceplate art is a tan panel, and
             // this table decides the CAPTION COLOUR as well as the plate colour —
             // left dark, the knob pointers and labels were drawn light on light.
             // Sampled from the artwork itself: rgb(224, 193, 131).
             return Spec(base: Color(red: 0.88, green: 0.76, blue: 0.51), finish: .brushed,
                         isLight: true, trim: Color(red: 0.30, green: 0.22, blue: 0.11))
         }
-        if n.contains("rectifier") || n.contains("ractifier") || n.contains("mesa") {
-            // Metal, not paint — the Rectifier's plate is a visibly brushed one.
+        if n.contains("reactor") || n.contains("mesquite") {
+            // Metal, not paint — the Reactor's plate is a visibly brushed one.
             return Spec(base: Color(red: 0.24, green: 0.25, blue: 0.27), finish: .brushed,
                         isLight: false, trim: Color(red: 0.55, green: 0.11, blue: 0.11))
         }
-        if n.contains("katana") || n.contains("ketana") {
+        if n.contains("ketana") {
             return Spec(base: Color(red: 0.13, green: 0.13, blue: 0.15), finish: .painted,
                         isLight: false, trim: RigTheme.amber)
         }
 
         // --- The orange one --------------------------------------------------
-        if n.contains("rockerver") || n.contains("tangerine") {
+        if n.contains("rumblecrest") || n.contains("orange") {
             return Spec(base: Color(red: 0.85, green: 0.42, blue: 0.10), finish: .painted,
                         isLight: true, trim: Color(red: 0.16, green: 0.09, blue: 0.03))
         }
 
         // --- Silver / copper combos -----------------------------------------
-        if n.contains("twin reverb") {
+        if n.contains("tandem reverb") {
             // Silverface: bright, faintly cool aluminium.
             return Spec(base: Color(red: 0.78, green: 0.79, blue: 0.80), finish: .brushed,
                         isLight: true, trim: Color(red: 0.20, green: 0.28, blue: 0.45))
         }
-        if n.contains("jc-120") || n.contains("jazz chorus") {
+        if n.contains("rm-140") || n.contains("velvet chorus") {
             // Greyer and cooler than the Fandor's silver, with the blue hairline.
             return Spec(base: Color(red: 0.60, green: 0.62, blue: 0.65), finish: .brushed,
                         isLight: true, trim: Color(red: 0.14, green: 0.32, blue: 0.58))
         }
-        if n.contains("ac30") || n.contains("volt") {
+        if n.contains("hv28") || n.contains("vane") {
             // Sampled from its own faceplate art: a pink-magenta panel, which is
             // not a colour anyone guesses. rgb(197, 81, 128).
             return Spec(base: Color(red: 0.77, green: 0.32, blue: 0.50), finish: .brushed,
                         isLight: true, trim: Color(red: 0.24, green: 0.08, blue: 0.14))
         }
-        if n.contains("bassman") || n.contains("bassdude") {
+        if n.contains("bassdude") {
             // Brushed grey chassis, from the artwork: rgb(150, 148, 150).
             return Spec(base: Color(red: 0.59, green: 0.58, blue: 0.59), finish: .brushed,
                         isLight: true, trim: Color(red: 0.22, green: 0.21, blue: 0.21))
@@ -131,6 +135,22 @@ enum Faceplate {
 
         return nil          // an amp nobody has voiced — keep the cream plate
     }
+
+    /// catalogID → the matcher row above that owns that model's plate. Written
+    /// out, so renaming an amp cannot silently drop it onto the cream default.
+    private static let plateTokenByID: [String: String] = [
+        "marswell-msw900-2140":                 "msw900",
+        "marswell-clearpane-stellar-lead-1042": "clearpane",
+        "marswell-vcx45c":                      "vcx45c",
+        "fremont-gx-140":                       "fremont",
+        "mesquite-bootleg-dual-reactor":        "mesquite",
+        "brig-kabuto-100":                      "kabuto",
+        "tangerine-rumblecrest-100":            "rumblecrest",
+        "fandor-tandem-reverb":                 "tandem reverb",
+        "rondell-rm-140-velvet-chorus":         "rm-140",
+        "vane-hv28":                            "hv28",
+        "fandor-bassdude-59":                   "bassdude",
+    ]
 
     /// The plate for ANY piece: the amp's own, or the flat colour every other
     /// category has always used. What `ProceduralPlate` draws and what the
@@ -164,10 +184,10 @@ struct FaceplateFinishView: View {
                 LinearGradient(colors: [.white.opacity(0.10), .clear, .black.opacity(0.06)],
                                startPoint: .top, endPoint: .bottom)
             }
-        case .plexi:
+        case .clearpane:
             ZStack {
                 grain(count: 2.2, maxAlpha: 0.040, thickness: 1.1)
-                // The sheen runs ACROSS a plexi panel, not down it.
+                // The sheen runs ACROSS a clearpane panel, not down it.
                 LinearGradient(stops: [
                     .init(color: .black.opacity(0.10), location: 0),
                     .init(color: .white.opacity(0.16), location: 0.34),

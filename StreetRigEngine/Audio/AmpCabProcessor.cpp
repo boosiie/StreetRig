@@ -60,10 +60,10 @@ void ToneStack::recompute() noexcept {
 
     // THE PER-AMP TRANSFORM, in one place and on the main thread:
     //   effective dB = noonDB + knob dB × rangeScale
-    // plus the Fender interaction — turning Bass UP deepens the mid notch,
+    // plus the Fandor interaction — turning Bass UP deepens the mid notch,
     // because the mid pot's resistance below its wiper adds to the treble
     // filter's. A negative `rangeScale` simply makes the knob run backwards,
-    // which is what a Vox Cut control actually does; no special case needed.
+    // which is what a Vane Cut control actually does; no special case needed.
     float dB[kBands];
     for (int b = 0; b < kBands; ++b) {
         dB[b] = v_.band[b].noonDB + bandDB_[b] * v_.band[b].rangeScale;
@@ -130,7 +130,7 @@ namespace {
 /// attenuator on the output stage, not a gain on the output. Everything below is
 /// a function of the one continuous bus value (`headroomScale`), so switching
 /// 100 W → 0.5 W is a ~5 ms de-zippered glide rather than a fade/park rebuild —
-/// which matters, because on a real Katana the switch is instant and silent and
+/// which matters, because on a real Kabuto the switch is instant and silent and
 /// a rebuild would be audibly WORSE than the hardware.
 ///
 /// Quadratics, not powers, so the audio thread evaluates no transcendental. They
@@ -143,7 +143,7 @@ namespace {
 ///    0.5 W  |     0.14      |   1.60   |    1.25    |    7.14
 ///
 /// The 0.5 W row is deliberately conservative: physically it is −23 dB of
-/// headroom and we ship −17 dB. A real Katana at 0.5 W is heavily power-saturated
+/// headroom and we ship −17 dB. A real Kabuto at 0.5 W is heavily power-saturated
 /// but still musical, because the clipping is soft and the OT plus speaker filter
 /// the result — our first pass errs toward musical.
 /// Cue: 0.5 W should sound like a small CRANKED AMP, not a fuzz pedal. Sounds
