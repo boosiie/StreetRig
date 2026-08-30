@@ -314,13 +314,13 @@ public enum ParameterMap {
                 || n.contains("tape")                          { return delayTape }
             if n.contains("reverie") || n.contains("bbd")
                 || n.contains("analog") || n.contains("analogue") { return delayBBD }
-            return delayDigital        // BRIG Digital Delay / DD-8
+            return delayDigital        // VOSS Digital Delay / DD-8
         case .reverb:
             if n.contains("fleece")
                 || n.contains("spring")                        { return reverbSpring }
             if n.contains("hall")                              { return reverbHall }
             if n.contains("room")                              { return reverbRoom }
-            return reverbPlate         // BRIG Reverb / RV-6
+            return reverbPlate         // VOSS Reverb / RV-6
         default:
             return 0
         }
@@ -507,7 +507,7 @@ public enum ParameterMap {
 
     public static func ampHasFXSection(name: String) -> Bool {
         if let id = GearCatalog.retiredID(forName: name) { return id == kabutoID }
-        return name.lowercased().contains("kabuto")
+        return name.lowercased().contains("ketana")
     }
 
     /// Resolve an amp's FX panel into chain slots. Blocks whose type is `Off`
@@ -664,7 +664,7 @@ public enum ParameterMap {
             if let p = profileByID[id] { return p }
         }
         let n = name.lowercased()
-        if n.contains("kabuto") {
+        if n.contains("ketana") {
             let character = Int((values["Character"] ?? 2).rounded())
             let variation = Int((values["Variation"] ?? 0).rounded())
             return ampKabutoBase

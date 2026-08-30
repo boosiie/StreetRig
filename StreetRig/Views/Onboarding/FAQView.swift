@@ -98,7 +98,7 @@ enum FAQ {
                 + "no amount of DSP touches it. Go wired and it disappears.",
 
                 "A DELAY OR REVERB ON THE BOARD. The starter rig ships with both — a "
-                + "BRIG Digital Delay and a BRIG Reverb sit on it from the first "
+                + "VOSS Digital Delay and a VOSS Reverb sit on it from the first "
                 + "launch. That is a real echo, made on purpose by a real pedal. Tap "
                 + "the pedal on the rig and pull Mix down, or drag it off the board.",
 
@@ -178,7 +178,7 @@ enum FAQ {
             ],
             steps: [
                 "Swipe to GEAR LIBRARY and pick the Pedal tab.",
-                "Open the Noise Gate card and tap the BRIG Noise Silencer. It is "
+                "Open the Noise Gate card and tap the VOSS Noise Silencer. It is "
                 + "yours now, and it appears in the MY GEAR rail.",
                 "Press its card in the rail until it lifts, then drag it onto the rig.",
                 "Tap it on the rig to zoom in, and set Threshold and Decay by ear."

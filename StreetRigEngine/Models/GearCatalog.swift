@@ -195,6 +195,24 @@ public enum GearCatalog {
         0xa2f6097b55f4c5ad: "brig-kabuto-100",
         0xf978fbf506cec286: "mesquite-bootleg-oversized-4x12",
         0xb6ba92b9f11e278d: "tangerine-tsv412",
+        // The BRIG generation. These names shipped only inside this branch, but an
+        // AUv3 host session saved against one carries the name and no id, so they
+        // are promises like any other row.
+        0x9e16eea797b70cec: "brig-kabuto-100",   // BRIG Kabuto 100
+        0xd33bb11f86ac3447: "brig-chromatic-tuner",   // BRIG Chromatic Tuner
+        0xd4db6785fc149f64: "brig-compression-leveller",   // BRIG Compression Leveller
+        0x875a74d47dd0f524: "brig-distortion",   // BRIG Distortion
+        0x7ce734e0060fcae5: "brig-metal-realm",   // BRIG Metal Realm
+        0xd7d03d7149ce9dc1: "brig-equalizer",   // BRIG Equalizer
+        0xa7715e67e5ad761a: "brig-noise-silencer",   // BRIG Noise Silencer
+        0xe2ce789727d84221: "brig-chorus",   // BRIG Chorus
+        0x0d3afc160b0f43b1: "brig-tremolo",   // BRIG Tremolo
+        0xf6b7bb3aca8e2e27: "brig-octave",   // BRIG Octave
+        0x49a11b58f776c298: "brig-chorister",   // BRIG Chorister
+        0x7a3c3da8451ef44a: "brig-digital-delay",   // BRIG Digital Delay
+        0x3e8709e2f597e063: "brig-reverb",   // BRIG Reverb
+        0x085acaa746abda1d: "brig-lv-320h",   // BRIG LV-320H
+        0x8b574ae5bf0c2aa3: "brig-loop-depot",   // BRIG Loop Depot
         ]
         return table
     }()

@@ -755,7 +755,7 @@ enum PedalSpec {
                         GearParameter("Bass 2",   shortName: "BASS",   rowLabel: "CLEAN"),
                         GearParameter("Volume 2", shortName: "VOLUME", rowLabel: "CLEAN")]
             }
-            if n.contains("kabuto") {
+            if n.contains("ketana") {
                 var p: [GearParameter] = [
                     // PRESENCE IS BACK. It was taken off as a knob carried over
                     // from the shared six by mistake — but the faceplate prints

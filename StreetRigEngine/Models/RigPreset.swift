@@ -206,8 +206,8 @@ public enum RigPresets {
             ],
             pedals: [
                 RigPreset.Pedal("KRX damper comp", ["Sensitivity": 4, "Output": 6]),
-                RigPreset.Pedal("BRIG Chorus", ["Rate": 3, "Depth": 3.5]),
-                RigPreset.Pedal("BRIG Reverb", ["Decay": 3.5, "Tone": 6, "Mix": 2.5])
+                RigPreset.Pedal("VOSS Chorus", ["Rate": 3, "Depth": 3.5]),
+                RigPreset.Pedal("VOSS Reverb", ["Decay": 3.5, "Tone": 6, "Mix": 2.5])
             ],
             note: "The volume sits at 4½ on purpose. This amp is loud and clean until "
                 + "about 6 and then it isn't — the headroom IS the tone."
@@ -237,7 +237,7 @@ public enum RigPresets {
             pedals: [
                 RigPreset.Pedal("KRX damper comp", ["Sensitivity": 5, "Output": 6]),
                 RigPreset.Pedal("Marswell BLUES BLAZER", ["Gain": 4.5, "Tone": 6, "Volume": 6]),
-                RigPreset.Pedal("BRIG Reverb", ["Decay": 3, "Tone": 5.5, "Mix": 2])
+                RigPreset.Pedal("VOSS Reverb", ["Decay": 3, "Tone": 5.5, "Mix": 2])
             ],
             note: "No noise gate here, and that is a choice: this much gain is quiet "
                 + "enough to live with, and a gate would cut the tail off exactly the "
@@ -262,7 +262,7 @@ public enum RigPresets {
             ],
             pedals: [
                 RigPreset.Pedal("Iberon Valve Shrieker", ["Overdrive": 3, "Tone": 5.5, "Level": 7]),
-                RigPreset.Pedal("BRIG Noise Silencer", ["Threshold": 3, "Decay": 4])
+                RigPreset.Pedal("VOSS Noise Silencer", ["Threshold": 3, "Decay": 4])
             ],
             note: "Drive down, level up. A green overdrive in front of an already-loud "
                 + "amp is a volume pedal with a mid hump, and that is the job."
@@ -285,8 +285,8 @@ public enum RigPresets {
             ],
             pedals: [
                 RigPreset.Pedal("Iberon Valve Shrieker", ["Overdrive": 3.5, "Tone": 6, "Level": 6.5]),
-                RigPreset.Pedal("BRIG Noise Silencer", ["Threshold": 3.5, "Decay": 4]),
-                RigPreset.Pedal("BRIG Digital Delay", ["Time": 4.5, "Feedback": 3, "Mix": 2])
+                RigPreset.Pedal("VOSS Noise Silencer", ["Threshold": 3.5, "Decay": 4]),
+                RigPreset.Pedal("VOSS Digital Delay", ["Time": 4.5, "Feedback": 3, "Mix": 2])
             ],
             note: "MID at 6½ is the setting people undo first and miss most. Scooping it "
                 + "sounds enormous alone and vanishes the moment anything else plays."
@@ -309,8 +309,8 @@ public enum RigPresets {
             ],
             pedals: [
                 RigPreset.Pedal("Iberon Valve Shrieker", ["Overdrive": 2.5, "Tone": 6.5, "Level": 7.5]),
-                RigPreset.Pedal("BRIG Noise Silencer", ["Threshold": 4, "Decay": 3.5]),
-                RigPreset.Pedal("BRIG Digital Delay", ["Time": 5.5, "Feedback": 4, "Mix": 2.5])
+                RigPreset.Pedal("VOSS Noise Silencer", ["Threshold": 4, "Decay": 3.5]),
+                RigPreset.Pedal("VOSS Digital Delay", ["Time": 5.5, "Feedback": 4, "Mix": 2.5])
             ],
             note: "Sustain comes from the mids and the boost, not from more gain. Turning "
                 + "GAIN up from here makes it fuzzier and shorter, not longer."
@@ -333,8 +333,8 @@ public enum RigPresets {
                 "Master": 6, "Gain": 8
             ],
             pedals: [
-                RigPreset.Pedal("BRIG Noise Silencer", ["Threshold": 4.5, "Decay": 3]),
-                RigPreset.Pedal("BRIG Digital Delay", ["Time": 4, "Feedback": 2.5, "Mix": 1.5])
+                RigPreset.Pedal("VOSS Noise Silencer", ["Threshold": 4.5, "Decay": 3]),
+                RigPreset.Pedal("VOSS Digital Delay", ["Time": 4, "Feedback": 2.5, "Mix": 1.5])
             ],
             note: "The gate is not optional at this gain. Take it off the board and the "
                 + "rig roars the moment your hands leave the strings — which is what the "
@@ -368,7 +368,7 @@ public enum RigPresets {
                 RigPreset.Pedal("KRX ten band eq",
                                 ["31": 5, "62": 6, "125": 6.5, "250": 4, "500": 2.5,
                                  "1k": 3, "2k": 5, "4k": 6.5, "8k": 6, "16k": 5, "Volume": 5]),
-                RigPreset.Pedal("BRIG Noise Silencer", ["Threshold": 5.5, "Decay": 2.5])
+                RigPreset.Pedal("VOSS Noise Silencer", ["Threshold": 5.5, "Decay": 2.5])
             ],
             note: "OVERDRIVE at ½ and LEVEL at 8. The boost is there to shave bass off "
                 + "the amp's input, not to add gain — the amp has plenty."
@@ -395,7 +395,7 @@ public enum RigPresets {
                 // Set LOW and SLOW deliberately: the sputter as a fuzz note dies is
                 // the sound, and a gate set the way the metal preset sets one would
                 // remove exactly that.
-                RigPreset.Pedal("BRIG Noise Silencer", ["Threshold": 3.5, "Decay": 5.5]),
+                RigPreset.Pedal("VOSS Noise Silencer", ["Threshold": 3.5, "Decay": 5.5]),
                 RigPreset.Pedal("KRX swirl 72", ["Speed": 3.5])
             ],
             note: "Roll your guitar's volume back and a fuzz cleans up further than any "
@@ -421,8 +421,8 @@ public enum RigPresets {
                 "Gain": 5, "Treble": 6, "Mid": 5, "Bass": 5
             ],
             pedals: [
-                RigPreset.Pedal("BRIG Chorus", ["Rate": 2.5, "Depth": 5]),
-                RigPreset.Pedal("BRIG Digital Delay", ["Time": 6.5, "Feedback": 5.5, "Mix": 4]),
+                RigPreset.Pedal("VOSS Chorus", ["Rate": 2.5, "Depth": 5]),
+                RigPreset.Pedal("VOSS Digital Delay", ["Time": 6.5, "Feedback": 5.5, "Mix": 4]),
                 RigPreset.Pedal("electro-galvanic GOLDEN FLEECE", ["Reverb": 7])
             ],
             note: "This amp's own chorus is on the faceplate and not in the engine yet, "

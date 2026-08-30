@@ -313,9 +313,9 @@ enum ProceduralPedal {
         GearItem(name: "DUNRIDGE WEEPING WILLOW", category: .wah, values: ["Position": 2]),
         GearItem(name: "Iberon Valve Shrieker", category: .overdrive),
         GearItem(name: "KRX swirl 72", category: .modulation),
-        GearItem(name: "BRIG Metal Realm", category: .overdrive),
+        GearItem(name: "VOSS Metal Realm", category: .overdrive),
         GearItem(name: "DALTON ARMATURE FUZZ DOME", category: .overdrive),
-        GearItem(name: "BRIG Digital Delay", category: .delay),
+        GearItem(name: "VOSS Digital Delay", category: .delay),
     ])
     .frame(width: 520, height: 190)
     .background(RigTheme.background)

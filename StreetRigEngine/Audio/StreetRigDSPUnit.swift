@@ -1017,7 +1017,7 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
         // APPENDED, never inserted: a host may have stored `preset.number`, so the
         // three presets above must keep numbers 0, 1 and 2 forever.
         let g4 = GearItem(name: "Lyle Preston Standard", category: .guitar)
-        let katCrunch = GearItem(name: "BRIG Kabuto 100", category: .comboAmp,
+        let katCrunch = GearItem(name: "VOSS Ketana 100", category: .comboAmp,
                                  values: ["Gain": 6, "Bass": 5, "Mid": 6, "Treble": 6,
                                           "Presence": 5, "Volume": 6, "Master": 5,
                                           "Character": 2, "Variation": 0, "Power": 2])
@@ -1027,7 +1027,7 @@ public nonisolated final class StreetRigDSPUnit: AUAudioUnit {
         // Brown B at 0.5 W: the power control doing the thing it exists for —
         // output-stage saturation at a level you could rehearse at.
         let g5 = GearItem(name: "Lyle Preston Standard", category: .guitar)
-        let katBrown = GearItem(name: "BRIG Kabuto 100", category: .comboAmp,
+        let katBrown = GearItem(name: "VOSS Ketana 100", category: .comboAmp,
                                 values: ["Gain": 7, "Bass": 5, "Mid": 6, "Treble": 6,
                                          "Presence": 6, "Volume": 8, "Master": 5,
                                          "Character": 4, "Variation": 1, "Power": 0])

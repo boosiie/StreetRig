@@ -60,7 +60,7 @@ public struct RemovalImpact: Equatable {
     public var title: String { "Remove \(name)?" }
 
     /// Names the specific conflict in the player's language, e.g.
-    /// "BRIG Digital Delay is on your board and bound to footswitch 2."
+    /// "VOSS Digital Delay is on your board and bound to footswitch 2."
     public var message: String {
         var clauses: [String] = []
         if isCurrentAmp     { clauses.append("is your current amp") }
@@ -706,23 +706,23 @@ public final class RigStore: ObservableObject {
     /// `ParameterMap` match on. A typo here would silently withhold nothing,
     /// which is what the assertion in `catalog` is for.
     public static let withheldModels: Set<String> = [
-        "BRIG Chromatic Tuner",           // the only tuner -- empties the category
+        "VOSS Chromatic Tuner",           // the only tuner -- empties the category
         "Keswick Compressor",
         "Chiron SATYR",
         "analogue.smith DUKE of DRIVE",
         "Fullbrook FIXATION",
         "Exalt PREAMP booster",
         "strider BERYLLIUM",
-        "BRIG Equalizer",
+        "VOSS Equalizer",
         "EMBLEM Parametric EQ",
         "QUELL NULLIFIER II",
         "FORNAX KRAAL",
         "electro-galvanic small slate",
         "Fullbrook Lucid'Vibe",
-        "BRIG Octave",
-        "BRIG Chorister",
+        "VOSS Octave",
+        "VOSS Chorister",
         "electro-galvanic micro STACK",
-        "BRIG Loop Depot",              // both loopers -- empties the category
+        "VOSS Loop Depot",              // both loopers -- empties the category
         "electro-galvanic FROST",
     ]
 
@@ -773,7 +773,7 @@ public final class RigStore: ObservableObject {
             // and both are drawn combo-shaped, so they live here now.
             mk("fandor-tandem-reverb", "Fandor Tandem Reverb", .comboAmp), mk("vane-hv28", "Vane HV28", .comboAmp),
             mk("marswell-vcx45c", "Marswell VCX45C", .comboAmp), mk("rondell-rm-140-velvet-chorus", "Rondell RM-140 Velvet Chorus", .comboAmp),
-            mk("fandor-bassdude-59", "Fandor Bassdude '59", .comboAmp), mk("brig-kabuto-100", "BRIG Kabuto 100", .comboAmp),
+            mk("fandor-bassdude-59", "Fandor Bassdude '59", .comboAmp), mk("brig-kabuto-100", "VOSS Ketana 100", .comboAmp),
             // ---- Pedals ------------------------------------------------------
             // The 47 shipped models. Every one has a bespoke icon in
             // Assets.xcassets keyed off `GearIconLoader.slug(name)`, so these
@@ -782,44 +782,44 @@ public final class RigStore: ObservableObject {
             // that category's card, so it leads with the best-fitting model.
 
             // Tuner
-            mk("brig-chromatic-tuner", "BRIG Chromatic Tuner", .tuner),
+            mk("brig-chromatic-tuner", "VOSS Chromatic Tuner", .tuner),
             // Wah / filter
             mk("dunridge-weeping-willow", "DUNRIDGE WEEPING WILLOW", .wah), mk("vane-v921", "VANE V921", .wah), mk("mordant-wild-pony", "MORDANT WILD PONY", .wah),
             // Compressor
-            mk("krx-damper-comp", "KRX damper comp", .compressor), mk("brig-compression-leveller", "BRIG Compression Leveller", .compressor),
+            mk("krx-damper-comp", "KRX damper comp", .compressor), mk("brig-compression-leveller", "VOSS Compression Leveller", .compressor),
             mk("keswick-compressor", "Keswick Compressor", .compressor),
             // Overdrive / distortion / fuzz / boost (one category in the model)
-            mk("brig-distortion", "BRIG Distortion", .overdrive), mk("iberon-valve-shrieker", "Iberon Valve Shrieker", .overdrive),
-            mk("proforge-shrew", "ProForge SHREW", .overdrive), mk("brig-metal-realm", "BRIG Metal Realm", .overdrive),
+            mk("brig-distortion", "VOSS Distortion", .overdrive), mk("iberon-valve-shrieker", "Iberon Valve Shrieker", .overdrive),
+            mk("proforge-shrew", "ProForge SHREW", .overdrive), mk("brig-metal-realm", "VOSS Metal Realm", .overdrive),
             mk("chiron-satyr", "Chiron SATYR", .overdrive), mk("analogue-smith-duke-of-drive", "analogue.smith DUKE of DRIVE", .overdrive),
             mk("marswell-blues-blazer", "Marswell BLUES BLAZER", .overdrive), mk("fullbrook-fixation", "Fullbrook FIXATION", .overdrive),
             mk("electro-galvanic-big-mitt", "electro-galvanic BIG MITT Ω", .overdrive),
             mk("dalton-armature-fuzz-dome", "DALTON ARMATURE FUZZ DOME", .overdrive), mk("z-flux-fuzz-foundry", "Z.FLUX FUZZ FOUNDRY", .overdrive),
             mk("exalt-preamp-booster", "Exalt PREAMP booster", .overdrive), mk("strider-beryllium", "strider BERYLLIUM", .overdrive),
             // EQ
-            mk("brig-equalizer", "BRIG Equalizer", .eq), mk("krx-ten-band-eq", "KRX ten band eq", .eq), mk("emblem-parametric-eq", "EMBLEM Parametric EQ", .eq),
+            mk("brig-equalizer", "VOSS Equalizer", .eq), mk("krx-ten-band-eq", "KRX ten band eq", .eq), mk("emblem-parametric-eq", "EMBLEM Parametric EQ", .eq),
             // Noise gate
-            mk("brig-noise-silencer", "BRIG Noise Silencer", .noiseGate), mk("quell-nullifier-ii", "QUELL NULLIFIER II", .noiseGate),
+            mk("brig-noise-silencer", "VOSS Noise Silencer", .noiseGate), mk("quell-nullifier-ii", "QUELL NULLIFIER II", .noiseGate),
             mk("fornax-kraal", "FORNAX KRAAL", .noiseGate),
             // Modulation (chorus / flanger / phaser / tremolo / vibe)
-            mk("brig-chorus", "BRIG Chorus", .modulation), mk("krx-swirl-72", "KRX swirl 72", .modulation),
-            mk("krx-flanger", "KRX flanger", .modulation), mk("brig-tremolo", "BRIG Tremolo", .modulation),
+            mk("brig-chorus", "VOSS Chorus", .modulation), mk("krx-swirl-72", "KRX swirl 72", .modulation),
+            mk("krx-flanger", "KRX flanger", .modulation), mk("brig-tremolo", "VOSS Tremolo", .modulation),
             mk("electro-galvanic-small-mime", "electro-galvanic SMALL MIME", .modulation),
             mk("electro-galvanic-small-slate", "electro-galvanic small slate", .modulation),
             mk("electro-galvanic-electric-siren", "electro-galvanic electric siren", .modulation),
             mk("fullbrook-lucid-vibe", "Fullbrook Lucid'Vibe", .modulation),
             // Pitch / octave
-            mk("brig-octave", "BRIG Octave", .pitch), mk("brig-chorister", "BRIG Chorister", .pitch),
+            mk("brig-octave", "VOSS Octave", .pitch), mk("brig-chorister", "VOSS Chorister", .pitch),
             mk("electro-galvanic-micro-stack", "electro-galvanic micro STACK", .pitch), mk("digivault-slingshot", "DigiVault SLINGSHOT", .pitch),
             // Delay
-            mk("brig-digital-delay", "BRIG Digital Delay", .delay), mk("dunridge-echoreel", "DUNRIDGE ECHOREEL", .delay),
+            mk("brig-digital-delay", "VOSS Digital Delay", .delay), mk("dunridge-echoreel", "DUNRIDGE ECHOREEL", .delay),
             mk("electro-galvanic-reverie-mate", "electro-galvanic REVERIE MATE", .delay),
             // Reverb
-            mk("brig-reverb", "BRIG Reverb", .reverb), mk("electro-galvanic-golden-fleece", "electro-galvanic GOLDEN FLEECE", .reverb),
+            mk("brig-reverb", "VOSS Reverb", .reverb), mk("electro-galvanic-golden-fleece", "electro-galvanic GOLDEN FLEECE", .reverb),
             // Volume
-            mk("brig-lv-320h", "BRIG LV-320H", .volume), mk("errol-brass-swell-mini", "ERROL BRASS SWELL MINI", .volume),
+            mk("brig-lv-320h", "VOSS LV-320H", .volume), mk("errol-brass-swell-mini", "ERROL BRASS SWELL MINI", .volume),
             // Looper / sustain
-            mk("brig-loop-depot", "BRIG Loop Depot", .looper), mk("electro-galvanic-frost", "electro-galvanic FROST", .looper),
+            mk("brig-loop-depot", "VOSS Loop Depot", .looper), mk("electro-galvanic-frost", "electro-galvanic FROST", .looper),
         ]
     }()
 }

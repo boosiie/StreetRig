@@ -443,8 +443,8 @@ private extension Color {
 
 #Preview {
     let names = ["Iberon Valve Shrieker", "electro-galvanic BIG MITT Ω", "KRX damper comp",
-                 "KRX swirl 72", "BRIG Digital Delay", "BRIG Loop Depot",
-                 "BRIG Chromatic Tuner", "BRIG Chorus", "BRIG Reverb", "DUNRIDGE WEEPING WILLOW"]
+                 "KRX swirl 72", "VOSS Digital Delay", "VOSS Loop Depot",
+                 "VOSS Chromatic Tuner", "VOSS Chorus", "VOSS Reverb", "DUNRIDGE WEEPING WILLOW"]
     return VStack(alignment: .leading, spacing: 20) {
         // Override vs fallback: every shipped pedal has a bespoke asset, so it
         // renders the supplied image; an unknown name has none (procedural art).

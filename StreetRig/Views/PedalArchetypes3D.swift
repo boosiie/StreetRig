@@ -65,12 +65,12 @@ enum PedalArchetype: String, CaseIterable {
         switch self {
         case .krxBox:      return GearItem(name: "KRX swirl 72", category: .modulation)
         case .brigCompact: return GearItem(name: "Iberon Valve Shrieker", category: .overdrive)
-        case .bigBox:      return GearItem(name: "BRIG Metal Realm", category: .overdrive)
+        case .bigBox:      return GearItem(name: "VOSS Metal Realm", category: .overdrive)
         case .wahRocker:   return GearItem(name: "DUNRIDGE WEEPING WILLOW", category: .wah)
-        case .trebleWedge: return GearItem(name: "BRIG LV-320H", category: .volume)
-        case .tunerWedge:  return GearItem(name: "BRIG Chromatic Tuner", category: .tuner)
+        case .trebleWedge: return GearItem(name: "VOSS LV-320H", category: .volume)
+        case .tunerWedge:  return GearItem(name: "VOSS Chromatic Tuner", category: .tuner)
         case .roundFuzz:   return GearItem(name: "DALTON ARMATURE FUZZ DOME", category: .overdrive)
-        case .looperDeck:  return GearItem(name: "BRIG Loop Depot", category: .looper)
+        case .looperDeck:  return GearItem(name: "VOSS Loop Depot", category: .looper)
         }
     }
 
@@ -138,7 +138,7 @@ enum PedalArchetypes {
         if pedal.category == .looper { return .looperDeck }
         // 4. House styles. The catalog's parody brands track real makers, and a
         //    maker's chassis is the most reliable predictor of a shape there is.
-        if n.contains("brig") || n.contains("iberon")  { return .brigCompact }
+        if n.contains("voss") || n.contains("iberon")  { return .brigCompact }
         if n.contains("electro-galvanic")              { return .bigBox }
         if n.contains("krx") || n.contains("dunridge") { return .krxBox }
         // 5. Anything unmatched is a 1590B, because most pedals are.
