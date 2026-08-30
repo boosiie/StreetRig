@@ -68,21 +68,35 @@ import simd
 /// on the frame path. `UserDefaults` is the durable copy, not the hot one.
 nonisolated enum ARFloorCalibration {
 
-    /// Where the board sits in the FRAME, as an angle below the lens's own axis.
+    /// How far below the HORIZON the board sits, seen from the lens — equivalently,
+    /// with the floor a known height below the phone, how far away it is.
     ///
-    /// THIS USED TO BE A CAMERA HEIGHT AND THAT WAS THE WRONG QUANTITY. Guessing how
-    /// high the phone was propped (0.25 m) and letting the board fall where that plane
-    /// met the aim put it ~19° down on a level phone — under the bottom of the picture,
-    /// visible only by tilting the phone down. Angle-from-the-axis cannot do that: it
-    /// is measured against the frame, so it lands in the same part of the frame no
-    /// matter how the phone is sitting, and no guess about the prop enters into it.
-    static let defaultPitch: Float = 13 * .pi / 180
-    /// Just under the axis at one end, steeply down at the other. Beyond either the
-    /// board is off the top of the picture or back under its bottom edge.
+    /// This quantity has now been wrong twice in opposite directions. First it was a
+    /// guessed camera height (0.25 m) with the board landing where that plane met the
+    /// aim, which buried it under the bottom edge. Then it was an angle below the
+    /// LENS AXIS, which kept it in frame at any recline — and floated it above the
+    /// carpet, because a fixed angle below a tipped-back axis is above the horizon.
+    ///
+    /// Measuring from the horizon gets both: the board is on the ground because the
+    /// ground is where the horizon-relative geometry puts it, and the angle still
+    /// says where in the frame it lands for any given recline.
+    /// 6° puts the board about 0.76 m in front on a floor 8 cm below the lens, which
+    /// is where the old fixed 0.78 m distance had it — so the default apparent size
+    /// is unchanged, only its height is (it is now on the ground rather than above it).
+    /// 14°. 13° read as floating just off the floor, 15° overshot — this is the half
+    /// step between them, about 1.3 cm below where it started at the board's distance.
+    static let defaultPitch: Float = 14 * .pi / 180
+    /// Far end of the room at one extreme, right under the phone at the other. Past
+    /// 15° the distance clamp takes over and further dragging does nothing.
     static let minPitch: Float = 4 * .pi / 180
     static let maxPitch: Float = 30 * .pi / 180
 
-    private static let key = "streetrig.ar.placementPitch"
+    /// KEY BUMPED WITH THE MEANING. Saved values from the previous build are angles
+    /// below the LENS AXIS; this one measures from the HORIZON, and a remembered 13°
+    /// would silently become "0.35 m away" for someone who had calibrated a board they
+    /// liked. Cheaper to let them re-drag once than to restore a number that no longer
+    /// means what they set.
+    private static let key = "streetrig.ar.placementPitch.axis3"
     private static let live = Atomic<UInt32>(defaultPitch.bitPattern)
 
     /// The value the frame path reads. One atomic load, no allocation.
@@ -188,26 +202,48 @@ nonisolated enum ARCameraFacing: String, Sendable, CaseIterable {
 /// assumption at all about the real floor's height, which is unknowable from one
 /// camera with no depth and no plane. That is the cost of the front camera, and it is
 /// why `.rear` still exists.
+///
+/// AND IT ACCEPTS ANY RECLINE. A third failure, found on a device: the pose was still
+/// gated on the placement ray pointing downward in the world, which refused any phone
+/// leaning back more than 13°. Standing a phone on the floor means leaning it back, so
+/// the mode refused its own reason for existing — and said "aim lower", which a
+/// propped phone cannot do. See `anchorTransform`.
 nonisolated enum ARAssumedFloor {
 
-    /// How far along the placement ray the board sits. Sets its apparent SIZE and
-    /// nothing else now — where it lands in the frame is set by `placementPitch`.
+    /// How high the lens sits above the floor when the phone is stood on it.
+    ///
+    /// A phone propped on its edge on the floor puts the camera a few centimetres up,
+    /// not the 0.25 m an earlier version guessed — that figure was a phone on a stand,
+    /// and it is what buried the board below the picture. This is the ONE thing about
+    /// the real world this mode assumes, and it is the cheapest possible assumption:
+    /// the phone is on the floor, so the floor is just below the phone.
+    static let propHeight: Float = 0.08                // metres
+
+    /// Fallback board distance, and the bounds the calibrated one is held inside.
+    /// Nearer than `minDistance` the board is under the lens; further than
+    /// `maxDistance` it is a postage stamp on the horizon.
     static let distance: Float = 0.78                  // metres
 
-    /// How far BELOW the lens's own axis the board is planted, in radians.
+    /// How far below the world's horizon the board must stay, whatever the recline.
+    /// Small: it is a floor, so just under the horizon is where it belongs, and any
+    /// more would drag the board down the frame on a phone that is only slightly
+    /// tipped back.
+    static let minGroundAngle: Float = 8 * .pi / 180
+    static let minDistance: Float = 0.30
+    static let maxDistance: Float = 1.60
+
+    /// How far below HORIZONTAL the board sits, seen from the lens — which, with the
+    /// floor a known `propHeight` below, is the same as saying how far away it is.
     ///
-    /// THE FIX FOR "IT IS UNDER THE FRAME". The previous version assumed a floor
-    /// 0.25 m below the lens and let the board land wherever that plane met the aim.
-    /// On a propped, near-level phone that works out to ~19° below the optical axis —
-    /// far enough down that the board fell off the bottom of the picture, and the only
-    /// way to see it was to tilt the phone down, which is the one thing a propped
-    /// phone must not need.
-    ///
-    /// Measuring the angle from the CAMERA'S OWN AXIS instead of from a guessed floor
-    /// inverts that: the board lands at the same place in the FRAME whatever the phone
-    /// is doing, because the frame is what the angle is relative to. It cannot fall out
-    /// of shot, and no assumption about how high the phone was propped enters into it.
+    /// Measured from horizontal rather than from the lens axis. Against the AXIS the
+    /// board keeps its place in the frame whatever the phone does, which sounds ideal
+    /// and is how it ended up FLOATING: tip the phone back 30° and a point 13° below
+    /// its axis is 17° above the world's horizon, so the board hung in mid-air above
+    /// the carpet. Against the HORIZON it is always on the ground, and what changes
+    /// with recline is how much of the ground you can see — which is the honest
+    /// trade, and the one the player can do something about.
     static var placementPitch: Float { ARFloorCalibration.placementPitch }
+
 
     /// A gravity-aligned anchor transform standing in for a detected plane.
     ///
@@ -216,33 +252,79 @@ nonisolated enum ARAssumedFloor {
     /// downstream having to work it out, and keeps the slot offsets constant as the
     /// heading turns.
     static func anchorTransform(camera: ARCamera) -> simd_float4x4? {
+        anchorTransform(camera: camera, requestedPitch: placementPitch)
+    }
+
+    /// The same at an EXPLICIT angle, so the page can solve for the one that puts the
+    /// board on the player's feet instead of trusting a constant to land there.
+    static func anchorTransform(camera: ARCamera, requestedPitch: Float) -> simd_float4x4? {
         let origin = camera.transform.columns.3.xyz
 
-        // The placement ray, built in the CAMERA'S space and then rotated into the
-        // world. Camera forward is −Z and up is +Y, so a ray `placementPitch` below
-        // the axis is (0, −sin, −cos) — which is the whole trick: it is defined
-        // against the picture, so it stays put in the picture.
-        let pitch = placementPitch
-        let localRay = simd_float3(0, -sin(pitch), -cos(pitch))
-        let rotation = simd_float3x3(camera.transform.columns.0.xyz,
-                                     camera.transform.columns.1.xyz,
-                                     camera.transform.columns.2.xyz)
-        let ray = simd_normalize(rotation * localRay)
+        // BACK TO THE FRAME. The board is planted a fixed angle below the LENS'S OWN
+        // AXIS, so where it lands in the PICTURE is the input rather than the output.
+        //
+        // A version that put it on the true floor plane instead was tried and pulled:
+        // it is more correct about the world and worse to use, because how much floor
+        // is in shot depends on the recline, so the board slid around the frame and
+        // sometimes out of it. Against the axis it is always in the same place and
+        // always visible, which is what this page actually needs. Camera forward is
+        // −Z and up is +Y, so a ray `placementPitch` below the axis is (0, −sin, −cos).
+        // NEVER ABOVE THE HORIZON.
+        //
+        // The angle is measured from the LENS AXIS, which is what keeps the board in
+        // the same part of the picture at any recline — and that is the behaviour to
+        // keep. What it does not know is where the GROUND is, so once the phone leans
+        // back further than the placement angle itself, a ray 14° below the axis is
+        // pointing UP in the world and the board is planted in mid-air. At 20° of
+        // recline it sits 8 cm above the lens; at 30°, 22 cm. That is the board in the
+        // sky, and it needs no change of setup to appear — just a steeper prop than
+        // the one before.
+        //
+        // So the frame keeps deciding where the board sits, right up to the point
+        // where the frame would put it off the ground, and the ground wins from there.
+        // A phone propped near level — the common case, and the one that was reported
+        // as perfect — never reaches the clamp and is completely unaffected.
+        var forward = -camera.transform.columns.2.xyz
+        let forwardLength = simd_length(forward)
+        if forwardLength > 1e-4 { forward /= forwardLength }
+        // How far the lens is aimed above horizontal, in radians. Negative when it is
+        // aimed down, in which case the clamp is inert.
+        let recline = asin(max(-1, min(1, forward.y)))
+        let pitch = max(requestedPitch, recline + Self.minGroundAngle)
 
-        // It still has to point DOWNWARD in the world, or the "floor" it defines would
-        // be level with the lens or above it. A phone tilted up past the placement
-        // angle is the only thing this rejects.
-        guard ray.y < -0.02 else { return nil }
+        // BUILT AGAINST GRAVITY, NOT AGAINST THE CAMERA'S OWN AXES — and this is the
+        // ceiling bug.
+        //
+        // It used to rotate a local ray of (0, −sin, −cos) by the camera's basis,
+        // taking the camera's −Y as "down". ARKit defines those axes for a device in
+        // LANDSCAPE-RIGHT. Turn the phone the other way up — which is one of the two
+        // orientations this app ships, and which rotation lock will happily leave you
+        // in — and camera −Y points at the SKY. The board was planted on the ceiling,
+        // and no amount of repositioning helped because the phone was still upside
+        // down.
+        //
+        // The same trap is documented in `slotOffsets` for the sideways axis, where
+        // it came out as a mirrored row. This is that bug on the vertical axis.
+        //
+        // Derived from the world instead: take how high the lens is aimed, subtract
+        // the placement angle, and build the ray from the horizontal heading and true
+        // world up. Gravity does not care which way up the phone is, so neither does
+        // this.
+        var heading = simd_float3(forward.x, 0, forward.z)
+        let headingLen = simd_length(heading)
+        heading = headingLen > 1e-4 ? heading / headingLen : simd_float3(0, 0, -1)
+        let elevation = recline - pitch                     // negative = below horizontal
+        let ray = simd_normalize(heading * cos(elevation) + simd_float3(0, 1, 0) * sin(elevation))
 
+        // NO DOWNWARD REQUIREMENT — kept from the fix that removed it. Demanding the
+        // ray point downward in the WORLD refused every phone leaning back more than
+        // the placement angle, which is how standing a phone on the floor works, and
+        // answered with "aim lower" — the one thing a propped phone cannot do.
         let centre = origin + ray * distance
 
-        // Heading with the pitch flattened out: the board lies level on the plane
-        // through `centre`, facing back the way the camera is looking.
-        var heading = simd_float3(ray.x, 0, ray.z)
-        let headingLength = simd_length(heading)
-        guard headingLength > 1e-4 else { return nil }
-        heading /= headingLength
-
+        // The board lies level on the plane through `centre`, facing back the way the
+        // camera is looking — the same horizontal heading the ray was built from, so
+        // there is nothing left to re-derive here.
         let boardZ = -heading
         let boardX = simd_cross(simd_float3(0, 1, 0), boardZ)
 
@@ -256,10 +338,10 @@ nonisolated enum ARAssumedFloor {
 
     /// Whether the camera is pointed somewhere a floor could plausibly be.
     ///
-    /// ALMOST EVERYTHING PASSES NOW, deliberately. The previous version used this to
-    /// demand a downward tilt and thereby rejected the propped, level pose this mode
-    /// is built for. What is left is the only genuinely useless aim: straight up or
-    /// straight down, where there is no heading to put a board in front of.
+    /// EVERYTHING PASSES NOW except an aim with no heading — straight up or straight
+    /// down, where there is nowhere to put a board in front of. Two rounds of
+    /// tightening this were two rounds of refusing propped phones; see
+    /// `anchorTransform`.
     static func isUsableAim(camera: ARCamera) -> Bool {
         anchorTransform(camera: camera) != nil
     }

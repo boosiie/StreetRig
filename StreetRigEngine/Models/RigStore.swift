@@ -92,7 +92,9 @@ public struct RemovalImpact: Equatable {
 @MainActor
 public final class RigStore: ObservableObject {
     @Published public var collection: [GearItem]
-    @Published public var rig: RigConfiguration
+    /// The board. Every edit here re-runs `syncARSlotsToRig`, which is what keeps
+    /// the AR page from showing a board the main view no longer has.
+    @Published public var rig: RigConfiguration { didSet { syncARSlotsToRig() } }
     @Published public var arSlots: [ARSlot] = [ARSlot(), ARSlot(), ARSlot()]
 
     private let saveURL: URL
@@ -124,6 +126,11 @@ public final class RigStore: ObservableObject {
         // straight to disk above, so seeding gear that is currently withheld
         // would hand it back on every first launch.
         applyAvailabilityRules()
+
+        // Property observers do not fire during init, and a state file written
+        // before the AR page followed the board can be out of step with it, so the
+        // first reconcile is explicit.
+        syncARSlotsToRig()
 
         guard persist else { return }
 
@@ -505,6 +512,54 @@ public final class RigStore: ObservableObject {
             arSlots[i] = ARSlot()
         }
         arSlots[index] = ARSlot(pedalId: pedalId, isOn: true)
+    }
+
+    /// Bring the three AR footswitches back in line with the board.
+    ///
+    /// The AR page used to be a SEPARATE assignment: you built a rig in the main
+    /// view, walked to the AR page, and found three empty switches waiting to be
+    /// filled in again by hand. Every pedal was named twice and the two lists drifted
+    /// the moment either changed — swap a pedal on the board and its switch went on
+    /// pointing at gear that was no longer in the chain, where `footswitchEnabled`
+    /// simply stopped finding it.
+    ///
+    /// Two rules, and deliberately only two:
+    ///  • A switch whose pedal has left the board is RELEASED. There is nothing left
+    ///    for it to bypass, and a stale binding is the drift described above.
+    ///  • A board pedal with no switch takes the first free one, in board order. This
+    ///    is the "automatically" part: add a pedal in the main view and it is on the
+    ///    floor when you get there.
+    ///
+    /// What it deliberately does NOT do is re-seat a pedal that already has a switch.
+    /// The board's ORDER is the signal chain; which floor switch a pedal sits on is
+    /// where the player wants to put their foot, and those are different questions —
+    /// a wah wanted on the left stays on the left when a drive is added ahead of it
+    /// in the chain. So this fills gaps and clears corpses; it never rearranges what
+    /// the player has already arranged.
+    ///
+    /// Mutates `arSlots` once, and only when something actually changed: it runs on
+    /// every `rig` edit, and republishing an unchanged array would recompile the
+    /// audio graph for nothing.
+    private func syncARSlotsToRig() {
+        var next = arSlots
+        let onBoard = Set(rig.pedalIds)
+
+        for i in next.indices {
+            if let id = next[i].pedalId, !onBoard.contains(id) { next[i] = ARSlot() }
+        }
+
+        var bound = Set(next.compactMap(\.pedalId))
+        for id in rig.pedalIds where !bound.contains(id) {
+            guard let free = next.firstIndex(where: { $0.pedalId == nil }) else { break }
+            // ON, for the same reason `setARSlot` binds ON: an unbound pedal is
+            // already audible, so arriving switched off would silently bypass a
+            // pedal the player just added and heard working.
+            next[free] = ARSlot(pedalId: id, isOn: true)
+            bound.insert(id)
+        }
+
+        guard next != arSlots else { return }
+        arSlots = next
     }
 
     /// Toggle an AR slot's pedal on/off (only if a pedal is assigned).

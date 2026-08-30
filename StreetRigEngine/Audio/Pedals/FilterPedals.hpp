@@ -46,7 +46,15 @@ private:
     double sampleRate_ = 48000.0;
     int    numChannels_ = 1;
     bool   ready_ = false;
-    struct ChannelState { Biquad peak; };
+    /// The resonant peak, and a lowpass that TRACKS it — see `process`. A peak on its
+    /// own leaves the rest of the signal untouched underneath it, which is why the
+    /// first version read as "a boost that moves" rather than as a wah.
+    /// A true bandpass — highpass below the peak, lowpass above it — with the
+    /// resonant peak on top. See `process`: the pair either side is what gives the
+    /// pedal its vowel; the peak alone only gave it a bump.
+    struct ChannelState { Biquad peak; Biquad shape; Biquad body; float pos = -1.0f; };
+    /// Per-sample glide coefficient for the treadle position — see `process`.
+    float smoothCoeff_ = 0.0f;
     ChannelState ch_[kMaxChannels];
 };
 

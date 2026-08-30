@@ -33,6 +33,13 @@ extension GearCategory {
     /// amp heads ≈ 2.05:1, cabinets ≈ 0.87:1, combos ≈ 1.13:1. Callers that
     /// pin the art inside a fixed-height box (the rail card, the library tile)
     /// keep their footprint; only the drawing inside it changes shape.
+    ///
+    /// These describe the PROCEDURAL drawings only. A piece with a bespoke icon
+    /// takes its width from the art's own pixels instead — see `GearArtFrame`.
+    /// That split matters most for wah: the drawing below is a side-on treadle
+    /// and genuinely wants 64x50, while the shipped wah PNGs are 3/4-view
+    /// renders at ~0.95:1. One number cannot serve both, and for a while this
+    /// tried to, which is how the art and its frame ended up disagreeing.
     var artSize: CGSize {
         switch self {
         case .amp:      return CGSize(width: 100, height: 48)
@@ -42,6 +49,34 @@ extension GearCategory {
         case .wah:      return CGSize(width: 64, height: 50)
         default:        return CGSize(width: 38, height: 54) // pedals
         }
+    }
+}
+
+/// The frame ONE PIECE's art should be drawn in.
+///
+/// `GearCategory.artSize` can only speak for a whole category, which is fine for
+/// the procedural drawings — they have no intrinsic aspect and stretch to fill
+/// whatever they're handed. A bespoke icon is the opposite: it aspect-FITS, so a
+/// frame shaped unlike the drawing silently shrinks it, and the piece comes out
+/// smaller than its neighbours for no visible reason.
+///
+/// A category frame cannot fix that, because a category is not one shape. `pitch`
+/// holds three compact stompboxes at 0.69:1 AND a Whammy treadle at 1.07:1; any
+/// single number is wrong for one of them. So the art answers for itself: keep
+/// the category's HEIGHT as the budget and take the width from the image's own
+/// pixels.
+///
+/// This is not a new idea in the codebase — the 3D stage already derives an amp
+/// box's proportions from `GearIconLoader.uiImage`'s pixel size, for exactly this
+/// reason. Same seam, same rule, now on the 2D side too. It also reproduces every
+/// hand-tuned number it replaces (amp 98 vs 100, cabinet 47.9 vs 48, combo 62.1
+/// vs 62, pedal 37.3 vs 38), so nothing that looked right before moves.
+enum GearArtFrame {
+    static func size(for item: GearItem?, base: CGSize) -> CGSize {
+        guard let ui = GearIconLoader.uiImage(for: item),
+              ui.size.width > 0, ui.size.height > 0 else { return base }
+        return CGSize(width: base.height * (ui.size.width / ui.size.height),
+                      height: base.height)
     }
 }
 

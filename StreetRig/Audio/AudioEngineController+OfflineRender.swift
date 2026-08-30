@@ -751,7 +751,23 @@ extension AudioEngineController {
                        String(format: "hi>3k: bass-boost %.1f%% < treble-boost %.1f%%",
                               bright(eqBass, 3000), bright(eqTreble, 3000))))
 
-        // Wah — resonant peak → materially changes the signal.
+        // Wah — HEEL vs TOE, which is the only measurement that means "strong".
+        //
+        // The check below it (difference from dry) is a did-it-do-anything gate, and
+        // it is a poor strength meter: it rewards ADDING energy, so a broad boost
+        // scores well while a real wah — which cuts above and below its peak as much
+        // as it boosts at it — scores lower while sounding far more dramatic. Tuning
+        // the voicing against that number sends you the wrong way, which it did.
+        //
+        // Sweeping the treadle end to end and asking how much the tone MOVED is the
+        // honest question, and it is what a player hears as the pedal being strong.
+        let wahHeel = await render(famPlan(.wah, "Cry Baby", ["Position": 0]))
+        let wahToe  = await render(famPlan(.wah, "Cry Baby", ["Position": 10]))
+        let sweepDelta = Self.rms(Self.difference(wahToe, wahHeel))
+        checks.append(("Wah sweeps far between heel and toe", sweepDelta > 1e-2,
+                       String(format: "heel→toe Δ %@ dBFS · hi>2k %.1f%% → %.1f%%",
+                              Self.dbfs(sweepDelta), bright(wahHeel, 2000), bright(wahToe, 2000))))
+
         let wah = await render(famPlan(.wah, "Cry Baby", ["Position": 7]))
         checks.append(("Wah reshapes the signal", Self.rms(Self.difference(wah, ref)) > 1e-3,
                        "diff RMS \(Self.dbfs(Self.rms(Self.difference(wah, ref)))) dBFS"))

@@ -233,6 +233,37 @@ public struct GearItem: Identifiable, Codable, Hashable, Transferable {
         PedalSpec.parameters(forName: name, category: category, values: values)
     }
 
+    /// Whether this pedal is worked by a FOOT ROCKER rather than a footswitch.
+    ///
+    /// Defined as "has a control called Position", which is not a coincidence to be
+    /// tidied away later — `Position` IS the rocker's angle, and the set of pedals
+    /// that own one is exactly the set with a treadle: the three wahs, the two
+    /// volume pedals and the Whammy. Deriving it from the controls rather than
+    /// listing categories keeps the two from drifting: `.pitch` holds the Whammy
+    /// AND three compact stompboxes, so the category cannot answer this, and any
+    /// hand-maintained list would have to be revisited every time a pedal is added.
+    /// Give a new pedal a Position and it becomes a treadle everywhere at once.
+    public var isTreadle: Bool {
+        parameters.contains { $0.name == Self.treadleParameter }
+    }
+
+    /// The control a treadle's angle drives. Named once so the AR page's foot
+    /// tracking and the model agree by construction rather than by a matching
+    /// string literal in two files.
+    public static let treadleParameter = "Position"
+
+    /// Full-scale value of that control, for converting between a treadle's 0…1
+    /// travel and the stored knob value.
+    ///
+    /// Read off the pedal's OWN parameter rather than assumed to be 10. The AR page
+    /// writes through this and the position bar reads back through it, so a pedal
+    /// whose Position is not a 0–10 dial would otherwise have the foot driving one
+    /// scale while the bar drew another — and the bar exists precisely to be
+    /// trusted when the sweep feels wrong.
+    public var treadleMax: Double {
+        parameters.first { $0.name == Self.treadleParameter }?.max ?? 10
+    }
+
     public init(id: UUID = UUID(), name: String, category: GearCategory,
          values: [String: Double]? = nil,
          has3DModel: Bool? = nil, modelName: String? = nil) {

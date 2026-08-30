@@ -174,17 +174,28 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
 
     /// Smallest horizontal plane that counts as "floor you could stand a pedalboard
     /// on" rather than detector noise or the top of a speaker cabinet.
-    private static let minPlaneExtent: Float = 0.30                 // metres, per side
+    ///
+    /// LOWERED FROM 0.30 after a real session. 30cm per side assumes ARKit hands over
+    /// a tidy rectangle of floor, which is what it does in even indoor light and NOT
+    /// what it does under a bright window or a stage light: glare kills the feature
+    /// contrast plane-fitting runs on, so the floor arrives as a scatter of small
+    /// patches instead of one slab, every one of them rejected here. That is the
+    /// whole "it only works with no bright light" report. A 12cm patch that is
+    /// horizontal and below the lens is still evidence of a floor — which is all this
+    /// gate was ever meant to establish.
+    private static let minPlaneExtent: Float = 0.12                 // metres, per side
     /// How far BELOW the camera the plane has to be. Deliberately tiny: the phone is
     /// itself lying on the floor, maybe 8–15 cm up on its own case, so demanding a
     /// realistic "camera height" would reject the only setup this page supports.
     /// What it does buy is rejecting surfaces at or ABOVE the lens — a desk, a
     /// counter, a low shelf — which would otherwise light up green for a spot the
     /// player's feet cannot reach.
-    private static let minCameraLift: Float = 0.03                  // metres
+    private static let minCameraLift: Float = 0.015                 // metres
     /// How long everything has to hold before the outline turns green. Without it
     /// the border strobes grey/green on every marginal frame, which reads as broken.
-    private static let readyDebounce: TimeInterval = 1.0
+    /// Shortened with the gates below: they now accept a floor far more readily, so
+    /// a full second of holding still reads as the page ignoring you.
+    private static let readyDebounce: TimeInterval = 0.6
     /// Hysteresis: leaving `.ready` is slower than entering it, so one dropped frame
     /// cannot flip the promise off.
     private static let dropDebounce: TimeInterval = 0.4
@@ -206,7 +217,59 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
     /// has to be as wide as THIS row, not as wide as a board you could buy. Read the
     /// note there before changing this number — it is the width of the thing the
     /// player stands over, in both directions at once.
+    /// Fallback row spacing, and the bounds the FITTED one is held inside. The real
+    /// spacing is derived from the viewport — see `slotOffsets`.
     nonisolated static let slotSpacing: Float = 0.30                // metres
+    nonisolated static let minSlotSpacing: Float = 0.12
+    nonisolated static let maxSlotSpacing: Float = 1.20
+
+    /// HOW MUCH OF THE SCREEN THE BOARD TAKES, and how much is left beside it.
+    ///
+    /// The board used to be a fixed 0.30 m between pedals, projected wherever that
+    /// landed — which, at any sane distance, is a small row in the middle of a big
+    /// picture. Detecting a real floor accurately enough to do better turned out to
+    /// be the weak link: it wants texture and even light, and a stage floor under a
+    /// window gives neither.
+    ///
+    /// So the board is no longer sized in the world and projected; it is sized on the
+    /// SCREEN and the world spacing solved backwards from it. The floor is assumed
+    /// (it is right under the phone), the row fills the frame, and nothing depends on
+    /// ARKit recognising a carpet.
+    /// 0.38, pulled in from 0.48 — and the reason is DETECTION, not layout taste.
+    ///
+    /// Widening the board looks better and puts the outer pedals where Vision stops
+    /// finding feet. Body pose needs the joint properly inside the frame; an ankle
+    /// out at the edge comes back low-confidence or not at all, and a pedal whose
+    /// foot is never SEEN cannot be fixed by giving it a bigger catch — there is
+    /// nothing to catch. That was the right-hand pedal: not a small zone, an unseen
+    /// foot.
+    ///
+    /// So the row is sized to sit inside the part of the frame the tracker actually
+    /// works in. It costs apparent size, which was explicitly asked for, and that is
+    /// the trade: a smaller board where all three pedals work beats a full-width one
+    /// where the outer two do not.
+    /// Back to 0.48. Narrowing it to 0.38 was meant to pull the outer pedals inside
+    /// the region the pose tracker works in, but it bought that by crowding all three
+    /// together — and the crowding was the worse problem. The LEFT SHIFT is what
+    /// actually gave the right-hand pedal its margin, and that stays; the span does
+    /// not need to pay for it as well.
+    nonisolated static let rowSpanFraction: CGFloat = 0.48          // of viewport width
+    /// Where the row's centre sits across the frame, leaving the rest for the pad.
+    /// 0.56, pulled back from 0.62. The row was slid right to clear the switch pad,
+    /// which put the right-hand pedal at 86% of the width — barely any frame beyond
+    /// it, and the outer slots catch by having frame beyond them. It was the tightest
+    /// target on the board and the one reported as not working. This gives it about
+    /// half as much again to catch with, and still leaves the pad its space.
+    nonisolated static let rowCentreFraction: CGFloat = 0.56
+    /// Moved in from 0.10 for the same reason as the row: a switch pad at a tenth of
+    /// the width puts the foot that presses it against the left edge, where the ankle
+    /// stops being found. Its catch is still open-ended outward, so standing anywhere
+    /// left of it counts — it just no longer ASKS the player to stand off-frame.
+    /// 0.10. At 0.13 the pad's 88pt disc and the wah's 190pt chrome needed 139pt of
+    /// separation and had 131 — so the switch drew ON TOP of the pedal it switches,
+    /// which is the one place it must not be: the whole point of putting it on the
+    /// empty floor is that standing on it is unambiguous.
+    nonisolated static let padCentreFraction: CGFloat = 0.10
     /// Ceiling on how often projected slot positions are published to SwiftUI.
     /// ARKit delivers 60 Hz; re-laying out three slots that often would burn main
     /// thread the amp sim needs, for motion no one can see.
@@ -217,13 +280,99 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
     /// How far above and below a pedal the treadle's full travel spans, as a fraction
     /// of the viewport. A rocking foot moves the ANKLE only a little — the toe does
     /// most of the travelling, and the toe is not a joint this API reports — so the
-    /// band is deliberately narrow. NEEDS ON-DEVICE TUNING.
-    private static let treadleBand: CGFloat = 0.075
+    /// band has to be narrow.
+    ///
+    /// TUNED ON A DEVICE (was 0.075, which was unplayable). The trap: this page is
+    /// LANDSCAPE, so `geometry.size.height` is the SHORT side, ~400pt — not the
+    /// ~870pt the number reads like. At 0.075 the full 0→1 sweep therefore demanded
+    /// about 60pt of ANKLE travel on screen, and an ankle simply does not move that
+    /// far when a foot rocks heel-to-toe. The reported symptom was the honest one:
+    /// "it takes too much to move the wah, I can't even hear it" — the foot was
+    /// covering maybe a quarter of the range, and a quarter of a 450 Hz → 1.6 kHz
+    /// log sweep is not a wah, it is a slight tone change.
+    ///
+    /// 0.025 puts the full sweep inside ~20pt, which is the order of magnitude an
+    /// ankle actually travels. Raise it if the sweep feels twitchy, lower it if a
+    /// full rock still does not reach the extremes.
+    /// 0.018, down from 0.025: a full sweep now takes about 14pt of ankle travel
+    /// rather than 20. Reported as still needing too much foot for the movement a
+    /// rock actually produces.
+    private static let treadleBand: CGFloat = 0.018
     /// One-pole smoothing on the treadle. This ends up on a filter sweep, where raw
-    /// 18 Hz jitter is an audible warble rather than a merely visual one.
-    private static let treadleSmoothing: Double = 0.30
+    /// 18 Hz jitter is an audible warble rather than a merely visual one — but too
+    /// much of it reads as the pedal lagging the foot, which is its own kind of
+    /// broken. Raised with the band above: a narrower band means the same jitter
+    /// now moves the value further, so the response has to be quicker to keep up
+    /// with a real rock rather than smearing it.
+    /// Raised with the band: a narrower band means the same rock covers the range in
+    /// less time, so the filter has to keep up or the sweep lags the foot.
+    /// How fast the observed sweep range forgets. Slow — it is describing a stance,
+    /// and a range that chased every frame would collapse onto the current position
+    /// and leave no sweep at all.
+    private static let sweepRangeBleed: CGFloat = 0.004
+    /// Smallest observed travel, in points, that counts as a sweep rather than as
+    /// jitter. Small on purpose: a foot seen head-on barely moves on screen, and
+    /// whatever it does move is the whole of the signal available.
+    private static let minSweepSpan: CGFloat = 3
+    private static let treadleSmoothing: Double = 0.50
     /// Below this the value has not really moved; not worth a hop to the main thread.
-    private static let treadleStep: Double = 0.012
+    /// Finer than it was, because this now drives a POSITION BAR the player is
+    /// watching as well as the filter, and a bar that advances in visible steps
+    /// reads as broken tracking.
+    private static let treadleStep: Double = 0.008
+    /// THE SWITCH PAD: a patch of empty floor BESIDE the board, past the end of the
+    /// row on the rocker's own side, in metres along the row axis from that end.
+    ///
+    /// Everything before this tried to carve the switch out of the pedal's own
+    /// travel — past the toe, behind the heel — and every version traded one failure
+    /// for another, because the sweep and the switch were competing for the same few
+    /// centimetres of foot movement. Sideways is not scarce: the board is projected
+    /// small, there is floor either side of it doing nothing, and a foot that steps
+    /// off the pedal to the side is unambiguously not sweeping.
+    ///
+    /// So the switch is its own place on the floor. Step on it and stamp — no hold,
+    /// no travel past an end, nothing that ordinary playing does by accident.
+    nonisolated static let switchPadGap: Float = 0.30               // metres past the row's end
+    /// How near the pad's centre the foot counts as being on it, in viewport widths.
+    private static let switchPadRadius: CGFloat = 0.11
+    /// UNUSED BY THE PAD, kept for the sweep's own clamping: the toe-end zone the
+    /// switch used to live in. A dead gap before it and a ceiling above it.
+    ///
+    /// Two wrong answers got it here, and the second is the instructive one. First it
+    /// sat one band past the toe and fired on contact — which is where a player
+    /// already goes, since sweeping to full treble IS pushing the toe down, so it
+    /// tripped constantly. Moving it behind the HEEL fixed that by making it
+    /// unreachable: the ankle would have had to descend ~24pt BELOW the pedal, and
+    /// the heel is already resting on the floor at the bottom of the sweep. The floor
+    /// is a hard stop; no foot was ever going to get there.
+    ///
+    /// So it is back on the toe side, which is the only vertical direction with free
+    /// travel — the ankle keeps rising as the toe presses harder, while the swept
+    /// value stays clamped at 1.0. What makes it deliberate now is not its position
+    /// but the GAP it must cross and the DWELL it must hold: press the toe well past
+    /// the end of travel and keep it there. That is what a real wah's switch asks
+    /// for too.
+    ///
+    /// The ceiling separates "toe jammed down" from "foot lifted off and walking
+    /// away" — the first lands inside the zone, the second sails past it.
+    private static let switchZoneGap: CGFloat = 0.04
+    private static let switchZoneBand: CGFloat = 0.12
+    /// How long the pad's ring takes to fill once a foot lands on it. Cosmetic — the
+    /// stamp fires whenever it comes, filled or not.
+    private static let switchArmFill: TimeInterval = 0.25
+    /// A switch cannot fire again until the foot has come back out of the zone. One
+    /// press, one click, exactly as the hardware behaves.
+    private static let switchReleaseDebounce: TimeInterval = 0.25
+    /// How long stomps stay suppressed after the working foot was last over a
+    /// treadle.
+    ///
+    /// ROCKING A TREADLE IS DOWNWARD ANKLE MOTION, which is precisely what the stomp
+    /// detector is looking for. Suppressing stomps on the treadle's own slot was not
+    /// enough: the hover bins on the ankle's x, that wanders while a foot rocks, and
+    /// a sweep would land a phantom stomp on the pedal NEXT to the wah. One foot
+    /// cannot stomp a pedal it is not standing on, so while it is working a treadle
+    /// nothing else may fire.
+    private static let treadleStompSuppression: TimeInterval = 0.7
     /// The same idea in metres, for the front mode's re-derived floor: below this the
     /// board would be jittering in place rather than following anything.
     private static let floorPublishDeadband: Float = 0.002          // metres
@@ -244,7 +393,19 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
     private let emitStomp: @Sendable (Int, CGFloat) -> Void
     /// Which slot the player's foot is currently over, or nil. Emitted only when the
     /// answer CHANGES — see the call site.
+    /// Why the last lock ended, for the banner. The page used to say "phone moved"
+    /// for every unlock, which is one of seven reasons and was the wrong one often
+    /// enough to send a player chasing a phone that had not moved.
+    private let emitUnlockReason: @Sendable (String) -> Void
     private let emitHover: @Sendable (Int?) -> Void
+    /// Which slot's SWITCH ZONE the foot is standing in and how far through the hold
+    /// it is (0…1). Nil the moment it leaves, so the player can see it arm and let go.
+    private let emitTreadleArm: @Sendable (Int?, Double) -> Void
+    /// Fired once per press, on the frame the foot stamps the pad.
+    private let emitTreadleSwitch: @Sendable (Int) -> Void
+    /// Where the switch pad is on screen, so the page can draw it on the empty floor
+    /// beside the board. Nil when no rocker is on the row.
+    private let emitSwitchPad: @Sendable (Int?, CGPoint?) -> Void
     /// Where the working foot sits vertically against the slot it is over, 0…1.
     ///
     /// 0 is heel-down (the foot low on screen, below the pedal), 1 is toe-down (high).
@@ -278,7 +439,11 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
          onFloor: @escaping @Sendable (ARFloorPose?) -> Void,
          onStomp: @escaping @Sendable (Int, CGFloat) -> Void,
          onHover: @escaping @Sendable (Int?) -> Void,
-         onTreadle: @escaping @Sendable (Int, Double) -> Void) {
+         onTreadle: @escaping @Sendable (Int, Double) -> Void,
+         onUnlockReason: @escaping @Sendable (String) -> Void,
+         onTreadleArm: @escaping @Sendable (Int?, Double) -> Void,
+         onTreadleSwitch: @escaping @Sendable (Int) -> Void,
+         onSwitchPad: @escaping @Sendable (Int?, CGPoint?) -> Void) {
         self.placementEnabled = placementEnabled
         self.emitState = onState
         self.emitSlots = onSlots
@@ -286,6 +451,10 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
         self.emitStomp = onStomp
         self.emitHover = onHover
         self.emitTreadle = onTreadle
+        self.emitUnlockReason = onUnlockReason
+        self.emitTreadleArm = onTreadleArm
+        self.emitTreadleSwitch = onTreadleSwitch
+        self.emitSwitchPad = onSwitchPad
         super.init()
     }
 
@@ -392,6 +561,37 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
     private var lastHover: Int?
     /// View-space y of the three slot centres, alongside `slotCentersX`.
     private var slotCentersY: (CGFloat, CGFloat, CGFloat)?
+    /// Which slot's switch zone the foot is in, mirrored here so entry and exit are
+    /// each published once rather than on every frame.
+    private var armedSlot: Int?
+    /// When the foot arrived in the current switch zone, for the dwell.
+    private var armedSince: TimeInterval = 0
+    /// Last arm progress published, so a foot holding still does not spam the main
+    /// thread with the same number.
+    private var lastArmProgress: Double = -1
+    /// Held true from the frame a switch fires until the foot leaves the zone, so one
+    /// press is one click.
+    private var switchLatched = false
+    private var lastSwitchAt: TimeInterval = 0
+    /// When the working foot was last over a slot holding a treadle.
+    private var lastTreadleHoverAt: TimeInterval = 0
+    /// Set once per placement, when the board has been aimed at the feet. Cleared on
+    /// unlock so the next placement re-aims.
+    private var aimedAtFeet = false
+    /// The working foot's own high and low water marks over recent travel, and the
+    /// slot they were measured on. See the note where they are used.
+    private var sweepLow: CGFloat?
+    private var sweepHigh: CGFloat?
+    private var sweepSlot: Int?
+    /// Smoothed screen y of the player's PLANTED foot — the floor line, as observed
+    /// rather than assumed. Nil until a body has been seen.
+    private var groundY: CGFloat?
+    /// Which slots hold rocker pedals. Set from the main actor via
+    /// `setTreadleSlots`, read only here on the session queue.
+    private var treadleSlots: Set<Int> = []
+    /// The pad's projected centre and the slot it switches, refreshed with the slots.
+    private var switchPadPoint: CGPoint?
+    private var switchPadSlot: Int?
     /// Last treadle value emitted, so a foot holding still does not push an unchanged
     /// number onto the main thread 18 times a second.
     private var lastTreadle: Double?
@@ -484,6 +684,10 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
     private func clearLock() {
         // A stale glow over a board that is no longer there is worse than no glow.
         if lastHover != nil { lastHover = nil; emitHover(nil) }
+        // The foot is gone, so it is not standing on a switch. Left armed, the
+        // highlight would sit lit over a pedal nobody is near.
+        if armedSlot != nil { armedSlot = nil; lastArmProgress = -1; emitTreadleArm(nil, 0) }
+        switchLatched = false
         anchorID = nil
         anchorTransform = nil
         slotOffsets = nil
@@ -579,8 +783,81 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
                 // a foot above the pedal has the smaller y and should read as the high
                 // end. Half a band either side, clamped.
                 let band = geometry.size.height * Self.treadleBand
-                let raw = 0.5 - Double((foot.y - ys[slot]) / max(band * 2, 1))
+                // ZEROED ON THE PLAYER'S OWN FOOT, not on the drawn board.
+                //
+                // The board is a virtual object planted a fixed angle below the LENS,
+                // which puts it about 11 cm UNDER the real floor for a phone propped
+                // on that floor — it looks right because there is no depth cue to say
+                // otherwise. Measuring the sweep against it put the zero below ground
+                // while a real ankle rides ~9 cm above it: eleven centimetres of
+                // offset against a two-centimetre band, so the sweep sat pinned at
+                // full. Lowering the board by a degree moved that zero again, which is
+                // why the sweep broke when the positioning changed.
+                //
+                // The planted foot IS the floor, reported every frame by the same
+                // Vision pass that finds the sweeping one. Zeroing on it makes the
+                // sweep independent of where the board is drawn — nudge the placement
+                // angle all you like and the pedal still works — and self-calibrating
+                // to the player's own stance and distance.
+                //
+                // Half a band below the floor line, so an ankle AT floor level reads 0
+                // (heel down) and one riding a full band above reads 1 (toe down).
+                // REVERSED. The mapping was ankle-rises → treble, which is what a real
+                // wah does mechanically — press the toe down and the heel, and the
+                // ankle with it, comes up. Through a camera looking at the feet it
+                // comes out the other way round, and what a player rocks felt
+                // backwards to what they heard. The gesture wins over the mechanism:
+                // the ankle rising now reads as heel-down and the sweep runs the way
+                // the foot expects.
+                // MEASURED AGAINST THE FOOT'S OWN TRAVEL, not against the other leg
+                // and not against a fixed number of screen points. This replaces both
+                // of the things that kept breaking.
+                //
+                // Against the OTHER LEG: front-on, the pedal foot is further from the
+                // lens than the standing foot, so perspective raises it on screen
+                // before it has moved at all — and that offset ate most of a 14pt
+                // band, which is why the sweep never reached its ends facing the
+                // camera and was fine side-on, where "forward" is lateral and costs
+                // no height.
+                //
+                // Against a FIXED BAND: how many points a rock covers depends on how
+                // far away the player is, so one band is right at one distance and
+                // wrong at every other — "only standing at a certain distance works".
+                //
+                // Watching the foot's own high and low water marks answers both. Any
+                // constant offset cancels because both marks carry it, and the span
+                // scales itself with distance and viewing angle because it IS the
+                // travel, observed. The marks bleed back toward the current position
+                // so a stance change re-ranges instead of leaving the pedal stuck at
+                // an extreme forever.
+                if slot != sweepSlot { sweepSlot = slot; sweepLow = nil; sweepHigh = nil }
+                sweepLow = min(sweepLow ?? foot.y, foot.y)
+                sweepHigh = max(sweepHigh ?? foot.y, foot.y)
+                if let low = sweepLow, let high = sweepHigh {
+                    sweepLow = low + (foot.y - low) * Self.sweepRangeBleed
+                    sweepHigh = high + (foot.y - high) * Self.sweepRangeBleed
+                }
+
+                // THE ZONE HAS TO BE WIDER THAN THE TRAVEL, not narrower than it.
+                //
+                // Requiring a full band of observed travel before the range counts
+                // was the wrong way round: front-on, a rock produces only a few
+                // points of ankle movement, so the span never reached the band and
+                // the sweep sat at 0.5 reporting nothing — "it isn't detecting the
+                // leg motion". The seed only has to be big enough that sensor noise
+                // is not mistaken for a sweep.
+                let span = (sweepHigh ?? 0) - (sweepLow ?? 0)
+                let raw: Double
+                if span >= Self.minSweepSpan {
+                    // Ankle at its LOWEST seen is toe-down, matching the reversal.
+                    raw = Double((foot.y - (sweepLow ?? 0)) / span)
+                } else {
+                    // Not enough travel seen yet to trust a range — hold mid-sweep
+                    // rather than slamming to an end on the first frame.
+                    raw = 0.5
+                }
                 let clamped = min(1, max(0, raw))
+
                 // Smoothed, because this drives a filter sweep in the audio path and
                 // 18 Hz of Vision jitter would be audible as a warble on a held note.
                 let smoothed = lastTreadle.map { $0 + (clamped - $0) * Self.treadleSmoothing } ?? clamped
@@ -599,8 +876,86 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
             }
         }
 
+        // THE FLOOR, AS SEEN. Smoothed hard: it is a reference the board is placed
+        // against, so it should move like a floor rather than like a foot.
+        if let ground = reading.groundPoint {
+            groundY = groundY.map { $0 + (ground.y - $0) * 0.12 } ?? ground.y
+        }
+
+        // THE SWITCH PAD, checked before anything else claims the foot. It is a patch
+        // of floor beside the board, so a foot standing on it is not on any pedal and
+        // must not be read as sweeping one or stomping one.
+        let onPad: Int? = {
+            guard let foot = reading.footPoint, let pad = switchPadPoint, let slot = switchPadSlot,
+                  geometry.size.width > 0 else { return nil }
+            // OPEN-ENDED ON THE OUTSIDE, exactly like the end pedals.
+            //
+            // A radius around the pad's centre makes it a band you can overshoot: step
+            // slightly too far and you are past the switch, standing on nothing. That
+            // is the same shape of problem the middle slot had, and the reason the END
+            // pedals were reported as perfect — they capture everything beyond
+            // themselves, out to the edge of the frame.
+            //
+            // It bit hardest turning the wah back ON, because that is the approach you
+            // make from off the board with nothing underfoot to aim by. Now anything
+            // past the pad, away from the row, is the pad.
+            // Open-ended AWAY from the board, but stopped at the halfway line to the
+            // nearest pedal. Unbounded was swallowing the end pedal whenever the row
+            // moved — the board is fitted to the frame, so its slots shift with the
+            // placement angle, and a fixed radius that cleared them at one angle
+            // covers them at another. A midpoint cannot: it is derived from where the
+            // pedals actually are this frame.
+            let rowCentreX = slotCentersX?.1 ?? geometry.size.width / 2
+            let padIsOutboardLeft = pad.x < rowCentreX
+            let nearestSlotX: CGFloat = {
+                guard let c = slotCentersX else { return rowCentreX }
+                let xs = [c.0, c.1, c.2]
+                return padIsOutboardLeft ? (xs.min() ?? rowCentreX) : (xs.max() ?? rowCentreX)
+            }()
+            let boundary = (pad.x + nearestSlotX) / 2
+            let onIt = padIsOutboardLeft ? foot.x <= boundary : foot.x >= boundary
+            return onIt ? slot : nil
+        }()
+
+        if let slot = onPad {
+            // STEPPING ON IT IS THE SWITCH. No stamp, no hold, no fill to wait out.
+            //
+            // Requiring a stomp on the pad meant the pad inherited every threshold the
+            // stomp detector has — velocity, drop, dwell, lateral speed — and a foot
+            // stepping sideways onto a target trips almost none of them. That is why
+            // it "wasn't really working": the pad was found and the stamp never
+            // registered. Nothing else lives out here, so arriving IS the gesture and
+            // there is nothing to disambiguate it from.
+            //
+            // Latched until the foot leaves, so standing on it is one switch and not
+            // eighteen a second.
+            if armedSlot != slot {
+                armedSlot = slot
+                emitTreadleArm(slot, 1)
+                if now - lastSwitchAt >= Self.switchReleaseDebounce {
+                    lastSwitchAt = now
+                    emitTreadleSwitch(slot)
+                    ARDiagnostics.log("switch pad slot=\(slot) footX=\(ARDiagnostics.f(reading.footPoint?.x ?? 0, 0))")
+                }
+            }
+            // A foot on the pad drives nothing else: no sweep, no stomp anywhere.
+            return
+        }
+
+        if armedSlot != nil { armedSlot = nil; emitTreadleArm(nil, 0) }
+
+        if let hovered = reading.hoverSlot, treadleSlots.contains(hovered) {
+            lastTreadleHoverAt = now
+        }
         if let stomp = reading.stomp {
-            emitStomp(stomp.slot, stomp.normalizedX)
+            // A foot working a rocker cannot also be stomping something else — see
+            // `treadleStompSuppression`. Without this, sweeping a wah toggled its
+            // neighbours.
+            if now - lastTreadleHoverAt < Self.treadleStompSuppression {
+                ARDiagnostics.log("stomp suppressed (treadle in use) slot=\(stomp.slot)")
+            } else {
+                emitStomp(stomp.slot, stomp.normalizedX)
+            }
         }
     }
 
@@ -671,6 +1026,23 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
         let trackingNormal: Bool
         if case .normal = camera.trackingState { trackingNormal = true } else { trackingNormal = false }
 
+        // A PROPPED PHONE NEVER REACHES `.normal`, AND WAITING FOR IT IS A DEADLOCK.
+        //
+        // World tracking initialises from PARALLAX: ARKit needs the device to move to
+        // triangulate anything. A phone standing still on the floor gives it none, so
+        // it sits in `.limited(.initializing)` indefinitely — and this page's whole
+        // premise is a phone that has been set down and left alone. The player was
+        // told "getting its bearings — hold the phone steady", which is both the
+        // wrong advice and unfollowable: holding it steadier is exactly what keeps it
+        // from initialising.
+        //
+        // Front mode does not need world tracking to be good. It detects no planes,
+        // assumes the floor is under the phone, fits the row to the FRAME, and freezes
+        // the pose at lock. `.limited` is plenty for that. Only `.notAvailable` — no
+        // pose at all — is genuinely unusable.
+        let trackingUsable: Bool
+        if case .notAvailable = camera.trackingState { trackingUsable = false } else { trackingUsable = true }
+
         // FRONT MODE HAS NO PLANES TO GATE ON, so it gates on the only two things it
         // can know: that ARKit is tracking properly, and that the phone is aimed
         // somewhere a floor could be. Everything below this branch — plane extents,
@@ -708,7 +1080,29 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
                     camY=\(ARDiagnostics.f(camera.transform.columns.3.y))
                     """)
             }
-            if aimOK && trackingNormal {
+            // AIM AT THE FEET, ONCE, BEFORE COMMITTING.
+            //
+            // Placement was a constant angle below the lens, and a constant cannot
+            // know how far away the player is standing — so it landed on their LEGS,
+            // landed in the same wrong place after every reposition, and landed there
+            // just the same with nobody in shot. All three are the same fact: it was
+            // never looking.
+            //
+            // The page already knows where the floor is. Vision reports both ankles
+            // every frame it sees a body, and the LOWER of the two is a foot standing
+            // on the ground — which is the "account for two legs" part: the working
+            // foot is usually the one in the air, so the standing one is the honest
+            // reference. Solve for the angle that puts the board on that line.
+            //
+            // ONCE, latched, not a control loop. An earlier version steered this
+            // every frame and the board re-placed itself constantly — it disappeared
+            // and came back on every step. Solved at placement and then left alone,
+            // it settles where the feet were and stays there.
+            if !aimedAtFeet, let groundY, trackingUsable {
+                aimedAtFeet = aimPlacementAtFeet(camera: camera, geometry: geometry, groundY: groundY)
+            }
+
+            if aimOK && trackingUsable {
                 notReadySince = nil
                 if readySince == nil { readySince = now }
                 if now - (readySince ?? now) >= Self.readyDebounce {
@@ -720,9 +1114,11 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
                 readySince = nil
                 if notReadySince == nil { notReadySince = now }
                 if state == .ready, now - (notReadySince ?? now) < Self.dropDebounce { return }
-                // `aimLower` is the honest hint when tracking is fine but the phone is
-                // pointing level or up: that is the one thing the player can act on.
-                set(.searching(trackingNormal ? .aimLower
+                // `aimLower` no longer means "tilt the phone down" — recline is
+                // accepted at any angle now (see `ARAssumedFloor.anchorTransform`),
+                // so the only aims left here are straight up and straight down, and
+                // "aim lower" is still the right thing to say to the first of them.
+                set(.searching(trackingUsable ? .aimLower
                                               : hint(for: camera.trackingState, sawSurface: false)))
             }
             return
@@ -759,7 +1155,12 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
                 tooHigh += 1
                 continue
             }
-            guard inView(plane.worldCenter, camera: camera, geometry: geometry, margin: margin) else {
+            // ANY PART OF IT, NOT ITS CENTRE. Testing only the centre is what stopped
+            // this working at an upward angle: tip the phone up and a floor you are
+            // still plainly standing on has its centre slide out of frame, so a plane
+            // that fills the bottom third of the picture counted as "not in view".
+            // The near edge is the part a player can actually reach anyway.
+            guard planeInView(plane, camera: camera, geometry: geometry, margin: margin) else {
                 outOfView += 1
                 continue
             }
@@ -837,6 +1238,106 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
             && point.y >= -slackY && point.y <= geometry.size.height + slackY
     }
 
+    /// Publish the pad, throttled the same way the slot points are: it moves with
+    /// them, so it would otherwise re-lay-out SwiftUI at frame rate.
+    private var lastPadPublish: TimeInterval = 0
+    private var lastPadPoint: CGPoint?
+    private func publishSwitchPad(slot: Int?, point: CGPoint?) {
+        if let point, let last = lastPadPoint,
+           abs(point.x - last.x) < Self.slotPublishDeadband,
+           abs(point.y - last.y) < Self.slotPublishDeadband, slot != nil {
+            return
+        }
+        lastPadPoint = point
+        emitSwitchPad(slot, point)
+    }
+
+    // THE FEET STEER IS GONE. It nudged the placement angle every frame toward the
+    // observed floor line, which re-derived the anchor, which meant the board moved
+    // — and in front mode a moving anchor reads as the board vanishing and coming
+    // back. "Every time I move my feet the render disappears" was exactly that. The
+    // page places against the FRAME instead; `groundPoint` is still reported by the
+    // tracker and is the honest input if this is ever tried again, but not by
+    // steering a live anchor.
+
+    /// Pick the placement angle whose board lands on the observed floor line.
+    ///
+    /// A short search rather than an inversion: the projection runs through ARKit's
+    /// own camera model and a clamp that depends on the recline, so there is no clean
+    /// formula to invert — and this runs once, so a few dozen projections cost
+    /// nothing. Returns false when nothing usable was found, leaving the constant in
+    /// place and the aim unlatched to try again on a later frame.
+    private func aimPlacementAtFeet(camera: ARCamera, geometry: ViewGeometry, groundY: CGFloat) -> Bool {
+        var best: (pitch: Float, error: CGFloat)?
+        var degrees = ARFloorCalibration.minPitch * 180 / .pi
+        let maxDegrees = ARFloorCalibration.maxPitch * 180 / .pi
+        while degrees <= maxDegrees {
+            let pitch = degrees * .pi / 180
+            if let candidate = ARAssumedFloor.anchorTransform(camera: camera, requestedPitch: pitch) {
+                let point = camera.projectPoint(candidate.columns.3.xyz,
+                                                orientation: geometry.orientation,
+                                                viewportSize: geometry.size)
+                if point.y.isFinite {
+                    let error = abs(point.y - groundY)
+                    if best == nil || error < best!.error { best = (pitch, error) }
+                }
+            }
+            degrees += 0.5
+        }
+        guard let best else { return false }
+        ARFloorCalibration.set(best.pitch)
+        ARDiagnostics.log("aimed at feet: pitch=\(ARDiagnostics.f(best.pitch * 180 / .pi, 1))° "
+                        + "groundY=\(ARDiagnostics.f(groundY, 0)) miss=\(ARDiagnostics.f(best.error, 0))pt")
+        return true
+    }
+
+    /// Tell the coordinator which slots hold rocker pedals.
+    ///
+    /// Pushed in rather than looked up because the answer lives in `RigStore` on the
+    /// main actor and this is needed on the session queue, 18 times a second. Hopping
+    /// to main for it on every frame would be exactly the stutter the delegate queue
+    /// exists to avoid.
+    func setTreadleSlots(_ slots: Set<Int>, on queue: DispatchQueue) {
+        queue.async { [weak self] in self?.treadleSlots = slots }
+    }
+
+    /// How high the ankle rides above the floor when a foot is resting on a pedal.
+    ///
+    /// The treadle's zero, not a cosmetic offset: Vision reports ankles, pedals sit on
+    /// the floor, and the gap between the two is what the sweep is measured from.
+    private static let ankleRest: Float = 0.09                      // metres
+
+    /// A slot offset lifted to ankle height, in the anchor's own space. The anchor's
+    /// +Y is world up by construction, so this is a straight lift.
+    private func raised(_ offset: simd_float4) -> simd_float4 {
+        simd_float4(offset.x, offset.y + Self.ankleRest, offset.z, offset.w)
+    }
+
+    /// Whether any part of a plane is on screen — its centre or any of its corners.
+    ///
+    /// The corners are derived from the extent about the centre, ignoring the plane's
+    /// own rotation about Y. Deliberately: this is a "can the player see some of this
+    /// floor" test, not a geometry query, and a rotated rectangle's corners never
+    /// leave the circle those axis-aligned ones describe by enough to matter to it.
+    private func planeInView(_ plane: PlaneSnapshot,
+                             camera: ARCamera,
+                             geometry: ViewGeometry,
+                             margin: CGFloat) -> Bool {
+        if inView(plane.worldCenter, camera: camera, geometry: geometry, margin: margin) {
+            return true
+        }
+        let hw = plane.width / 2, hh = plane.height / 2
+        for dx in [-hw, hw] {
+            for dz in [-hh, hh] {
+                let corner = plane.worldCenter + simd_float3(dx, 0, dz)
+                if inView(corner, camera: camera, geometry: geometry, margin: margin) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     // MARK: - Holding, and losing, the lock
 
     private func evaluateLock(camera: ARCamera, now: TimeInterval, geometry: ViewGeometry) {
@@ -845,7 +1346,17 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
             return unlock(now: now, reason: .anchorMissing)
         }
 
-        if case .normal = camera.trackingState {
+        // HOLDING THE LOCK ACCEPTS WHAT PLACING IT ACCEPTED.
+        //
+        // Readiness was relaxed to `.limited` because a propped, motionless phone
+        // never reaches `.normal` — world tracking initialises from parallax and a
+        // phone sitting still supplies none. This gate was left demanding `.normal`,
+        // so the board placed and then dropped one `trackingGrace` later, every
+        // time: "lost the board at the slightest movement". The two gates have to
+        // agree, and `.limited` is the one that matches how this page is used.
+        let holdable: Bool
+        if case .notAvailable = camera.trackingState { holdable = false } else { holdable = true }
+        if holdable {
             degradedSince = nil
         } else {
             if degradedSince == nil { degradedSince = now }
@@ -902,13 +1413,31 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
             // Re-deriving on a changed angle and ONLY on a changed angle keeps both
             // halves: the board follows the drag while a hand is on the phone, and the
             // instant the hand comes off it is frozen again, wherever it was left.
+            // RE-DERIVED FROM THE CAMERA, EVERY FRAME — which reverses the freeze
+            // above it, and the reasoning is worth keeping because both are right for
+            // different phones.
+            //
+            // Freezing the anchor is correct when the pose it is frozen against is
+            // TRUE. Front mode's is not: it runs on `.limited` tracking because a
+            // motionless phone gives ARKit no parallax, and a limited pose drifts. A
+            // world-anchored board seen through a drifting camera slides across the
+            // picture and eventually off it — reported exactly, as the board sliding
+            // away while the text stayed put. The text stayed because its projection
+            // had been frozen; the SceneKit board had not, and could not be, because
+            // it is rendered through that same drifting camera.
+            //
+            // Pinning the board to the CAMERA instead makes the drift cancel: the
+            // pose error moves the camera and the board together, so the board holds
+            // still in the frame — which is where the player is looking, and the only
+            // place it has to hold still. The cost is that a bumped phone takes its
+            // board with it rather than leaving it on the floor. For a phone propped
+            // and left alone that is the better half of the trade, and it is the same
+            // one already made for the chrome.
             let pitch = ARFloorCalibration.placementPitch
-            if pitch != placedPitch {
-                placedPitch = pitch
-                if let refreshed = ARAssumedFloor.anchorTransform(camera: camera) {
-                    self.anchorTransform = refreshed
-                    publishFloorIfMoved(refreshed, now: now)
-                }
+            placedPitch = pitch
+            if let refreshed = ARAssumedFloor.anchorTransform(camera: camera) {
+                self.anchorTransform = refreshed
+                publishFloorIfMoved(refreshed, now: now)
             }
             return evaluateLockTail(camera: camera, now: now, geometry: geometry)
         }
@@ -950,10 +1479,58 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
 
         // Binning reads this on the frame path; publishing to SwiftUI is throttled.
         slotCentersX = (p0.x, p1.x, p2.x)
-        // The vertical half, for the treadle. Same three projections, no extra work —
-        // and taken from the SAME points as the x's, so "the pedal the foot is over"
-        // and "how high the foot is above it" can never come from different places.
-        slotCentersY = (p0.y, p1.y, p2.y)
+        // The vertical half, for the treadle — and NOT the same three points as the
+        // x's, which is the one place they must differ.
+        //
+        // The x's bin "which pedal is the foot over", and the pedal is on the floor.
+        // The treadle measures "how high is the foot riding", and the joint Vision
+        // reports is the ANKLE, which sits about `ankleRest` above the floor when a
+        // foot is resting on a pedal. Measuring the ankle against the FLOOR point puts
+        // the whole sweep permanently above its own band: it pins at 1.0 and the
+        // player reports, correctly, that the sweep is gone.
+        //
+        // This went unnoticed while the board was floating in mid-air, because a board
+        // planted a fixed angle below the lens axis happened to sit near ankle height
+        // — the two errors cancelled. Putting the board on the ground uncovered it.
+        //
+        // Projected rather than offset in points, so it stays right as the board moves
+        // nearer or further and the perspective changes with it.
+        let a0 = project(raised(slotOffsets[0]), anchor: anchorTransform, camera: camera, geometry: geometry)
+        let a1 = project(raised(slotOffsets[1]), anchor: anchorTransform, camera: camera, geometry: geometry)
+        let a2 = project(raised(slotOffsets[2]), anchor: anchorTransform, camera: camera, geometry: geometry)
+        slotCentersY = (a0.y.isFinite ? a0.y : p0.y,
+                        a1.y.isFinite ? a1.y : p1.y,
+                        a2.y.isFinite ? a2.y : p2.y)
+
+        // THE SWITCH PAD, projected alongside the slots so it moves with the board.
+        // It sits past the END of the row on the rocker's own side — which is empty
+        // floor, and the whole point: a foot there is unambiguously not on a pedal.
+        if let slot = treadleSlots.sorted().first {
+            // THE RESERVED SIDE. The row is fitted to `rowSpanFraction` of the frame
+            // and slid to `rowCentreFraction`, which leaves the far side empty by
+            // construction — this puts the pad in the middle of that space. Derived
+            // from the row's own width rather than a fixed distance in metres, so it
+            // stays in the same part of the PICTURE however the board was fitted.
+            //
+            // Always the same side, never mirrored to follow the rocker: a control
+            // you hit mid-song wants to be in one place every time.
+            let centre = slotOffsets[1]
+            let spacing = (slotOffsets[2].x - slotOffsets[0].x) / 2
+            let metresPerFraction = (2 * spacing) / Float(Self.rowSpanFraction)
+            let padX = centre.x + Float(Self.padCentreFraction - Self.rowCentreFraction) * metresPerFraction
+            let padOffset = simd_float4(padX, centre.y, centre.z, centre.w)
+            let projected = project(padOffset, anchor: anchorTransform, camera: camera, geometry: geometry)
+            if projected.x.isFinite, projected.y.isFinite {
+                switchPadSlot = slot
+                switchPadPoint = projected
+                publishSwitchPad(slot: slot, point: projected)
+            } else {
+                switchPadSlot = nil; switchPadPoint = nil; publishSwitchPad(slot: nil, point: nil)
+            }
+        } else if switchPadSlot != nil {
+            switchPadSlot = nil; switchPadPoint = nil; publishSwitchPad(slot: nil, point: nil)
+        }
+
         publishSlotsIfMoved((p0, p1, p2), now: now)
     }
 
@@ -996,6 +1573,8 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
 
     private func unlock(now: TimeInterval, reason: UnlockReason, detail: String = "") {
         ARDiagnostics.log("UNLOCK — \(reason.rawValue)\(detail.isEmpty ? "" : " (\(detail))")")
+        aimedAtFeet = false
+        emitUnlockReason(reason.rawValue)
         clearLock()
         degradedSince = nil
         readySince = nil
@@ -1089,8 +1668,26 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
         // the anchor's own frame, after the inverse, keeps it exactly reversible:
         // the anchor's +y IS its plane normal, so subtracting `deckLift` gets the
         // floor point back with no rotation involved. Zero when the board is off.
+        // FIT THE ROW TO THE FRAME. `left`/`right` above already projected a known
+        // lateral offset, so they measure how many points one metre of sideways is
+        // worth at this board's distance — everything needed to solve the spacing
+        // backwards from the screen span we want.
+        var spacing = Self.slotSpacing
+        var shift: Float = 0
+        let pointsPerMetre = Float(abs(right.x - left.x)) / (2 * Self.slotSpacing)
+        if pointsPerMetre > 1 {
+            let targetSpan = Float(geometry.size.width * Self.rowSpanFraction)
+            spacing = min(Self.maxSlotSpacing,
+                          max(Self.minSlotSpacing, targetSpan / (2 * pointsPerMetre)))
+            // …and slide the whole row off centre, so the empty side stays empty.
+            let centreOffsetPoints = Float(geometry.size.width * (Self.rowCentreFraction - 0.5))
+            shift = centreOffsetPoints / pointsPerMetre
+        }
+        ARDiagnostics.log("row fit spacing=\(ARDiagnostics.f(spacing))m shift=\(ARDiagnostics.f(shift))m "
+                        + "ptsPerM=\(ARDiagnostics.f(pointsPerMetre, 0))")
+
         let lift = ARFloorPedalboard.mountLift
-        return [-Self.slotSpacing, 0, Self.slotSpacing].map { distance in
+        return [-spacing + shift, shift, spacing + shift].map { distance in
             var offset = simd_mul(inverse, simd_float4(origin + lateral * distance, 1))
             offset.y += lift
             return offset

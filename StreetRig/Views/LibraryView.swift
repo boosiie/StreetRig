@@ -352,7 +352,15 @@ private struct LibraryTile: View {
     /// aspect-fit icon fills the frame instead of floating between letterbox
     /// bars; the art sits inside a fixed 64pt-tall box below, so the grid's row
     /// height doesn't move when these change.
+    ///
+    /// As in `GearCategory.artSize`, these are the PROCEDURAL frames; a piece
+    /// with a bespoke icon takes its width from the art itself via
+    /// `GearArtFrame`, so the wah case below only dresses the fallback drawing.
     private var artSize: CGSize {
+        GearArtFrame.size(for: item, base: proceduralArtSize)
+    }
+
+    private var proceduralArtSize: CGSize {
         switch item.category {
         case .amp:      return CGSize(width: 112, height: 55)
         case .cabinet:  return CGSize(width: 55,  height: 63)
