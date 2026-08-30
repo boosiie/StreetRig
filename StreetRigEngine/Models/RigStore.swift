@@ -618,11 +618,39 @@ public final class RigStore: ObservableObject {
 
     private static func load(from url: URL) -> PersistedState? {
         guard let data = try? Data(contentsOf: url),
-              let state = try? JSONDecoder().decode(PersistedState.self, from: data)
+              var state = try? JSONDecoder().decode(PersistedState.self, from: data)
         else { return nil }
         // Stale catalog generation → nil, which makes the caller re-seed.
         guard (state.catalogVersion ?? 1) >= catalogVersion else { return nil }
+        state.collection = state.collection.map(refreshedFromCatalog)
         return state
+    }
+
+    /// Re-derive a saved piece's DISPLAY NAME from its catalog identity.
+    ///
+    /// `GearItem.name` is a stored property: it is written into rig_state.json
+    /// with whatever the piece was called that day, and every card renders it
+    /// directly. So renaming shipped gear changed nothing on a device that
+    /// already had a rig — the catalog said one thing and the save kept showing
+    /// the other, with no error anywhere to say so.
+    ///
+    /// The `catalogVersion` comment answers this by making a rename discard the
+    /// save, but that throws away the player's collection to fix a string. Now
+    /// that a piece carries an id, the better answer is the one the id was for:
+    /// the ID IS THE IDENTITY AND THE NAME IS DERIVED FROM IT, so refresh the
+    /// name on the way in and keep the rig. A rename needs no version bump.
+    ///
+    /// Also backfills the id itself for rigs saved before ids existed, via the
+    /// retired-name table — after which that piece renames for free too.
+    private static func refreshedFromCatalog(_ item: GearItem) -> GearItem {
+        guard let id = item.catalogID ?? GearCatalog.retiredID(forName: item.name),
+              let current = GearCatalog.currentName(forID: id)
+        else { return item }
+        guard item.catalogID != id || item.name != current else { return item }
+        var out = item
+        out.catalogID = id
+        out.name = current
+        return out
     }
 
     private static func write(_ state: PersistedState, to url: URL) {
