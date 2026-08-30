@@ -362,7 +362,19 @@ nonisolated final class ARPlacementCoordinator: NSObject, ARSessionDelegate, @un
     private static let switchArmFill: TimeInterval = 0.25
     /// A switch cannot fire again until the foot has come back out of the zone. One
     /// press, one click, exactly as the hardware behaves.
-    private static let switchReleaseDebounce: TimeInterval = 0.25
+    /// Cooldown after the pad fires, before it will fire again.
+    ///
+    /// 0.5s, up from 0.25. One press of a footswitch is one toggle, and a foot
+    /// landing on a pad does not land cleanly — it settles, and the settle reads as a
+    /// second stomp inside a quarter-second, which flipped the pedal straight back
+    /// off. Long enough to swallow that, short enough that a deliberate second press
+    /// still lands: a player reaching down to switch, then switching again on
+    /// purpose, is most of a second apart at the very fastest.
+    ///
+    /// Deliberately INVISIBLE. A cooldown a player can see is a control telling them
+    /// to wait; one they cannot is just a switch that does not stutter. Nothing on
+    /// screen changes while it runs — the pad stays lit and armed exactly as before.
+    private static let switchReleaseDebounce: TimeInterval = 0.5
     /// How long stomps stay suppressed after the working foot was last over a
     /// treadle.
     ///

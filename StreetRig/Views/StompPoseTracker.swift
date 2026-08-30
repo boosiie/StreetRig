@@ -132,7 +132,11 @@ nonisolated final class StompPoseTracker {
     /// How long the foot has to have been over a slot before a stomp there counts.
     /// Short on purpose — long enough to exclude a fly-over, short enough that
     /// reaching and stomping in one motion still lands.
-    private static let slotDwell: TimeInterval = 0.13
+    /// 0.06, halved on device evidence. A deliberate tap arrives and lands inside
+    /// ~70ms — the log's refusals sat at 0.00s and 0.07s against 0.13 — so this was
+    /// rejecting real taps, not fly-overs. Fly-overs are `maxLateralForStomp`'s job,
+    /// and it did it: one suppression in the whole session, correctly.
+    private static let slotDwell: TimeInterval = 0.06
 
     /// How fast the per-foot motion estimate follows. Slow: it decides which leg is
     /// standing, and that answer should describe a stance rather than a moment.
@@ -140,6 +144,9 @@ nonisolated final class StompPoseTracker {
     /// The standing foot only changes when the other is this much stiller. Well below
     /// 1 so a rocking foot cannot claim the floor from a planted one.
     private static let groundSwitchRatio: CGFloat = 0.5
+    /// How much busier the other foot must be, proportionally, to become the working
+    /// one. Above 1 so two near-still feet do not trade the role back and forth.
+    private static let workingFootRatio: CGFloat = 1.6
 
     /// Stance width as a fraction of viewport height at the distance the stomp
     /// thresholds were tuned at. The distance scale is this ratio, so it is 1 there
@@ -362,18 +369,36 @@ nonisolated final class StompPoseTracker {
         } ?? 1
 
         let visible = (0..<2).filter { seen[$0] != nil }
-        guard let fastest = visible.max(by: { speed[$0] < speed[$1] }) else {
+        guard !visible.isEmpty else {
             diagLogIfDue(now: now)
             return Reading(hoverSlot: heldHover(now: now), stomp: nil, footPoint: nil, groundPoint: nil)
         }
-        // Stickiness, unchanged in spirit: a foot has to be meaningfully faster than a
-        // foot merely holding still to TAKE OVER, or the answer flickers between two
-        // near-motionless ankles. It can only stick to a foot that is still in shot.
-        var candidate = fastest
-        if speed[candidate] < Self.movingFootSpeed, visible.contains(activeFoot) {
-            candidate = activeFoot
+
+        // ONE MOTION ESTIMATE, TWO OPPOSITE ANSWERS — the moving leg and the standing
+        // one — so they cannot disagree about which foot is which.
+        for index in visible {
+            footMotion[index] += (speed[index] - footMotion[index]) * Self.groundMotionSmoothing
         }
-        activeFoot = candidate
+
+        // THE WORKING FOOT IS THE ONE WITH MOTION IN IT, judged over a short history
+        // rather than on this instant's speed.
+        //
+        // It used to take the instantaneously fastest and then refuse to move unless
+        // that beat `movingFootSpeed` outright. A deliberate tap is not fast — it is
+        // small and quick — so it routinely failed that bar, the choice stuck to
+        // whichever foot held it, and when that was the PLANTED foot the hover
+        // reported where the player was standing rather than where they tapped.
+        // Aiming at a pedal then meant putting the standing foot near it, which is
+        // the "I have to tap between two pedals" symptom.
+        let mover = visible.max { footMotion[$0] < footMotion[$1] }!
+        if visible.contains(activeFoot), activeFoot != mover {
+            // Hysteresis on the accumulated figure: clearly busier, not merely busier.
+            if footMotion[mover] > footMotion[activeFoot] * Self.workingFootRatio {
+                activeFoot = mover
+            }
+        } else {
+            activeFoot = mover
+        }
         let foot = seen[activeFoot]!
 
         // WHICH FOOT IS STANDING — decided on its own evidence, not as "the other one".
@@ -388,9 +413,6 @@ nonisolated final class StompPoseTracker {
         // rather than a leftover. Motion is accumulated per foot and the choice only
         // changes when the other foot is CLEARLY stiller — half the motion — so an
         // ordinary rock cannot hand the floor over to the foot doing the rocking.
-        for index in visible {
-            footMotion[index] += (speed[index] - footMotion[index]) * Self.groundMotionSmoothing
-        }
         if let stillest = visible.min(by: { footMotion[$0] < footMotion[$1] }) {
             if let current = groundFoot, visible.contains(current) {
                 if footMotion[stillest] < footMotion[current] * Self.groundSwitchRatio {
@@ -436,7 +458,18 @@ nonisolated final class StompPoseTracker {
                 // up as the outer pedals going unreliable, the opposite of the
                 // complaint it was meant to fix. Half keeps the middle reachable
                 // without letting it poach.
-                let margin = hoverSlot == 1 ? Self.slotSwitchMargin * 0.5 : Self.slotSwitchMargin
+                // SYMMETRIC AGAIN — the discount was a RATCHET against the outer
+                // slots, and the device log caught it doing exactly that.
+                //
+                // Cheapening entry to the middle was meant to compensate for it being
+                // the only bounded target. What it built was a one-way valve: the foot
+                // fell off an outer slot into the middle at half price on the
+                // slightest jitter, then had to pay full margin to get back. So the
+                // hover kept RE-ARRIVING at slot 2 rather than staying there, and
+                // every re-arrival restarts `hoverSince` — the dwell timer never
+                // accumulated and the stomp was refused as NOT SETTLED. Nine times on
+                // the right pedal in one session; never on the other two.
+                let margin = Self.slotSwitchMargin
                 if toPrevious - toNew < gap * margin { hoverSlot = previous }
             }
         }
@@ -487,11 +520,20 @@ nonisolated final class StompPoseTracker {
         // Two independent guards, because they fail differently. A fast sideways
         // sweep is caught by `lateral`; a slow deliberate reach that pauses briefly
         // over the middle is caught by the dwell. Either alone leaves a gap.
-        let travelling = lateral[activeFoot] > Self.maxLateralForStomp
+        // SCALED LIKE THE OTHER TWO, which it should have been all along.
+        //
+        // `stompVelocity` and `stompDrop` are multiplied by `distanceScale` because a
+        // fixed distance in the world covers more of the SCREEN the closer the player
+        // stands. This gate measures the same kind of quantity — sideways speed as a
+        // fraction of the viewport — and was left unscaled, so up close an ordinary
+        // step across the board reads as far more viewport-widths per second than the
+        // same step from further back, sails past 0.22, and the stomp is thrown away
+        // as a fly-over. The nearer the player, the more of their real taps it eats.
+        let travelling = lateral[activeFoot] > Self.maxLateralForStomp * distanceScale
         let settled = now - hoverSince >= Self.slotDwell
         if fired, travelling || !settled {
             ARDiagnostics.log("stomp SUPPRESSED slot=\(hoverSlot) "
-                            + "lateral=\(ARDiagnostics.f(lateral[activeFoot]))/\(Self.maxLateralForStomp) "
+                            + "lateral=\(ARDiagnostics.f(lateral[activeFoot]))/\(ARDiagnostics.f(Self.maxLateralForStomp * distanceScale)) "
                             + "dwell=\(ARDiagnostics.f(CGFloat(now - hoverSince), 2))s/\(Self.slotDwell) "
                             + "\(travelling ? "TRAVELLING" : "NOT SETTLED")")
         }
