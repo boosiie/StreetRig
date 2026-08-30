@@ -724,12 +724,6 @@ public final class RigStore: ObservableObject {
         "electro-galvanic micro STACK",
         "BRIG Loop Depot",              // both loopers -- empties the category
         "electro-galvanic FROST",
-        // Its icon still prints the retired maker's brand and model designation
-        // across a jagged facet boundary that cannot be erased without destroying
-        // it (three inpainting approaches were tried and reverted). Withheld until
-        // the art is redrawn; ERROL BRASS SWELL MINI keeps the volume category
-        // populated in the meantime.
-        "BRIG LV-320H",
     ]
 
     // MARK: - Catalog (the full library to add gear from)

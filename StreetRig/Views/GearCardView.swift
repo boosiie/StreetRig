@@ -56,11 +56,16 @@ struct GearCardView: View {
     /// gesture ending rather than the card being ready to move.
     private var cardScale: CGFloat { 1 - 0.04 * charge }
 
+    /// Bespoke art sizes itself off its own pixels; procedural art falls back to
+    /// the category frame. See `GearArtFrame`.
+    private var artFrame: CGSize {
+        GearArtFrame.size(for: item, base: item.category.artSize)
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             GearArtView(item: item)
-                .frame(width: item.category.artSize.width,
-                       height: item.category.artSize.height)
+                .frame(width: artFrame.width, height: artFrame.height)
                 .frame(maxWidth: .infinity)
                 .frame(height: 56)
 

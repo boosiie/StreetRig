@@ -408,6 +408,12 @@ private struct LibraryTile: View {
     /// The widths differ but the BOX below is constant, so the name column starts at
     /// the same x on every card in the grid.
     private var artSize: CGSize {
+        GearArtFrame.size(for: item, base: proceduralArtSize)
+    }
+
+    /// The PROCEDURAL frames only — the fallback drawings have no intrinsic
+    /// aspect of their own, so a per-category box is right for them.
+    private var proceduralArtSize: CGSize {
         switch item.category {
         case .amp:      return CGSize(width: 46, height: 22)
         case .cabinet:  return CGSize(width: 30, height: 35)
