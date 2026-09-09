@@ -1014,6 +1014,16 @@ struct PresetsView: View {
     }
 }
 
+// PREVIEWS ARE DEBUG-ONLY, and this fence is load-bearing rather than tidy.
+//
+// `ENABLE_PREVIEWS` is YES in Debug and NO in Release, and that flag does not
+// mean "skip these" — it changes how `#Preview` expands. Under Release the body
+// is still compiled, as a `@ViewBuilder` closure, and both of these break there:
+// `RigPresets.problems()` lives inside this framework's own `#if DEBUG` so the
+// symbol does not exist, and a ViewBuilder rejects the explicit `return` that
+// the Debug expansion requires. Neither shows up in any Debug build, so the
+// first thing that ever failed was `archive` — see the commit that added this.
+#if DEBUG
 #Preview("Presets — empty slots", traits: .landscapeLeft) {
     // Fails loudly here rather than quietly under a LOAD button — see
     // `RigPresets.problems`.
@@ -1034,3 +1044,4 @@ struct PresetsView: View {
         .environmentObject(UserPresetStore.previewFilled)
         .preferredColorScheme(.dark)
 }
+#endif
