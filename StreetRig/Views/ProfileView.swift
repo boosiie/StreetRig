@@ -222,6 +222,7 @@ struct ProfileView: View {
                 AvatarTintRow(tint: tintBinding)
                 privacyNote
                 AvatarStripView(avatar: avatarBinding, tint: profile.profile.tint, tileSize: 29)
+                versionNote
             }
             .padding(.bottom, 2)
         }
@@ -357,6 +358,50 @@ struct ProfileView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .rigCard(cornerRadius: RigTheme.Radius.control)
+    }
+
+    // MARK: - Which build this is
+
+    /// The version, read back out of the bundle rather than typed into this file.
+    ///
+    /// It reads 1.0 because `MARKETING_VERSION` is 1.0, and the direction of that
+    /// sentence is the whole point. A version typed into a `Text` is a version
+    /// that goes stale the first time somebody bumps the build settings and does
+    /// not think to grep the Swift for the old string — and a version line that
+    /// lies is worse than no version line, because the bug report it produces
+    /// sends you to the wrong commit. Xcode already stamps the truth into the
+    /// bundle at build time. This reads that, and keeps no second copy that can
+    /// disagree with it.
+    ///
+    /// THE "the first one" HALF RETIRES ITSELF. It is only true while this is
+    /// actually the first release, so it hangs off the short version still being
+    /// 1.0 rather than sitting here as a line somebody has to remember to delete
+    /// at 1.1. Nothing in this file needs editing at the next version bump.
+    ///
+    /// It sits last in the column because it is the least urgent thing on the
+    /// page, and because "what build are you on?" is the first question anyone
+    /// asks about a bug — which makes the bottom of PROFILE the right place to
+    /// put an answer nobody should have to hunt for.
+    private var versionNote: some View {
+        Text(Self.versionLine)
+            .font(.system(size: 9.5, weight: .medium))
+            .foregroundStyle(RigTheme.textMuted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.top, 2)
+    }
+
+    /// `StreetRig 1.0 (1) - the first one`, degrading to just the stamp after 1.0.
+    ///
+    /// The fallbacks are for the SwiftUI previews, where `Bundle.main` is the
+    /// preview host and not this app; they are not expected to fire in a real
+    /// build, and if they ever do, showing 1.0 is still the honest answer.
+    private static var versionLine: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = info?["CFBundleVersion"] as? String ?? "1"
+        let stamp = "StreetRig \(short) (\(build))"
+        return short == "1.0" ? "\(stamp) \u{2014} the first one" : stamp
     }
 
     // MARK: - Bindings
