@@ -498,8 +498,23 @@ final class AudioEngineController: ObservableObject {
 
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [.allowBluetoothA2DP])
+            // NO OPTIONS, and the absence is the fix for OSStatus -50.
+            //
+            // This was `options: [.allowBluetoothA2DP]`, copied across from the live
+            // path where it is both legal and necessary. On `.playback` it is neither:
+            // A2DP is already how this category routes, and the option is only defined
+            // for `.playAndRecord` and `.multiRoute` — so passing it is a parameter
+            // error, which is what -50 is. The Simulator waved it through; the phone
+            // refused before the graph was ever built, which is why the failure landed
+            // on a device and not here.
+            try session.setCategory(.playback, mode: .default)
+            try? session.setPreferredSampleRate(requestedSampleRate)
+            try? session.setPreferredIOBufferDuration(requestedIOBufferDuration)
             try session.setActive(true, options: [])
+            // Logged BEFORE the engine work, so the next failure says which half it
+            // was in rather than leaving the whole `do` block as the suspect — the
+            // thing that cost a device round trip this time.
+            log(String(format: "Demo session active — %.0f Hz out.", session.sampleRate))
 
             StreetRigDSPUnit.registerIfNeeded()
             let unit = try await Self.instantiateDSPUnit()
@@ -507,8 +522,28 @@ final class AudioEngineController: ObservableObject {
             let player = AVAudioPlayerNode()
             engine.attach(unit)
             engine.attach(player)
-            engine.connect(player, to: unit, format: format)
-            engine.connect(unit, to: engine.mainMixerNode, format: format)
+
+            // CUT FOR THE HARDWARE, NOT FOR THE FILE — this is what OSStatus -50 was.
+            //
+            // The first version connected the graph with `file.processingFormat`, which
+            // for this riff is mono at 48 kHz. The Simulator accepted it, because its
+            // "hardware" is whatever CoreAudio feels like on a Mac. A real phone does
+            // not: the unit declares its buses as stereo 48 k (`StreetRigDSPUnit`), the
+            // output runs at whatever rate the session actually granted, and asking the
+            // engine to reconcile a mono file against both at once is a `paramErr`
+            // before a single sample moves.
+            //
+            // So the graph is cut at the rate the session GRANTED — asked for, never
+            // assumed — in the stereo the unit already wants, and the file is converted
+            // to meet it. The live path never had to do this because its format comes
+            // from the input hardware, so it is correct by construction.
+            let graphFormat = AVAudioFormat(standardFormatWithSampleRate: session.sampleRate,
+                                            channels: 2) ?? format
+            let playable = Self.converted(buffer, to: graphFormat) ?? buffer
+            log("Demo graph: file \(Self.describe(format)) → graph \(Self.describe(playable.format))")
+
+            engine.connect(player, to: unit, format: playable.format)
+            engine.connect(unit, to: engine.mainMixerNode, format: playable.format)
 
             engine.prepare()
             try engine.start()
@@ -546,15 +581,51 @@ final class AudioEngineController: ObservableObject {
             // `completionHandler: nil` picks the non-async overload. Without it this
             // resolves to the `async` one, which would suspend here until the loop
             // finished — and a loop never finishes.
-            player.scheduleBuffer(buffer, at: nil, options: .loops, completionHandler: nil)
+            player.scheduleBuffer(playable, at: nil, options: .loops, completionHandler: nil)
             player.play()
             log(String(format: "Demo riff playing — %.2fs loop through the rig.",
-                       Double(buffer.frameLength) / format.sampleRate))
+                       Double(playable.frameLength) / playable.format.sampleRate))
         } catch {
             status = .error(error.localizedDescription)
             teardown()
             log("startDemo() failed: \(error.localizedDescription)")
         }
+    }
+
+    private static func describe(_ f: AVAudioFormat) -> String {
+        String(format: "%.0f Hz / %dch", f.sampleRate, f.channelCount)
+    }
+
+    /// Re-lay one buffer into another format — rate, channel count and layout.
+    ///
+    /// The block form rather than `convert(to:from:)`, because that one refuses any
+    /// conversion that changes the sample rate, which is exactly the case this
+    /// exists for. `nil` on failure, and every caller falls back to the original
+    /// buffer: a demo in the wrong format is worth attempting, and the engine will
+    /// say so if it cannot.
+    private static func converted(_ source: AVAudioPCMBuffer,
+                                  to target: AVAudioFormat) -> AVAudioPCMBuffer? {
+        if source.format == target { return source }
+        guard let converter = AVAudioConverter(from: source.format, to: target) else { return nil }
+        let ratio = target.sampleRate / source.format.sampleRate
+        let capacity = AVAudioFrameCount(Double(source.frameLength) * ratio) + 4096
+        guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return nil }
+
+        var delivered = false
+        var error: NSError?
+        converter.convert(to: out, error: &error) { _, status in
+            if delivered { status.pointee = .endOfStream; return nil }
+            delivered = true
+            status.pointee = .haveData
+            return source
+        }
+        if let error {
+            // Not fatal here — the caller falls back — but it is the one line that
+            // explains a demo that comes out at the wrong speed or not at all.
+            print("[StreetRigAudio] Demo buffer conversion failed: \(error.localizedDescription)")
+            return nil
+        }
+        return out.frameLength > 0 ? out : nil
     }
 
     /// THE HARDWARE MOVED — re-cut the graph against whatever is there now.
