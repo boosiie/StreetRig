@@ -99,13 +99,13 @@ enum Faceplate {
             return Spec(base: Color(red: 0.24, green: 0.25, blue: 0.27), finish: .brushed,
                         isLight: false, trim: Color(red: 0.55, green: 0.11, blue: 0.11))
         }
-        if n.contains("ketana") {
+        if n.contains("kabuto") {
             return Spec(base: Color(red: 0.13, green: 0.13, blue: 0.15), finish: .painted,
                         isLight: false, trim: RigTheme.amber)
         }
 
         // --- The orange one --------------------------------------------------
-        if n.contains("rumblecrest") || n.contains("orange") {
+        if n.contains("rumblecrest") {
             return Spec(base: Color(red: 0.85, green: 0.42, blue: 0.10), finish: .painted,
                         isLight: true, trim: Color(red: 0.16, green: 0.09, blue: 0.03))
         }

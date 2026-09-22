@@ -451,13 +451,13 @@ enum PedalSpec {
             return p(["Drive", "Tone", "Level"])
         case .compressor:
             if n.contains("damper")                                { return p(["Sensitivity", "Output"]) }
-            if n.contains("cs-3") || n.contains("cs3") || n.contains("leveller") { return p(["Level", "Tone", "Attack", "Sustain"]) }
+            if n.contains("leveller") { return p(["Level", "Tone", "Attack", "Sustain"]) }
             if n.contains("keswick")                               { return p(["Sustain", "Level", "Blend", "Tone"]) }
             return p(["Sustain", "Level"])
         case .eq:
             if n.contains("10") || n.contains("ten")               { return p(["31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k", "Volume"]) }
             if n.contains("para")                                  { return p(["Low Freq", "Low Gain", "Mid Freq", "Mid Gain", "High Freq", "High Gain"]) }
-            if n.contains("ge-7") || n.contains("ge7") || n.contains("equalizer") { return p(["100", "200", "400", "800", "1.6k", "3.2k", "6.4k", "Level"]) }
+            if n.contains("equalizer") { return p(["100", "200", "400", "800", "1.6k", "3.2k", "6.4k", "Level"]) }
             return p(["Low", "Mid", "High"])
         case .noiseGate:
             if n.contains("nullifier")                             { return p(["Threshold"]) }
@@ -471,11 +471,11 @@ enum PedalSpec {
             if n.contains("trem")                                  { return p(["Rate", "Wave", "Depth"]) }
             if n.contains("vibe")                                  { return p(["Volume", "Intensity", "Speed"]) }
             if n.contains("mime")                                  { return p(["Rate", "Depth"]) }
-            if n.contains("ce-2") || n.contains("ce2") || n.contains("chorus") { return p(["Rate", "Depth"]) }
+            if n.contains("chorus") { return p(["Rate", "Depth"]) }
             return p(["Rate", "Depth", "Mix"])
         case .pitch:
             if n.contains("stack")                                 { return p(["Dry", "Sub", "Octave Up"]) }
-            if n.contains("oc-5") || n.contains("oc5") || n.contains("octave") { return p(["Direct", "+1 Oct", "-1 Oct", "-2 Oct"]) }
+            if n.contains("octave") { return p(["Direct", "+1 Oct", "-1 Oct", "-2 Oct"]) }
             if n.contains("chorister")                             { return p(["Balance", "Shift", "Key"]) }
             if n.contains("slingshot")                             { return p(["Position"]) }
             return p(["Shift", "Mix"])
@@ -786,7 +786,7 @@ enum PedalSpec {
                         GearParameter("Bass 2",   shortName: "BASS",   rowLabel: "CLEAN"),
                         GearParameter("Volume 2", shortName: "VOLUME", rowLabel: "CLEAN")]
             }
-            if n.contains("ketana") {
+            if n.contains("kabuto") {
                 var p: [GearParameter] = [
                     // PRESENCE IS BACK. It was taken off as a knob carried over
                     // from the shared six by mistake — but the faceplate prints

@@ -30,20 +30,20 @@ enum PedalFinish {
     /// red), and the GoldenFleece and Keswick (silver footswitch on a black box).
     static let byModel: [String: (r: Double, g: Double, b: Double)] = [
     // Tuner
-    "voss chromatic tuner"            : (1.00, 1.00, 1.00),
+    "brig chromatic tuner"            : (1.00, 1.00, 1.00),
     // Wah / filter
     "dunridge weeping willow"         : (0.27, 0.27, 0.20),
     "vane v921"                       : (0.20, 0.27, 0.27),
     "mordant wild pony"               : (0.73, 0.47, 0.53),
     // Compressor
     "krx damper comp"                 : (0.93, 0.07, 0.13),
-    "voss compression leveller"       : (0.00, 0.40, 0.73),
+    "brig compression leveller"       : (0.00, 0.40, 0.73),
     "keswick compressor"              : (0.13, 0.13, 0.13),
     // Overdrive / distortion / fuzz / boost
-    "voss distortion"                 : (0.93, 0.47, 0.13),
+    "brig distortion"                 : (0.93, 0.47, 0.13),
     "iberon valve shrieker"           : (0.33, 0.80, 0.33),
     "proforge shrew"                  : (0.13, 0.13, 0.13),
-    "voss metal realm"                : (0.27, 0.27, 0.33),
+    "brig metal realm"                : (0.27, 0.27, 0.33),
     "chiron satyr"                    : (0.67, 0.20, 0.20),
     "analogue.smith duke of drive"    : (0.53, 0.27, 0.47),
     "marswell blues blazer"           : (0.13, 0.13, 0.13),
@@ -54,39 +54,39 @@ enum PedalFinish {
     "exalt preamp booster"            : (0.13, 0.13, 0.13),
     "strider beryllium"               : (0.07, 0.07, 0.07),
     // EQ
-    "voss equalizer"                  : (0.93, 0.93, 0.87),
+    "brig equalizer"                  : (0.93, 0.93, 0.87),
     "krx ten band eq"                 : (0.80, 0.87, 0.87),
     "emblem parametric eq"            : (0.00, 0.53, 0.93),
     // Noise gate
-    "voss noise silencer"             : (0.87, 0.87, 0.87),
+    "brig noise silencer"             : (0.87, 0.87, 0.87),
     "quell nullifier ii"              : (0.67, 0.67, 0.67),
     "fornax kraal"                    : (0.27, 0.27, 0.27),
     // Modulation
-    "voss chorus"                     : (0.13, 0.67, 0.80),
+    "brig chorus"                     : (0.13, 0.67, 0.80),
     "krx swirl 72"                    : (1.00, 0.53, 0.07),
     "krx flanger"                     : (0.47, 0.47, 0.53),
-    "voss tremolo"                    : (0.00, 0.53, 0.60),
+    "brig tremolo"                    : (0.00, 0.53, 0.60),
     "electro-galvanic small mime"     : (0.13, 0.13, 0.13),
     "electro-galvanic small slate"    : (0.73, 0.73, 0.73),
     "electro-galvanic electric siren" : (0.07, 0.07, 0.07),
     "fullbrook lucid'vibe"            : (0.73, 0.73, 0.73),
     // Pitch / octave
-    "voss octave"                     : (0.20, 0.13, 0.13),
-    "voss chorister"                  : (0.13, 0.47, 0.67),
+    "brig octave"                     : (0.20, 0.13, 0.13),
+    "brig chorister"                  : (0.13, 0.47, 0.67),
     "electro-galvanic micro stack"    : (0.87, 0.07, 0.07),
     "digivault slingshot"             : (0.80, 0.33, 0.33),
     // Delay
-    "voss digital delay"              : (1.00, 0.93, 0.87),
+    "brig digital delay"              : (1.00, 0.93, 0.87),
     "dunridge echoreel"               : (0.13, 0.13, 0.13),
     "electro-galvanic reverie mate"   : (0.07, 0.07, 0.07),
     // Reverb
-    "voss reverb"                     : (0.20, 0.20, 0.20),
+    "brig reverb"                     : (0.20, 0.20, 0.20),
     "electro-galvanic golden fleece"  : (0.13, 0.13, 0.13),
     // Volume
-    "voss lv-320h"                    : (0.20, 0.20, 0.20),
+    "brig lv-320h"                    : (0.20, 0.20, 0.20),
     "errol brass swell mini"          : (0.07, 0.07, 0.07),
     // Looper / sustain
-    "voss loop depot"                 : (0.80, 0.07, 0.07),
+    "brig loop depot"                 : (0.80, 0.07, 0.07),
     "electro-galvanic frost"          : (0.93, 0.93, 0.93),
     ]
 

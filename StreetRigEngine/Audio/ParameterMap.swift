@@ -345,7 +345,7 @@ public enum ParameterMap {
             if n.contains("vibe") || n.contains("univ") { return modUnivibe }
             if n.contains("flang") || n.contains("siren")     { return modFlanger }
             if n.contains("swirl") || n.contains("slate")    { return modPhaser }   // small slate = phaser
-            return modChorus           // chorus / mime / CE-2
+            return modChorus           // chorus / mime
         case .delay:
             // Tape first (an ECHOREEL is also a "delay"), then bucket brigade,
             // then the digital default — the same specific-before-generic order
@@ -354,13 +354,13 @@ public enum ParameterMap {
                 || n.contains("tape")                          { return delayTape }
             if n.contains("reverie") || n.contains("bbd")
                 || n.contains("analog") || n.contains("analogue") { return delayBBD }
-            return delayDigital        // VOSS Digital Delay / DD-8
+            return delayDigital        // BRIG Digital Delay / digital delay
         case .reverb:
             if n.contains("fleece")
                 || n.contains("spring")                        { return reverbSpring }
             if n.contains("hall")                              { return reverbHall }
             if n.contains("room")                              { return reverbRoom }
-            return reverbPlate         // VOSS Reverb / RV-6
+            return reverbPlate         // BRIG Reverb / plate reverb
         default:
             return 0
         }
@@ -409,7 +409,7 @@ public enum ParameterMap {
             return [norm(role(["Position"]))]
         case .delay:
             // All five generic fields are used, and all five fit — no stride
-            // extension needed. Aliases cover the three real panels: a DD-8's
+            // extension needed. Aliases cover the three real panels: a digital delay's
             // Time/Feedback/Mix, an Echoreel's Delay/Sustain/Volume and a Memory
             // Man's Delay/Feedback/Blend/Depth.
             let time  = role(["Time", "Delay"])
@@ -553,7 +553,7 @@ public enum ParameterMap {
 
     public static func ampHasFXSection(name: String) -> Bool {
         if let id = GearCatalog.retiredID(forName: name) { return id == kabutoID }
-        return name.lowercased().contains("ketana")
+        return name.lowercased().contains("kabuto")
     }
 
     /// Resolve an amp's FX panel into chain slots. Blocks whose type is `Off`
@@ -715,7 +715,7 @@ public enum ParameterMap {
             if let p = profileByID[id] { return p }
         }
         let n = name.lowercased()
-        if n.contains("ketana") {
+        if n.contains("kabuto") {
             let character = Int((values["Character"] ?? 2).rounded())
             let variation = Int((values["Variation"] ?? 0).rounded())
             return ampKabutoBase

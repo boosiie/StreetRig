@@ -428,7 +428,7 @@ extension AudioEngineController {
     //  buzz", each with the BEFORE value the previous voicing scored beside it so
     //  the bar is provably a regression guard and not a rubber stamp. Measured on
     //  a palm-muted low-E chug (band fractions) and a picked note (crest), through
-    //  `timePlan(.overdrive, "VOSS Metal Realm", Drive 7 / Tone 6 / Level 5)` with
+    //  `timePlan(.overdrive, "BRIG Metal Realm", Drive 7 / Tone 6 / Level 5)` with
     //  amp and cab bypassed. Update these ONLY together with a deliberate voicing
     //  change, and write the new before/after in here when you do.
     // NOT CALIBRATED YET, AND THE CHECKS BELOW SAY SO RATHER THAN REPORTING A
@@ -609,7 +609,7 @@ extension AudioEngineController {
     /// through the same path the app uses, then asks which the tail sounds like.
     /// If the swap works the tail is `to`; if the old algorithm survives it lands
     /// nearer `from`, or between the two. (Named for the ROLES, not for two
-    /// specific voicings: the Katana's Mod selector is Phaser / Deep Phaser /
+    /// specific voicings: the Kabuto's Mod selector is Phaser / Deep Phaser /
     /// Chorus, and this test is about any switch between them.)
     private func liveModSwitchTest(fmt: AVAudioFormat, from: RigDSPPlan, to: RigDSPPlan)
         async -> (toTarget: Double, toSource: Double, ok: Bool) {
@@ -848,7 +848,7 @@ extension AudioEngineController {
                        "diff RMS \(Self.dbfs(Self.rms(Self.difference(phaser, ref)))) dBFS"))
 
         // Chorus — modulated delay → differs from dry.
-        let chorus = await render(famPlan(.modulation, "CE-2 Chorus", ["Rate": 5, "Depth": 6, "Mix": 6]))
+        let chorus = await render(famPlan(.modulation, "BRIG Chorus", ["Rate": 5, "Depth": 6, "Mix": 6]))
         checks.append(("Chorus alters the signal", Self.rms(Self.difference(chorus, ref)) > 1e-3,
                        "diff RMS \(Self.dbfs(Self.rms(Self.difference(chorus, ref)))) dBFS"))
 
@@ -952,13 +952,13 @@ extension AudioEngineController {
             ((try? await renderRigPlan(p, source: src, fmt: fmt, tailSeconds: tail,
                                        outputLevel: level ?? lvl)) ?? PassOutput()).samples
         }
-        /// A Katana with the shipping cabinet in place. These are "what the player
+        /// A Kabuto with the shipping cabinet in place. These are "what the player
         /// hears" measurements, not amp-isolation ones, so the cab stays in.
         func kat(_ extra: [String: Double]) -> RigDSPPlan {
             var v = Self.ampTestKnobs
             v["Character"] = 2; v["Variation"] = 0; v["Power"] = 2
             for (k, x) in extra { v[k] = x }
-            var p = ampPlan("VOSS Ketana 100", .comboAmp, values: v).plan
+            var p = ampPlan("BRIG Kabuto 100", .comboAmp, values: v).plan
             p.cabBypass = false
             return p
         }
@@ -971,12 +971,12 @@ extension AudioEngineController {
 
         let held = sustainedNote(fmt, f0: 196, partials: 40, seconds: 6.0)
 
-        // ================= FIX 1 — the Katana's Reverb =======================
+        // ================= FIX 1 — the Kabuto's Reverb =======================
         // "Turning the Reverb block on wrecks the tone; it sounds like a wah."
         // Three separable claims, measured separately: it must not turn the amp
         // UP, it must not COLOUR the midrange, and — the actual complaint — the
         // colouring must not MOVE.
-        lines.append("--- FIX 1  Katana Reverb (Plate, Level 5) vs Reverb Off ---")
+        lines.append("--- FIX 1  Kabuto Reverb (Plate, Level 5) vs Reverb Off ---")
         let vOff = await render(kat(["Reverb": 0]), held, tail: 0)
         let vOn  = await render(kat(["Reverb": 2, "Reverb On": 1, "Reverb Level": 5]), held, tail: 0)
         let dBroad = abs(dbOf(Self.rms(vOn)) - dbOf(Self.rms(vOff)))
@@ -1013,7 +1013,7 @@ extension AudioEngineController {
                        String(format: "post-note RMS %@ (dry-only %@), decaying to %@",
                               Self.dbfs(tailEarly), Self.dbfs(dryTail), Self.dbfs(tailLate))))
         // The tank is SHARED — whatever changed must serve the standalone pedals.
-        for (name, vals) in [("VOSS Reverb", ["Decay": 7.0, "Tone": 6, "Mix": 5]),
+        for (name, vals) in [("BRIG Reverb", ["Decay": 7.0, "Tone": 6, "Mix": 5]),
                              ("electro-harmonium HOLY GRAIL", ["Reverb": 5.0])] {
             let on = await render(timePlan(.reverb, name, vals), held, tail: 0)
             var offVals = vals
@@ -1123,7 +1123,7 @@ extension AudioEngineController {
         // It had never actually run. `String(format:)` with `%-28s` crashed this
         // function partway through (see `column(_:_:)` and commit 305627d), so the
         // harness died before the report was written and none of these numbers were
-        // ever seen. The tone they measure was signed off by ear on the Katana
+        // ever seen. The tone they measure was signed off by ear on the Kabuto
         // branch and has not changed since — ModulationPedal.cpp is byte-identical,
         // `pedalDrive`/`pedalLevel`/`modRateHz` are byte-identical, and the voicing
         // constants kept their values through the rename. So the shipped tone is
@@ -1172,18 +1172,18 @@ extension AudioEngineController {
         let katMod = katPhPlan.pedals.filter { $0.type == ParameterMap.typeModulation }
         let stdPhPlan = timePlan(.modulation, "MXP phase 90", ["Speed": 5])
         let stdMod = stdPhPlan.pedals.filter { $0.type == ParameterMap.typeModulation }
-        lines.append("  katana Mod slot : \(katMod.map { "v\($0.character) params \($0.params)" }.joined())")
+        lines.append("  kabuto Mod slot : \(katMod.map { "v\($0.character) params \($0.params)" }.joined())")
         lines.append("  MXP phase 90    : \(stdMod.map { "v\($0.character) params \($0.params)" }.joined())")
         checks.append(("both surfaces compile ONE modulation slot voiced Phaser",
                        katMod.count == 1 && katMod[0].character == ParameterMap.modPhaser
                        && stdMod.count == 1 && stdMod[0].character == ParameterMap.modPhaser,
-                       "katana \(katMod.map(\.character)), standalone \(stdMod.map(\.character))"))
+                       "kabuto \(katMod.map(\.character)), standalone \(stdMod.map(\.character))"))
         checks.append(("…with non-degenerate rate/depth/mix at the pedal",
                        katMod.first.map { $0.params.count == 3 && $0.params[0] > 0.05
                            && $0.params[1] > 0.05 && $0.params[2] > 0.05 } == true
                        && stdMod.first.map { $0.params.count == 3 && $0.params[0] > 0.05
                            && $0.params[1] > 0.05 && $0.params[2] > 0.05 } == true,
-                       "katana \(katMod.first?.params ?? []), standalone \(stdMod.first?.params ?? [])"))
+                       "kabuto \(katMod.first?.params ?? []), standalone \(stdMod.first?.params ?? [])"))
 
         let katPhOn  = await render(katPhPlan, held, tail: 0)
         let katPhOff = await render(kat(["Mod": 0]), held, tail: 0)
@@ -1198,34 +1198,34 @@ extension AudioEngineController {
         let stdSwingOn = swing(stdPhOn), stdSwingOff = swing(stdDry)
         let katRate = Self.windowRateHz(midWindows(katPhOn), windowSec: winSec)
         let stdRate = Self.windowRateHz(midWindows(stdPhOn), windowSec: winSec)
-        lines.append(String(format: "  Katana  Mod=Phaser Lvl5 Rate5 : swing ON %.2f dB (bar >= 3, pre-span into drive), OFF %.2f dB (bar < 1), apparent movement %.2f Hz (LFO is %.2f Hz — distortion multiplies the crossings)",
+        lines.append(String(format: "  Kabuto  Mod=Phaser Lvl5 Rate5 : swing ON %.2f dB (bar >= 3, pre-span into drive), OFF %.2f dB (bar < 1), apparent movement %.2f Hz (LFO is %.2f Hz — distortion multiplies the crossings)",
                             katSwingOn, katSwingOff, katRate, Double(ParameterMap.modRateHz(5))))
         lines.append(String(format: "  MXP phase 90 (defaults)       : swing ON %.2f dB (bar >= 6), dry %.2f dB (bar < 1), movement %.2f Hz (nominal %.2f)",
                             stdSwingOn, stdSwingOff, stdRate, Double(ParameterMap.modRateHz(5))))
-        // ONE BAR FOR TWO DIFFERENT PLACES, which is why this failed. The Katana's
+        // ONE BAR FOR TWO DIFFERENT PLACES, which is why this failed. The Kabuto's
         // Mod block and the standalone phase 90 compile to the SAME voicing with the
         // SAME parameters — the report prints both as `v2 [0.8, 0.5, 0.5]` — so any
-        // difference between them is position, not settings. The Katana's block sits
+        // difference between them is position, not settings. The Kabuto's block sits
         // in the PRE span, in front of a driven preamp, and saturation compresses
         // the amplitude modulation a phaser lives on. The standalone is measured
         // into a clean path. 4.32 dB against 9.53 dB is that difference, and it is
         // what a phaser in front of a dirty amp does on real hardware too.
         //
-        // (The "movement 3.99 Hz vs nominal 0.80" on the Katana line is the same
+        // (The "movement 3.99 Hz vs nominal 0.80" on the Kabuto line is the same
         // effect seen by the rate estimator, not a rate bug: notches sweeping a
         // harmonic-rich distorted signal cross several partials per LFO cycle, so
         // the band energy peaks several times per sweep. `modRateHz(5)` is 0.8 Hz
-        // on both paths, and that function is byte-identical to the Katana branch.)
+        // on both paths, and that function is byte-identical to the Kabuto branch.)
         //
         // So: both must sweep audibly, the standalone must sweep deeper, and both
         // must be far above their own OFF baselines. Bars sit under the measured
         // 4.32 / 9.53 with room for drift.
-        checks.append(("Katana phaser sweeps the midrange (in front of the preamp)",
+        checks.append(("Kabuto phaser sweeps the midrange (in front of the preamp)",
                        katSwingOn >= 3.0,
                        String(format: "%.2f dB window-to-window (bar >= 3 — pre-span, into drive)", katSwingOn)))
         checks.append(("…and the standalone, into a clean path, sweeps deeper",
                        stdSwingOn > katSwingOn,
-                       String(format: "standalone %.2f dB > katana %.2f dB", stdSwingOn, katSwingOn)))
+                       String(format: "standalone %.2f dB > kabuto %.2f dB", stdSwingOn, katSwingOn)))
         checks.append(("…and is flat with the block Off", katSwingOff < 1.0,
                        String(format: "%.2f dB (bar < 1)", katSwingOff)))
         checks.append(("standalone MXP phase 90 sweeps the midrange", stdSwingOn >= 6.0,
@@ -1272,7 +1272,7 @@ extension AudioEngineController {
                        String(format: "%.2f dB (bar >= 1.5)", swing(vibe))))
 
         // ================= FIX 5 — the Metal Realm voicing ====================
-        lines.append("--- FIX 5  VOSS Metal Realm (drive voicing) ---")
+        lines.append("--- FIX 5  BRIG Metal Realm (drive voicing) ---")
         let pick = pluckThenSilence(fmt, f0: 220, partials: 45, burstSec: 0.10,
                                     silenceSec: 0.40, decaySec: 0.030)
         let chug = pluckThenSilence(fmt, f0: 82.41, partials: 60, burstSec: 0.12,
@@ -1280,8 +1280,8 @@ extension AudioEngineController {
         func drivePlan(_ name: String) -> RigDSPPlan {
             timePlan(.overdrive, name, ["Drive": 7, "Dist": 7, "Tone": 6, "Level": 5])
         }
-        let mzPick = await render(drivePlan("VOSS Metal Realm"), pick, tail: 0)
-        let mzChug = await render(drivePlan("VOSS Metal Realm"), chug, tail: 0)
+        let mzPick = await render(drivePlan("BRIG Metal Realm"), pick, tail: 0)
+        let mzChug = await render(drivePlan("BRIG Metal Realm"), chug, tail: 0)
         let mzCrest = Self.crestFactor(mzPick)
         let mzBite = Self.bandEnergy(mzChug, sr: sr, lo: 2000, hi: 4000)
         let mzLow  = Self.bandEnergy(mzChug, sr: sr, lo: 20, hi: 100)
@@ -1293,7 +1293,7 @@ extension AudioEngineController {
         // EVERY OTHER DRIVE VOICING, printed so a change to one case in a switch
         // can be shown not to have moved the others.
         for name in ["Iberon Valve Shrieker", "Chiron SATYR", "ProForge SHREW",
-                     "electro-galvanic BIG MITT \u{03A9}", "VOSS Distortion",
+                     "electro-galvanic BIG MITT \u{03A9}", "BRIG Distortion",
                      "Fullbrook FIXATION", "Marswell BLUES BLAZER",
                      "DALTON ARMATURE FUZZ DOME", "Z.FLUX FUZZ FOUNDRY",
                      "Exalt PREAMP booster", "analogue.smith DUKE of DRIVE"] {
@@ -1305,9 +1305,9 @@ extension AudioEngineController {
                                 Self.bandEnergy(out, sr: sr, lo: 400, hi: 800),
                                 Self.fingerprint(out, sr: sr).map { String(format: "%.2f", $0) }.joined(separator: " ")))
         }
-        // The Katana's Booster -> "Metal" option reaches the SAME voicing.
+        // The Kabuto's Booster -> "Metal" option reaches the SAME voicing.
         let katMetal = kat(["Booster": 6, "Booster On": 1, "Booster Level": 5])
-        checks.append(("Katana Booster \"Metal\" resolves to the same voicing",
+        checks.append(("Kabuto Booster \"Metal\" resolves to the same voicing",
                        katMetal.pedals.contains { $0.type == ParameterMap.typeDrive
                            && $0.character == ParameterMap.voiceMetalRealm },
                        "booster voicings \(katMetal.pedals.filter { $0.type == ParameterMap.typeDrive }.map(\.character))"))
@@ -1332,7 +1332,7 @@ extension AudioEngineController {
         let allPass = checks.allSatisfy { $0.1 }
         var out = """
         === TONE FIXES — reverb / master / phaser / Metal Realm (reported by ear) ===
-        Method        : Katana renders carry the shipping cab; pedal renders bypass amp+cab.
+        Method        : Kabuto renders carry the shipping cab; pedal renders bypass amp+cab.
                         Level questions are asked below the limiter (output \(Self.ampSuiteOutputLevel)).
                         "Window swing" is `bandWindows` — 300 Hz-3 kHz in \(Int(winSec * 1000)) ms windows
                         across a 6 s HELD note, so only the effect can move it.
@@ -1946,7 +1946,7 @@ extension AudioEngineController {
             ("Vane HV28",            .comboAmp),
             ("Rondell RM-140 Velvet Chorus", .comboAmp),
             ("Fandor Bassdude '59",   .comboAmp),
-            ("VOSS Ketana 100",      .comboAmp),
+            ("BRIG Kabuto 100",      .comboAmp),
             // Every amp in the catalog is profiled now, so this array is the
             // whole shipped set — the pairwise-distinctness check below is
             // therefore a check on the ENTIRE catalog, not a sample of it. Four
@@ -2209,7 +2209,7 @@ extension AudioEngineController {
             for variation in 0...1 {
                 var v = Self.ampTestKnobs
                 v["Character"] = Double(c); v["Variation"] = Double(variation)
-                let built = ampPlan("VOSS Ketana 100", .comboAmp, values: v)
+                let built = ampPlan("BRIG Kabuto 100", .comboAmp, values: v)
                 let out = await render(built.plan)
                 kat.append(("\(cname) \(variation == 0 ? "A" : "B")", built.plan.ampProfile,
                             out, Self.fingerprint(out, sr: sr)))
@@ -2287,7 +2287,7 @@ extension AudioEngineController {
         func brownHarm() async -> Double {
             var v = Self.ampTestKnobs
             v["Character"] = 4; v["Variation"] = 1; v["Gain"] = 9   // Brown B, cranked
-            var plan = ampPlan("VOSS Ketana 100", .comboAmp, values: v).plan
+            var plan = ampPlan("BRIG Kabuto 100", .comboAmp, values: v).plan
             plan.cabBypass = true
             let out = ((try? await renderRigPlan(plan, source: loudTone, fmt: fmt,
                                                  outputLevel: Self.ampSuiteOutputLevel))
@@ -2312,7 +2312,7 @@ extension AudioEngineController {
         func brownAtGain(_ g: Double) async -> Double {
             var v = Self.ampTestKnobs
             v["Character"] = 2; v["Variation"] = 0; v["Gain"] = g
-            var plan = ampPlan("VOSS Ketana 100", .comboAmp, values: v).plan
+            var plan = ampPlan("BRIG Kabuto 100", .comboAmp, values: v).plan
             plan.cabBypass = true
             let out = ((try? await renderRigPlan(plan, source: loudTone, fmt: fmt,
                                                  outputLevel: Self.ampSuiteOutputLevel))
@@ -2362,7 +2362,7 @@ extension AudioEngineController {
         func sig(_ v: [String: Double]) -> String {
             var vals = Self.ampTestKnobs
             for (k, x) in v { vals[k] = x }
-            return ampPlan("VOSS Ketana 100", .comboAmp, values: vals).plan.signature
+            return ampPlan("BRIG Kabuto 100", .comboAmp, values: vals).plan.signature
         }
         let sigBase = sig(["Character": 2, "Variation": 0, "Power": 2])
         checks.append(("Power is CONTINUOUS (signature unchanged)",
@@ -2397,7 +2397,7 @@ extension AudioEngineController {
 
         // ---- 7. SAVED STATE: a rig from before these knobs existed. ----------
         let oldJSON = """
-        {"id":"\(UUID().uuidString)","name":"VOSS Ketana 100","category":"comboAmp",
+        {"id":"\(UUID().uuidString)","name":"BRIG Kabuto 100","category":"comboAmp",
          "values":{"Gain":6,"Bass":5,"Mid":5,"Treble":5,"Presence":5,"Master":6}}
         """
         var savedOK = false, savedDetail = "could not decode the legacy GearItem JSON"
@@ -2444,7 +2444,7 @@ extension AudioEngineController {
         let liveDeadlineUs = 128.0 / sr * 1_000_000
         var costLines: [String] = []
         for (label, name, cat, extra) in [("MSW900 (3 stages)", "Marswell MSW900 2140", GearCategory.amp, [String: Double]()),
-                                          ("Kabuto Brown B (4)", "VOSS Ketana 100", .comboAmp, ["Character": 4, "Variation": 1]),
+                                          ("Kabuto Brown B (4)", "BRIG Kabuto 100", .comboAmp, ["Character": 4, "Variation": 1]),
                                           ("legacy (unprofiled)", "Generic Practice Amp", .comboAmp, [:])] {
             var v = Self.ampTestKnobs
             for (k, x) in extra { v[k] = x }
@@ -2521,7 +2521,7 @@ extension AudioEngineController {
         // A Kabuto Crunch B, pushed hard enough that the power stage is doing work.
         var v = Self.ampTestKnobs
         v["Character"] = 2; v["Variation"] = 1; v["Volume"] = 8
-        var plan = ampPlan("VOSS Ketana 100", .comboAmp, values: v).plan
+        var plan = ampPlan("BRIG Kabuto 100", .comboAmp, values: v).plan
         plan.cabBypass = true
         RigGraphCompiler.applyImmediate(plan, to: dsp)
         player.scheduleBuffer(src, at: nil, options: [], completionHandler: nil)
@@ -2624,7 +2624,7 @@ extension AudioEngineController {
             "collection": [
                 ["id": guitarId.uuidString, "name": "Lyle Preston Standard",
                  "category": "guitar", "values": [String: Double]()],
-                ["id": ampId.uuidString, "name": "VOSS Ketana 100", "category": "comboAmp",
+                ["id": ampId.uuidString, "name": "BRIG Kabuto 100", "category": "comboAmp",
                  "values": ["Gain": 6, "Bass": 5, "Mid": 5, "Treble": 5, "Presence": 5, "Master": 6]],
             ],
             "rig": ["guitarId": guitarId.uuidString,
@@ -2912,7 +2912,7 @@ extension AudioEngineController {
 
         let fbKnob = 7.0
         let nominalFB = Double(ParameterMap.delayFeedback(fbKnob))
-        let dig = await render(timePlan(.delay, "VOSS Digital Delay",
+        let dig = await render(timePlan(.delay, "BRIG Digital Delay",
                                         ["Time": timeKnob, "Feedback": fbKnob, "Mix": 10]), impulse)
         var repeatPeaks: [(Int, Float)] = []
         for k in 1...4 {
@@ -2935,7 +2935,7 @@ extension AudioEngineController {
         // "Decaying at the expected rate" made concrete: the same impulse at a
         // LOW feedback must die faster than at a high one, and the measured
         // repeat-to-repeat ratio must track the feedback coefficient.
-        let digLowFB = await render(timePlan(.delay, "VOSS Digital Delay",
+        let digLowFB = await render(timePlan(.delay, "BRIG Digital Delay",
                                              ["Time": timeKnob, "Feedback": 3, "Mix": 10]), impulse)
         let lowAmps = (1...3).map { k -> Double in
             Double(Self.peakIn(digLowFB, k * D - max(16, D / 8), k * D + max(16, D / 8)).value)
@@ -2968,7 +2968,7 @@ extension AudioEngineController {
             let b = await render(timePlan(.delay, name, dryVals), pluckSrc)
             return Self.difference(a, b)
         }
-        let wDig = await wetOf("VOSS Digital Delay", ("Time", "Feedback", "Mix"))
+        let wDig = await wetOf("BRIG Digital Delay", ("Time", "Feedback", "Mix"))
         let wTape = await wetOf("DUNRIDGE ECHOREEL", ("Delay", "Sustain", "Volume"))
         let wBBD = await wetOf("electro-galvanic REVERIE MATE", ("Delay", "Feedback", "Blend"), ["Depth": 0])
         func repeatBand(_ s: [Float], _ k: Int) -> [Float] {
@@ -3006,7 +3006,7 @@ extension AudioEngineController {
                               Self.levelMatchedDiff(wTape, wBBD) * 100)))
 
         // ---- 3. TIME CHANGES: TWO OPPOSITE CORRECT BEHAVIOURS ---------------
-        let sweepDigital = await delayTimeSweepTest(fmt: fmt, voicingName: "VOSS Digital Delay",
+        let sweepDigital = await delayTimeSweepTest(fmt: fmt, voicingName: "BRIG Digital Delay",
                                                     knobs: ["Time": 6, "Feedback": 9, "Mix": 10])
         let sweepTape = await delayTimeSweepTest(fmt: fmt, voicingName: "DUNRIDGE ECHOREEL",
                                                  knobs: ["Delay": 6, "Sustain": 9, "Volume": 10])
@@ -3031,7 +3031,7 @@ extension AudioEngineController {
 
         // ---- 4. REVERB IS AUDIBLE AND STABLE --------------------------------
         let vBurst = burstThenSilence(fmt, hz: 220, burstSec: 0.4, silenceSec: 7.0)
-        func reverbTail(_ decayKnob: Double, _ name: String = "VOSS Reverb") async -> [Float] {
+        func reverbTail(_ decayKnob: Double, _ name: String = "BRIG Reverb") async -> [Float] {
             let out = await render(timePlan(.reverb, name, ["Decay": decayKnob, "Tone": 6, "Mix": 10]), vBurst)
             return Array(out.dropFirst(Int(0.45 * sr)))     // after the burst — pure tail
         }
@@ -3069,7 +3069,7 @@ extension AudioEngineController {
         // ---- 6. FEEDBACK IS BOUNDED, AND A NaN DOES NOT SURVIVE -------------
         // Maximum feedback, driven by real material, then left to ring.
         let hotSrc = burstThenSilence(fmt, hz: 196, burstSec: 1.0, silenceSec: 4.0, amplitude: 0.8)
-        let hot = await render(timePlan(.delay, "VOSS Digital Delay",
+        let hot = await render(timePlan(.delay, "BRIG Digital Delay",
                                         ["Time": 3, "Feedback": 10, "Mix": 10]), hotSrc)
         let hotQ1 = Self.rms(Array(hot[(hot.count / 4)..<(hot.count / 2)]))
         let hotQ4 = Self.rms(Array(hot.suffix(hot.count / 4)))
@@ -3079,7 +3079,7 @@ extension AudioEngineController {
 
         // A feedback coefficient ABOVE unity, pushed straight onto the bus so the
         // Swift-side clamp is bypassed — this tests the engine's own ceiling.
-        var runaway = timePlan(.delay, "VOSS Digital Delay", ["Time": 3, "Feedback": 10, "Mix": 10])
+        var runaway = timePlan(.delay, "BRIG Digital Delay", ["Time": 3, "Feedback": 10, "Mix": 10])
         runaway.pedals[0].params[1] = 1.6
         runaway.signature = "time-runaway"
         let ran = await render(runaway, hotSrc)
@@ -3110,10 +3110,10 @@ extension AudioEngineController {
         refPlan.ampBypass = true; refPlan.cabBypass = true; refPlan.signature = "time-ref"
         let ref = await render(refPlan, dry)
         let silent: [(String, GearCategory, [String: Double])] = [
-            ("VOSS Digital Delay", .delay, ["Time": 5, "Feedback": 6, "Mix": 7]),
+            ("BRIG Digital Delay", .delay, ["Time": 5, "Feedback": 6, "Mix": 7]),
             ("DUNRIDGE ECHOREEL", .delay, ["Volume": 7, "Sustain": 6, "Delay": 5]),
             ("electro-galvanic REVERIE MATE", .delay, ["Blend": 7, "Feedback": 6, "Delay": 5, "Depth": 6, "Rate": 5]),
-            ("VOSS Reverb", .reverb, ["Decay": 7, "Tone": 6, "Mix": 8]),
+            ("BRIG Reverb", .reverb, ["Decay": 7, "Tone": 6, "Mix": 8]),
             ("electro-galvanic GOLDEN FLEECE", .reverb, ["Reverb": 8]),
         ]
         var audible = true
@@ -3145,7 +3145,7 @@ extension AudioEngineController {
         katVals["Mod"] = 1; katVals["Mod On"] = 1; katVals["Mod Level"] = 5
         katVals["Delay"] = 1; katVals["Delay On"] = 1; katVals["Delay Level"] = 7; katVals["Delay Time"] = 5
         katVals["Reverb"] = 2; katVals["Reverb On"] = 1; katVals["Reverb Level"] = 7
-        let katPlan = ampPlan("VOSS Ketana 100", .comboAmp, values: katVals).plan
+        let katPlan = ampPlan("BRIG Kabuto 100", .comboAmp, values: katVals).plan
         let types = katPlan.pedals.map(\.type)
         let preTypes = Array(types.prefix(katPlan.splitPre))
         let midTypes = Array(types[katPlan.splitPre..<katPlan.splitPost])
@@ -3161,12 +3161,12 @@ extension AudioEngineController {
         // type doesn't turn the old one off, I think it stacks effects". A block
         // owns exactly ONE slot whatever it is set to, and changing the setting
         // must move that slot's voicing rather than add a second one. Indices are
-        // the Katana's own selector: 1 Phaser, 2 Deep Phaser, 3 Chorus (which runs
+        // the Kabuto's own selector: 1 Phaser, 2 Deep Phaser, 3 Chorus (which runs
         // the flanger voicing — see ParameterMap.kabutoFXBlocks).
         func modPlan(_ typeIndex: Double) -> RigDSPPlan {
             var v = Self.ampTestKnobs
             v["Character"] = 2; v["Mod"] = typeIndex; v["Mod On"] = 1; v["Mod Level"] = 5
-            return ampPlan("VOSS Ketana 100", .comboAmp, values: v).plan
+            return ampPlan("BRIG Kabuto 100", .comboAmp, values: v).plan
         }
         let phaserPlan = modPlan(1), deepPlan = modPlan(2)
         func modSlots(_ p: RigDSPPlan) -> [Int] {
@@ -3194,7 +3194,7 @@ extension AudioEngineController {
         // THE MOD SELECTOR'S LABELS ARE THE PANEL'S, and option 3 now reads
         // "Chorus". Renaming it must not have moved the voicing table underneath
         // it, or a saved rig would quietly change effect.
-        checks.append(("Katana Mod selector reads Off / Phaser / Deep Phaser / Chorus",
+        checks.append(("Kabuto Mod selector reads Off / Phaser / Deep Phaser / Chorus",
                        ParameterMap.kabutoFXBlocks.first { $0.name == "Mod" }?.options
                            == ["Off", "Phaser", "Deep Phaser", "Chorus"],
                        "options \(ParameterMap.kabutoFXBlocks.first { $0.name == "Mod" }?.options ?? [])"))
@@ -3222,7 +3222,7 @@ extension AudioEngineController {
         // top of a finished signal; in front of the preamp the amp distorts the
         // reverb instead of the note.
         func spanPlan(_ pre: Int, _ post: Int) -> RigDSPPlan {
-            var p = ampPlan("VOSS Ketana 100", .comboAmp, values: {
+            var p = ampPlan("BRIG Kabuto 100", .comboAmp, values: {
                 var v = Self.ampTestKnobs
                 v["Character"] = 2; v["Variation"] = 0; v["Power"] = 2; v["Volume"] = 8
                 v["Reverb"] = 2; v["Reverb On"] = 1; v["Reverb Level"] = 9
@@ -3265,7 +3265,7 @@ extension AudioEngineController {
         func katSig(_ overrides: [String: Double]) -> String {
             var v = katVals
             for (k, x) in overrides { v[k] = x }
-            return ampPlan("VOSS Ketana 100", .comboAmp, values: v).plan.signature
+            return ampPlan("BRIG Kabuto 100", .comboAmp, values: v).plan.signature
         }
         let sigOn = katSig([:])
         checks.append(("a block's ON/OFF does NOT move the topology signature",
@@ -3329,7 +3329,7 @@ extension AudioEngineController {
 
         // A rig saved before any of this existed must compile to the same chain.
         let oldJSON = """
-        {"id":"\(UUID().uuidString)","name":"VOSS Ketana 100","category":"comboAmp",
+        {"id":"\(UUID().uuidString)","name":"BRIG Kabuto 100","category":"comboAmp",
          "values":{"Gain":6,"Bass":5,"Mid":5,"Treble":5,"Presence":5,"Master":6}}
         """
         var backCompat = false, bcDetail = "could not decode the legacy GearItem JSON"
@@ -3372,7 +3372,7 @@ extension AudioEngineController {
                                     v["Delay"] = 3; v["Delay On"] = 1; v["Delay Level"] = 7; v["Delay Time"] = 5
                                     v["Reverb"] = 4; v["Reverb On"] = 1; v["Reverb Level"] = 7
                                     return v }())] {
-            var plan = ampPlan("VOSS Ketana 100", .comboAmp, values: values).plan
+            var plan = ampPlan("BRIG Kabuto 100", .comboAmp, values: values).plan
             plan.cabBypass = false                    // FULL board cost, cab included
             let out = (try? await renderRigPlan(plan, source: dry, fmt: fmt, benchmarkFull: true)) ?? PassOutput()
             let us = out.fullNsPerSample * 128 / 1000
@@ -3505,7 +3505,7 @@ extension AudioEngineController {
               let rb = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: maxFrames),
               let dsp = unit.auAudioUnit as? StreetRigDSPUnit else { return (0, 0, 0, false, 0) }
 
-        RigGraphCompiler.applyImmediate(timePlan(.reverb, "VOSS Reverb",
+        RigGraphCompiler.applyImmediate(timePlan(.reverb, "BRIG Reverb",
                                                  ["Decay": 0, "Tone": 6, "Mix": 10]), to: dsp)
         player.scheduleBuffer(src, at: nil, options: [], completionHandler: nil)
         player.play()
@@ -3540,7 +3540,7 @@ extension AudioEngineController {
     /// byte. This is the persistence half of "channel memories"; the audible half
     /// is `channelSwitchClickTest`.
     private func kabutoChannelRoundTrip() -> (pass: Bool, detail: String) {
-        let ampName = "VOSS Ketana 100"
+        let ampName = "BRIG Kabuto 100"
         let a: [String: Double] = ["Gain": 3, "Bass": 6, "Mid": 4, "Treble": 7, "Presence": 5,
                                    "Volume": 5, "Master": 6, "Character": 1, "Variation": 0, "Power": 2,
                                    "Reverb": 2, "Reverb On": 1, "Reverb Level": 4,
@@ -3613,8 +3613,8 @@ extension AudioEngineController {
             v["Delay"] = 1; v["Delay On"] = 1; v["Delay Level"] = 5; v["Delay Time"] = 5
             return v
         }
-        let planA = ampPlan("VOSS Ketana 100", .comboAmp, values: panel(4, 5, 3)).plan
-        var planB = ampPlan("VOSS Ketana 100", .comboAmp, values: panel(8, 8, 9)).plan
+        let planA = ampPlan("BRIG Kabuto 100", .comboAmp, values: panel(4, 5, 3)).plan
+        var planB = ampPlan("BRIG Kabuto 100", .comboAmp, values: panel(8, 8, 9)).plan
         planB.cabBypass = planA.cabBypass
         RigGraphCompiler.applyImmediate(planA, to: dsp)
         player.scheduleBuffer(src, at: nil, options: [], completionHandler: nil)
@@ -3672,7 +3672,7 @@ extension AudioEngineController {
             "collection": [
                 ["id": guitarId.uuidString, "name": "Lyle Preston Standard",
                  "category": "guitar", "values": [String: Double]()],
-                ["id": ampId.uuidString, "name": "VOSS Ketana 100", "category": "comboAmp",
+                ["id": ampId.uuidString, "name": "BRIG Kabuto 100", "category": "comboAmp",
                  "values": ["Gain": 6, "Bass": 5, "Mid": 5, "Treble": 5, "Presence": 5, "Master": 6,
                             "Volume": 6, "Character": 3, "Variation": 1, "Power": 1,
                             "Delay": 3, "Delay On": 1, "Delay Level": 8, "Delay Time": 7,
@@ -3692,11 +3692,11 @@ extension AudioEngineController {
         guard let out = b.fullState?["streetrig.rig.v1"] as? Data,
               let json = try? JSONSerialization.jsonObject(with: out) as? [String: Any],
               let coll = json["collection"] as? [[String: Any]],
-              let amp = coll.first(where: { ($0["name"] as? String) == "VOSS Ketana 100" }),
+              let amp = coll.first(where: { ($0["name"] as? String) == "BRIG Kabuto 100" }),
               let values = amp["values"] as? [String: Double] else {
             return (false, "the rig blob did not survive the round-trip")
         }
-        let slots = ParameterMap.ampFXSlots(name: "VOSS Ketana 100", values: values)
+        let slots = ParameterMap.ampFXSlots(name: "BRIG Kabuto 100", values: values)
         let profileOK = b.configuredAmpProfile == ParameterMap.ampKabutoBase + 3 * 2 + 1   // Lead B
         let fxOK = slots.count == 2
             && slots.contains { $0.type == ParameterMap.typeDelay && $0.voicing == ParameterMap.delayTape }
