@@ -92,17 +92,17 @@ struct NoInterfacePrompt: View {
                     .foregroundStyle(RigTheme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Button { dismissed = true } label: {
-                    Text("Got it")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: RigTheme.Radius.panel,
-                                             style: .continuous)
-                                .fill(RigTheme.amber)
-                        )
+                // The demo is the AFFIRMATIVE, not the escape hatch. Somebody who
+                // has just been told they need hardware they do not own should be
+                // one tap from hearing what the hardware would buy them — and it is
+                // the only way anyone without an interface, App Review included,
+                // hears this app at all.
+                HStack(spacing: 10) {
+                    choice("Got it", filled: false) { dismissed = true }
+                    choice("Hear a demo", filled: true) {
+                        dismissed = true
+                        Task { await audio.startDemo() }
+                    }
                 }
                 .padding(.top, 2)
             }
@@ -111,6 +111,28 @@ struct NoInterfacePrompt: View {
         .padding(20)
         .rigCard(cornerRadius: RigTheme.Radius.control, lifted: true)
         .transition(.opacity)
+    }
+
+    /// `DeviceOfferPrompt`'s pair of buttons, to the point of sharing its rung
+    /// rule: the dismissive one sits ON the card, so it takes RAISED — at
+    /// `surface` it is the same tone as the card beneath it and disappears.
+    @ViewBuilder
+    private func choice(_ title: String, filled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            let label = Text(title)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(filled ? .black : RigTheme.textPrimary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+            if filled {
+                label.background(
+                    RoundedRectangle(cornerRadius: RigTheme.Radius.panel, style: .continuous)
+                        .fill(RigTheme.amber)
+                )
+            } else {
+                label.rigRaised(cornerRadius: RigTheme.Radius.tight)
+            }
+        }
     }
 }
 

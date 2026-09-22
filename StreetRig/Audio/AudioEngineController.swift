@@ -443,6 +443,112 @@ final class AudioEngineController: ObservableObject {
         }
     }
 
+    // MARK: - The demo signal
+
+    /// The bundled DI loop is running through the rig in place of a live input.
+    @Published private(set) var isDemoPlaying = false
+    private var demoPlayer: AVAudioPlayerNode?
+
+    static let demoMissingStatus = "Demo riff missing from the bundle"
+
+    /// HEAR THE RIG WITH NO HARDWARE AT ALL.
+    ///
+    /// Everything else in this file is about getting a guitar in. This is the
+    /// answer for when there is not one — and it is the only path that makes the
+    /// app demonstrable to somebody holding nothing but the phone, which App
+    /// Review always is. The 2.1 rejection came down to a reviewer who engaged,
+    /// watched the meters move and heard silence; a card explaining why is an
+    /// improvement on that, but it still ends with them hearing nothing.
+    ///
+    /// `.playback`, NOT `.playAndRecord`, and that is the whole design. There is no
+    /// microphone anywhere in this graph, so there is no permission to ask for, no
+    /// open mic to mute, and no acoustic loop to guard against — which makes the
+    /// phone's own speaker a perfectly good monitor here, the one place in the app
+    /// where that is true. Nothing else about the rig changes: same DSP unit, same
+    /// rig bridge, same master level and speaker compensation, fed from a file
+    /// instead of a jack.
+    ///
+    /// It REPLACES a live session rather than joining one. Two sources into one
+    /// unit is a mix, not a demo, and a loop playing underneath a live guitar is
+    /// the kind of thing that gets reported as "the app makes noises on its own".
+    func startDemo() async {
+        guard !isDemoPlaying else { return }
+        if isEngaged { disengage() }
+
+        guard let url = Bundle.main.url(forResource: "demo-riff", withExtension: "wav"),
+              let file = try? AVAudioFile(forReading: url),
+              let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat,
+                                            frameCapacity: AVAudioFrameCount(file.length)),
+              (try? file.read(into: buffer)) != nil,
+              buffer.frameLength > 0
+        else {
+            status = .error(Self.demoMissingStatus)
+            log("Demo riff could not be read from the bundle.")
+            return
+        }
+        let format = file.processingFormat
+
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [.allowBluetoothA2DP])
+            try session.setActive(true, options: [])
+
+            StreetRigDSPUnit.registerIfNeeded()
+            let unit = try await Self.instantiateDSPUnit()
+            let engine = AVAudioEngine()
+            let player = AVAudioPlayerNode()
+            engine.attach(unit)
+            engine.attach(player)
+            engine.connect(player, to: unit, format: format)
+            engine.connect(unit, to: engine.mainMixerNode, format: format)
+
+            engine.prepare()
+            try engine.start()
+
+            self.engine = engine
+            self.avAudioUnit = unit
+            self.dspUnit = unit.auAudioUnit as? StreetRigDSPUnit
+            self.demoPlayer = player
+            self.wiredInputFormat = format
+            applyMasterLevel()
+            applySpeakerComp()
+
+            // The same two meters a live session gets, with the player standing in
+            // for the DI — so the panel reads exactly as it does with a guitar in.
+            installLevelTaps(on: engine, source: player)
+            if let dsp = self.dspUnit, let store = self.rigStore {
+                rigBridge = RigAudioBridge(store: store, dsp: dsp,
+                                           isRenderLive: { [weak self] in self?.engine?.isRunning ?? false })
+            }
+            isDemoPlaying = true
+            isEngaged = true
+            status = .running
+            startMetering()
+            // AFTER the flags: `refreshRoutes` publishes the INPUT name, and on the
+            // first pass it has to already know this is a demo.
+            refreshRoutes()
+            // CLEARED, because `disengage()` does not clear it and a stale UID from
+            // the session before this one would be left standing. Nothing may fire
+            // `inputChangedUnderUs` during a demo: there is no input to lose, and
+            // tearing the loop down over a route change that has nothing to do with
+            // it would look exactly like the app quitting on its own.
+            engagedInputUID = nil
+            UIApplication.shared.isIdleTimerDisabled = AppPreferences.keepScreenAwakeEnabled
+
+            // `completionHandler: nil` picks the non-async overload. Without it this
+            // resolves to the `async` one, which would suspend here until the loop
+            // finished — and a loop never finishes.
+            player.scheduleBuffer(buffer, at: nil, options: .loops, completionHandler: nil)
+            player.play()
+            log(String(format: "Demo riff playing — %.2fs loop through the rig.",
+                       Double(buffer.frameLength) / format.sampleRate))
+        } catch {
+            status = .error(error.localizedDescription)
+            teardown()
+            log("startDemo() failed: \(error.localizedDescription)")
+        }
+    }
+
     /// THE HARDWARE MOVED — re-cut the graph against whatever is there now.
     ///
     /// AVAudioEngine negotiates its I/O format ONCE, at start. Move the input
@@ -569,6 +675,13 @@ final class AudioEngineController: ObservableObject {
         // is being torn down is the classic AVAudioEngine crash.
         removeLevelTaps()
         rigBridge = nil
+        // The demo player goes down with everything else. Both `engage()` and
+        // `startDemo()` build a fresh graph, so nothing here is ever reused — and
+        // leaving `isDemoPlaying` set would let STOP look like it did nothing.
+        demoPlayer?.stop()
+        if let player = demoPlayer { engine?.detach(player) }
+        demoPlayer = nil
+        isDemoPlaying = false
         engine?.stop()
         if let unit = avAudioUnit { engine?.detach(unit) }
         engine = nil
@@ -600,7 +713,12 @@ final class AudioEngineController: ObservableObject {
     /// captured as plain `Int`s: the audio thread never queries a format, never
     /// allocates, never locks and never hops a queue. The buses are captured once
     /// (a single retain at install time); each callback just calls through them.
-    private func installLevelTaps(on engine: AVAudioEngine) {
+    ///
+    /// `source` overrides the node the PRE-RIG meter listens to. The demo path
+    /// passes its player: that session is `.playback`, so there is no input node
+    /// to tap, and merely asking for one would open a microphone the demo exists
+    /// to do without.
+    private func installLevelTaps(on engine: AVAudioEngine, source: AVAudioNode? = nil) {
         // Deinterleaved (the engine's normal case) → one plane per channel.
         // Interleaved → a single plane holding channelCount samples per frame.
         // Precomputing both forms keeps the callback free of format lookups.
@@ -620,15 +738,22 @@ final class AudioEngineController: ObservableObject {
         }
         // Independently, so a mixer whose format hasn't settled can't cost us the
         // input meter — the one that answers "is the guitar even reaching me?".
-        install(engine.inputNode, into: levels.inputBus)
+        let preRig = source ?? engine.inputNode
+        install(preRig, into: levels.inputBus)
         install(engine.mainMixerNode, into: levels.outputBus)
+        levelTapSource = preRig
         levelTapsInstalled = true
     }
 
+    /// The node the pre-rig meter was actually installed on, remembered so the tap
+    /// comes off the same one. Taking it off `inputNode` when it went on a player
+    /// leaves a live tap on a node about to be detached — the classic crash.
+    private var levelTapSource: AVAudioNode?
+
     private func removeLevelTaps() {
-        defer { levelTapsInstalled = false }
+        defer { levelTapsInstalled = false; levelTapSource = nil }
         guard levelTapsInstalled, let engine else { return }
-        engine.inputNode.removeTap(onBus: 0)
+        (levelTapSource ?? engine.inputNode).removeTap(onBus: 0)
         engine.mainMixerNode.removeTap(onBus: 0)
     }
 
@@ -753,7 +878,11 @@ final class AudioEngineController: ObservableObject {
             pendingInputUID = nil
         }
 
-        publish(\.currentInputName, pendingInputName ?? routeInput?.portName ?? "—")
+        // A demo session has no input PORT — that is the point of it — so the route
+        // has nothing to name and the zone fell back to "—", which reads as a fault
+        // rather than as the thing the player just asked for.
+        publish(\.currentInputName,
+                isDemoPlaying ? "Demo riff" : (pendingInputName ?? routeInput?.portName ?? "—"))
         publish(\.currentOutputName, route.outputs.first?.portName ?? "—")
 
         // Re-measure latency here too: iOS re-negotiates the buffer and the port
