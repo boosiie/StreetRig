@@ -226,7 +226,7 @@ struct ControlPanelSurface: View {
     /// hear something needs to go plug an interface in.
     private var openMicBadge: RouteZone.Badge? {
         guard audio.openMicMuted else { return nil }
-        return .init(text: "muted · feedback", warn: true)
+        return .init(text: "muted · no interface", warn: true)
     }
 
     private var outputBinding: Binding<AudioEngineController.OutputChoice> {

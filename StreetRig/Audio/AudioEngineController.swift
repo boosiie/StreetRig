@@ -373,6 +373,76 @@ final class AudioEngineController: ObservableObject {
         log("Open mic into the phone speaker (\(reason)) — output muted; the rest of the rig still runs.")
     }
 
+    /// The ports a guitar actually arrives on. An iRig or any class-compliant box
+    /// comes in as `usbAudio`; a jack-in-the-side interface as `lineIn`.
+    ///
+    /// Deliberately NOT a general "is this an interface" test, and deliberately not
+    /// used to gate anything — that question is what `isInterfaceInput` was, and it
+    /// was erased for blocking real hardware. This only ever ADDS a candidate to
+    /// switch to, so a box missing from the list costs the player a tap on the INPUT
+    /// menu rather than the use of the app. `headsetMic` is left out on purpose: an
+    /// analogue adapter and somebody's earbuds are the same port type, and adopting
+    /// the second one automatically is the open mic this file exists to refuse.
+    static func isInstrumentInput(_ port: AVAudioSessionPortDescription) -> Bool {
+        port.portType == .usbAudio || port.portType == .lineIn
+    }
+
+    /// The last port this tried to switch to, so a box iOS declines cannot put the
+    /// rig in a restart loop. Cleared the moment that port is no longer the problem.
+    private var adoptionAttemptUID: String?
+    private var isAdoptingInterface = false
+
+    /// A GUITAR INPUT TURNED UP WHILE THE RIG WAS ALREADY RUNNING — TAKE IT.
+    ///
+    /// Plugging the interface in BEFORE Proceed works, because `setActive(true)` opens
+    /// whatever iOS considers the best input and a connected box wins that. Plugging it
+    /// in AFTER did nothing at all: an already-active session keeps the input it opened
+    /// with unless something asks for another, and nothing here ever asked. So the rig
+    /// stayed on the phone's own mic, the open-mic mute stayed up — correctly, because
+    /// it really was still an open mic — and the player, looking at a plugged-in
+    /// interface and a "muted · feedback" badge, saw a bug. The mute was telling the
+    /// truth about the wrong input.
+    ///
+    /// NOT AN UNMUTE. Nothing here lifts a gain on a live graph; that is the exact
+    /// shape withdrawn twice already (see `enforceOpenMicMute`). This does what the
+    /// player would otherwise do by hand — stop, pick the interface on the INPUT menu,
+    /// start again — through those same three functions, so the mute is decided from
+    /// scratch on a fresh mixer and lands on "no mute" because by then the input
+    /// genuinely is a DI. The one-way latch is never touched; it is thrown away with
+    /// the engine that owned it.
+    ///
+    /// The guards are the design:
+    ///   • only while ENGAGED, and only from `builtInMic` — the one state this is for;
+    ///   • only for a port a guitar arrives on, never another microphone;
+    ///   • once per port, so a box iOS refuses cannot loop the rig through restarts.
+    private func adoptArrivedInterface(_ reason: String) {
+        let live = Self.liveInputPort
+        // Not on the mic any more, or the candidate went away: whatever happened, the
+        // state this guards against is over and the next arrival deserves a fresh try.
+        if live?.portType != .builtInMic { adoptionAttemptUID = nil }
+
+        guard isEngaged, !isAdoptingInterface, live?.portType == .builtInMic,
+              let port = (AVAudioSession.sharedInstance().availableInputs ?? [])
+                  .first(where: { Self.isInstrumentInput($0) }),
+              port.uid != adoptionAttemptUID
+        else { return }
+
+        isAdoptingInterface = true
+        adoptionAttemptUID = port.uid
+        log("\(reason): \(port.portName) arrived while the rig was on the phone's own mic — restarting onto it.")
+
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.isAdoptingInterface = false }
+            // Order matters: `disengage()` first, because `refreshRoutes` drops a
+            // pending pick while a session is live — the pick is only meaningful to
+            // the activation that is about to happen.
+            self.disengage()
+            self.selectInput(RouteOption(name: port.portName, uid: port.uid))
+            await self.engage()
+        }
+    }
+
     /// THE HARDWARE MOVED — re-cut the graph against whatever is there now.
     ///
     /// AVAudioEngine negotiates its I/O format ONCE, at start. Move the input
@@ -752,6 +822,12 @@ final class AudioEngineController: ObservableObject {
         // It can only ever become more protective, never less, so the glitch that
         // withdrew attempt two — a gain following the route DOWN — has no path here.
         if let engine { applyOpenMicMute(engine: engine, reason: reason) }
+
+        // …and the way back OUT of that state, which the mute cannot reach by itself.
+        // Runs here rather than only on the notification because iOS announces a new
+        // box before it will hand it over: the first pass usually still reads the mic,
+        // and it is a settle pass that finds the interface listed. See the function.
+        adoptArrivedInterface(reason)
 
         // Then the input. A route that has NOW settled onto a different port than the
         // one engaged on is the unplug arriving late — the case where the notification
