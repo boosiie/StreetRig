@@ -25,11 +25,17 @@
 //  interface, phone, in that order. Two pictures of one concept is how they drift
 //  apart, and the player has seen this one before, in the tour.
 //
+//  IT ALSO COVERS THE DENIED MICROPHONE, which is the worse of the two states and
+//  was originally missed. Refuse the permission prompt and the engine never starts,
+//  so `openMicMuted` is never set, so this card never appeared — leaving the one
+//  person who cannot hear anything looking at CAN'T START with nowhere to go. Saying
+//  no to a microphone is an entirely reasonable thing for a reviewer to do.
+//
 //  DISMISSIBLE, because the muted mic is genuinely usable: the meters, the pedal
 //  chain, the AR page and the whole rig still run on it, which is how the app is
 //  tested without hardware. Saying "got it" should not mean saying it again every
-//  thirty seconds — so it stays dismissed until the mute itself clears, and comes
-//  back the next time the rig lands in this state.
+//  thirty seconds — so it stays dismissed until the state itself clears, and comes
+//  back the next time the rig lands in either one.
 //
 
 import SwiftUI
@@ -39,29 +45,49 @@ struct NoInterfacePrompt: View {
     @ObservedObject var audio: AudioEngineController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Dismissed for THIS muted session only — see the note on re-showing above.
+    /// Dismissed for THIS occurrence only — see the note on re-showing above.
     @State private var dismissed = false
+
+    /// TWO WAYS TO END UP UNABLE TO HEAR THE RIG, and the second one is worse.
+    ///
+    /// `openMic` is the muted session: the app is running and deliberately silent.
+    /// `micDenied` is the player who said no to the microphone prompt — the engine
+    /// never starts, `openMicMuted` is never set, and before this the card did not
+    /// appear at all. That left the one person with no way to hear anything staring
+    /// at CAN'T START and no route forward, which is precisely the dead end the
+    /// demo exists to remove. Saying no to a microphone is a completely reasonable
+    /// thing for a reviewer to do.
+    private enum Reason { case openMic, micDenied }
+
+    private var reason: Reason? {
+        if case .error(let message) = audio.status,
+           message == AudioEngineController.micDeniedStatus { return .micDenied }
+        if audio.openMicMuted { return .openMic }
+        return nil
+    }
 
     var body: some View {
         ZStack {
-            if audio.openMicMuted && !dismissed {
+            if let reason, !dismissed {
                 Color.black.opacity(0.55).ignoresSafeArea()
-                card
+                card(reason)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: audio.openMicMuted)
+        .animation(.easeInOut(duration: 0.2), value: reason)
         .animation(.easeInOut(duration: 0.2), value: dismissed)
-        // Re-arm the moment the rig is no longer muted, so the next time it lands
-        // here the card is new again rather than already spent.
-        .onChange(of: audio.openMicMuted) { _, muted in
-            if !muted { dismissed = false }
+        // Re-arm on `reason` rather than on the mute, so BOTH ways out of this count:
+        // the mute lifting, and the permission error clearing. Keyed to the mute
+        // alone, a card dismissed on the denied-microphone path stayed dismissed for
+        // the life of the session, because nothing on that path ever touches it.
+        .onChange(of: reason) { _, now in
+            if now == nil { dismissed = false }
         }
     }
 
     /// Illustration beside the prose rather than above it: the app is landscape
     /// locked, so height is the scarce axis and a stacked card would run off the
     /// top of a 402-point screen.
-    private var card: some View {
+    private func card(_ reason: Reason) -> some View {
         HStack(alignment: .center, spacing: 18) {
             // Wider than it looks like it needs. The drawing lays the phone on its
             // side and runs the cable in horizontally, so width is what it spends —
@@ -71,23 +97,34 @@ struct NoInterfacePrompt: View {
                 .frame(width: 250, height: 150)
 
             VStack(alignment: .leading, spacing: 9) {
-                Text("NO INSTRUMENT INPUT")
+                Text(reason == .openMic ? "NO INSTRUMENT INPUT" : "NO INPUT ALLOWED")
                     .rigLegend(11, weight: .bold)
                     .foregroundStyle(RigTheme.amber)
 
-                Text("Plug in an interface")
+                Text(reason == .openMic ? "Plug in an interface"
+                                        : "Microphone access is off")
                     .font(.system(size: 19, weight: .bold))
                     .foregroundStyle(RigTheme.textPrimary)
 
-                Text("StreetRig is on the phone's own mic. It hears the room instead "
-                     + "of your pickup, and pointed at the speaker it feeds back — so "
-                     + "the output is muted.")
+                Text(reason == .openMic
+                     ? "StreetRig is on the phone's own mic. It hears the room instead "
+                       + "of your pickup, and pointed at the speaker it feeds back — so "
+                       + "the output is muted."
+                     // Worth saying plainly: an interface arrives as a microphone as far
+                     // as iOS is concerned, so refusing the prompt refuses the guitar too,
+                     // which is not obvious from the wording iOS uses.
+                     : "iOS asks for it before any instrument can reach the app — an "
+                       + "interface counts as a microphone too. Turn it on in Settings › "
+                       + "Privacy › Microphone.")
                     .font(.system(size: 13))
                     .foregroundStyle(RigTheme.textPrimary.opacity(0.9))
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("Any guitar interface fixes it — an iRig or anything like it. "
-                     + "Plug one in and StreetRig switches over on its own.")
+                Text(reason == .openMic
+                     ? "Any guitar interface fixes it — an iRig or anything like it. "
+                       + "Plug one in and StreetRig switches over on its own."
+                     : "The demo needs none of that. It plays through the same amp, "
+                       + "pedals and cab, with no microphone involved.")
                     .font(.system(size: 13))
                     .foregroundStyle(RigTheme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)

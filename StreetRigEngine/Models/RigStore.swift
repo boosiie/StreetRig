@@ -775,8 +775,25 @@ public final class RigStore: ObservableObject {
         // The guitar is the one seeded piece with no catalog row — `allModels` is
         // the gear you can ADD, and the rig's guitar is fixed.
         let guitar   = GearItem(name: "Lyle Preston Standard", category: .guitar)
+        // GAIN 1.7, NOT 0, AND THE 1.7 IS ARITHMETIC RATHER THAN TASTE.
+        //
+        // This seed was written when `ParameterMap.ampDrive` was `0.6·2^(norm·4.5)`,
+        // which FLOORED at 0.6: a gain knob rolled fully off still passed signal, so
+        // "Gain 0, Master 10" meant a clean amp with the master up. That curve was
+        // later replaced — correctly — by `A·(2^(k·norm) − 1)`, which passes through
+        // the origin so a control printed VOLUME on half the catalogue can actually
+        // silence. Nobody came back for the seed, and knob 0 stopped meaning "clean"
+        // and started meaning 0.0 exactly. A fresh install shipped a SILENT amp: not
+        // quiet, not thin — zero pre-gain into the nonlinearity, measured at −55 dBFS
+        // out against a −10 dBFS in, with a real guitar just as much as the demo.
+        //
+        // 1.7 is the knob that puts the new curve back on the old floor: it gives
+        // 0.589 against 0.600, a difference of 0.2 dB. So this restores the tone the
+        // seed was written to produce rather than inventing a new one. Measured back
+        // at −1..−9 dBFS out. If the default should be dirtier, move it deliberately;
+        // it must simply never be 0 again.
         let amp      = mk("marswell-msw900-2140",
-                          values: ["Gain": 0, "Bass": 2, "Mid": 5, "Treble": 5, "Presence": 8, "Master": 10])
+                          values: ["Gain": 1.7, "Bass": 2, "Mid": 5, "Treble": 5, "Presence": 8, "Master": 10])
         let cab      = mk("marswell-2415a-4x12")
         // Replaces the retired "Fandor Deluxe" as the owned starter combo. Picked
         // deliberately: it is the only new combo whose name still routes to the

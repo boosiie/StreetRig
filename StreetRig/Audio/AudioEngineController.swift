@@ -180,6 +180,14 @@ final class AudioEngineController: ObservableObject {
     /// established error colour (it upper-cases the message itself).
     static let noAmpStatus = "No amp in rig"
 
+    /// Named rather than written inline, because two other places have to RECOGNISE
+    /// this exact state: the panel, to offer a remedy that is about permission
+    /// rather than about a cable, and `NoInterfacePrompt`, to offer the demo. A
+    /// player who says no to the microphone is the one person in the app with no
+    /// way to hear anything at all, and matching on a loose string literal is how
+    /// that quietly stops working.
+    static let micDeniedStatus = "Microphone access denied"
+
     func engage() async {
         guard !isEngaged else { return }
 
@@ -209,7 +217,7 @@ final class AudioEngineController: ObservableObject {
         let granted = await Self.requestMicPermission()
         micPermission = granted ? .granted : .denied
         guard granted else {
-            status = .error("Microphone access denied")
+            status = .error(Self.micDeniedStatus)
             return
         }
 

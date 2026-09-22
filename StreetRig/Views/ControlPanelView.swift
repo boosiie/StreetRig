@@ -455,13 +455,20 @@ struct ControlPanelSurface: View {
     // the OS's, and can be long.
     private static let captureRemedy = "check the iRig is seated and pick an INPUT."
     private static let noAmpRemedy = "add an amp from the Gear Library."
+    // A denied microphone is not a seating problem, and telling somebody to reseat a
+    // cable they have not got is how a dead end gets one step longer.
+    private static let micRemedy = "allow it in Settings, or tap HEAR A DEMO."
 
     /// Nearly every refusal is the capture path failing, so that remedy is the
     /// default. A rig with no amp is the one that isn't: telling someone to reseat
     /// an interface when what's missing is the amp sends them to the wrong end of
     /// the signal chain entirely.
     private static func remedy(for message: String) -> String {
-        message == AudioEngineController.noAmpStatus ? noAmpRemedy : captureRemedy
+        switch message {
+        case AudioEngineController.noAmpStatus:     return noAmpRemedy
+        case AudioEngineController.micDeniedStatus: return micRemedy
+        default:                                    return captureRemedy
+        }
     }
 }
 
