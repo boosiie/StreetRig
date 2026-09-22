@@ -68,6 +68,14 @@ struct PlayView: View {
             // shell's panel suppresses its own copy while this page is up.
             DeviceOfferPrompt(audio: audio)
         }
+        .overlay {
+            // ONLY HERE, and that is not an omission. PROCEED opens this page, so
+            // this is where the rig is when it engages onto the phone's own mic and
+            // mutes — the player is looking at the pedals, not at the caption on the
+            // panel. The shell gets no copy: it would need a third full-screen cover
+            // racing the two above it, to say something this page has already said.
+            NoInterfacePrompt(audio: audio)
+        }
         .onDisappear { if let shellOrigin { drag.appRootOrigin = shellOrigin } }
     }
 

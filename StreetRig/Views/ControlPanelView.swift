@@ -136,6 +136,9 @@ struct ControlPanelSurface: View {
             if case .error(let message) = audio.status {
                 errorStrip(message)
             }
+            if audio.openMicMuted {
+                muteStrip
+            }
             HStack(spacing: 0) {
                 inputZone
                 zoneDivider
@@ -158,6 +161,9 @@ struct ControlPanelSurface: View {
         // The error strip changes the panel's height, so the strip arriving would
         // otherwise snap whatever is next to it by 30pt.
         .animation(.easeInOut(duration: 0.2), value: audio.status)
+        // The mute strip does the same and rides its own flag: a muted session is
+        // still `.running`, so the animation above never sees it move.
+        .animation(.easeInOut(duration: 0.2), value: audio.openMicMuted)
     }
 
     private var zoneDivider: some View {
@@ -226,7 +232,7 @@ struct ControlPanelSurface: View {
     /// hear something needs to go plug an interface in.
     private var openMicBadge: RouteZone.Badge? {
         guard audio.openMicMuted else { return nil }
-        return .init(text: "muted · feedback", warn: true)
+        return .init(text: "muted · no interface", warn: true)
     }
 
     private var outputBinding: Binding<AudioEngineController.OutputChoice> {
@@ -351,6 +357,11 @@ struct ControlPanelSurface: View {
     /// the load is the one number worth a glance on a real-time DSP path. The
     /// sample rate the old bar printed is not: it never changes.
     private var statusText: String {
+        // MUTED OUTRANKS LIVE, because both are true and only one of them is what the
+        // player needs. A green LIVE over a silent rig is the most misleading thing
+        // this panel can say — it is the exact reading that had everyone, App Review
+        // included, conclude the app was broken rather than muted on purpose.
+        if audio.openMicMuted { return "MUTED" }
         switch audio.status {
         case .running:     return "LIVE · \(Int((audio.renderLoad * 100).rounded()))%"
         case .interrupted: return "PAUSED"
@@ -360,6 +371,10 @@ struct ControlPanelSurface: View {
     }
 
     private var statusColor: Color {
+        // Amber, not green, and not `clip` either: nothing has failed, but nothing is
+        // coming out. It is the same amber as the strip and the badge, so all three
+        // read as one state rather than three separate complaints.
+        if audio.openMicMuted { return RigTheme.amber }
         switch audio.status {
         case .running: return RigTheme.signal
         case .error:   return RigTheme.clip
@@ -451,17 +466,59 @@ struct ControlPanelSurface: View {
         }
     }
 
+    /// THE MUTE, SAID OUT LOUD AND LEFT THERE.
+    ///
+    /// `NoInterfacePrompt` explains this properly, once, in the middle of the screen
+    /// — but it is dismissible by design, because the muted mic is genuinely usable
+    /// for everything except hearing it. The moment it is dismissed the only thing
+    /// left saying anything was an eleven-point badge, and "silent rig, tiny caption"
+    /// is the arrangement this whole thread of work exists to stop repeating.
+    ///
+    /// So the panel keeps saying it, full width, for as long as it is true, and it
+    /// asks for the thing that fixes it rather than describing the fault. Amber like
+    /// the badge and the MUTED read-out beside it: one state, three places, one
+    /// colour. Not `clip` red — nothing here has failed.
+    private var muteStrip: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "speaker.slash.fill")
+                .font(.system(size: 12, weight: .semibold))
+            Text("OUTPUT MUTED")
+                .rigLegend(12, weight: .bold)
+            Text("· please plug in an interface to hear your guitar")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(RigTheme.textPrimary.opacity(0.95))
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(RigTheme.amber)
+        .lineLimit(1)
+        .minimumScaleFactor(0.75)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RigTheme.amber.opacity(0.22))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(RigTheme.amber.opacity(0.55)).frame(height: 1)
+        }
+    }
+
     // Short enough to survive the one line it gets: the message in front of it is
     // the OS's, and can be long.
     private static let captureRemedy = "check the iRig is seated and pick an INPUT."
     private static let noAmpRemedy = "add an amp from the Gear Library."
+    // A denied microphone is not a seating problem, and telling somebody to reseat a
+    // cable they have not got is how a dead end gets one step longer.
+    private static let micRemedy = "allow it in Settings, or tap HEAR A DEMO."
 
     /// Nearly every refusal is the capture path failing, so that remedy is the
     /// default. A rig with no amp is the one that isn't: telling someone to reseat
     /// an interface when what's missing is the amp sends them to the wrong end of
     /// the signal chain entirely.
     private static func remedy(for message: String) -> String {
-        message == AudioEngineController.noAmpStatus ? noAmpRemedy : captureRemedy
+        switch message {
+        case AudioEngineController.noAmpStatus:     return noAmpRemedy
+        case AudioEngineController.micDeniedStatus: return micRemedy
+        default:                                    return captureRemedy
+        }
     }
 }
 

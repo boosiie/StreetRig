@@ -136,21 +136,21 @@ public final class UserPresetStore: ObservableObject {
         let store = UserPresetStore(persist: false)
         store.slots[0] = UserPreset(
             slot: 0, name: "MY CRUNCH", icon: .pick,
-            amp: .stack(head: "Marswell JCM800 2203", cab: "Marswell 1960A 4x12"),
+            amp: .stack(head: "Marswell MSW900 2140", cab: "Marswell 2415A 4x12"),
             ampValues: ["Gain": 7, "Bass": 5, "Mid": 6.5, "Treble": 6.5, "Presence": 6, "Master": 6],
-            guitar: "Les Paul Standard",
-            pedals: [UserPreset.Pedal(model: "Ibonez Tube Screamer",
+            guitar: "Lyle Preston Standard",
+            pedals: [UserPreset.Pedal(model: "Iberon Valve Shrieker",
                                       values: ["Overdrive": 3.5, "Tone": 6, "Level": 6.5])],
-            arSlots: [UserPreset.ARSlotSnapshot(model: "Ibonez Tube Screamer", isOn: true),
+            arSlots: [UserPreset.ARSlotSnapshot(model: "Iberon Valve Shrieker", isOn: true),
                       UserPreset.ARSlotSnapshot(model: nil, isOn: false),
                       UserPreset.ARSlotSnapshot(model: nil, isOn: false)])
         // Deliberately names gear the catalog does not offer, so the greyed
         // "can't load" row is previewable without hand-editing a JSON file.
         store.slots[2] = UserPreset(
             slot: 2, name: "GONE", icon: .cloud,
-            amp: .combo(name: "Fender Deluxe"),
+            amp: .combo(name: "Fandor Deluxe"),
             ampValues: ["Gain": 5],
-            guitar: "Les Paul Standard",
+            guitar: "Lyle Preston Standard",
             pedals: [],
             arSlots: [])
         return store

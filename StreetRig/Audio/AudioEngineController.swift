@@ -180,6 +180,14 @@ final class AudioEngineController: ObservableObject {
     /// established error colour (it upper-cases the message itself).
     static let noAmpStatus = "No amp in rig"
 
+    /// Named rather than written inline, because two other places have to RECOGNISE
+    /// this exact state: the panel, to offer a remedy that is about permission
+    /// rather than about a cable, and `NoInterfacePrompt`, to offer the demo. A
+    /// player who says no to the microphone is the one person in the app with no
+    /// way to hear anything at all, and matching on a loose string literal is how
+    /// that quietly stops working.
+    static let micDeniedStatus = "Microphone access denied"
+
     func engage() async {
         guard !isEngaged else { return }
 
@@ -209,7 +217,7 @@ final class AudioEngineController: ObservableObject {
         let granted = await Self.requestMicPermission()
         micPermission = granted ? .granted : .denied
         guard granted else {
-            status = .error("Microphone access denied")
+            status = .error(Self.micDeniedStatus)
             return
         }
 
@@ -373,6 +381,253 @@ final class AudioEngineController: ObservableObject {
         log("Open mic into the phone speaker (\(reason)) — output muted; the rest of the rig still runs.")
     }
 
+    /// The ports a guitar actually arrives on. An iRig or any class-compliant box
+    /// comes in as `usbAudio`; a jack-in-the-side interface as `lineIn`.
+    ///
+    /// Deliberately NOT a general "is this an interface" test, and deliberately not
+    /// used to gate anything — that question is what `isInterfaceInput` was, and it
+    /// was erased for blocking real hardware. This only ever ADDS a candidate to
+    /// switch to, so a box missing from the list costs the player a tap on the INPUT
+    /// menu rather than the use of the app. `headsetMic` is left out on purpose: an
+    /// analogue adapter and somebody's earbuds are the same port type, and adopting
+    /// the second one automatically is the open mic this file exists to refuse.
+    static func isInstrumentInput(_ port: AVAudioSessionPortDescription) -> Bool {
+        port.portType == .usbAudio || port.portType == .lineIn
+    }
+
+    /// The last port this tried to switch to, so a box iOS declines cannot put the
+    /// rig in a restart loop. Cleared the moment that port is no longer the problem.
+    private var adoptionAttemptUID: String?
+    private var isAdoptingInterface = false
+
+    /// A GUITAR INPUT TURNED UP WHILE THE RIG WAS ALREADY RUNNING — TAKE IT.
+    ///
+    /// Plugging the interface in BEFORE Proceed works, because `setActive(true)` opens
+    /// whatever iOS considers the best input and a connected box wins that. Plugging it
+    /// in AFTER did nothing at all: an already-active session keeps the input it opened
+    /// with unless something asks for another, and nothing here ever asked. So the rig
+    /// stayed on the phone's own mic, the open-mic mute stayed up — correctly, because
+    /// it really was still an open mic — and the player, looking at a plugged-in
+    /// interface and a "muted · feedback" badge, saw a bug. The mute was telling the
+    /// truth about the wrong input.
+    ///
+    /// NOT AN UNMUTE. Nothing here lifts a gain on a live graph; that is the exact
+    /// shape withdrawn twice already (see `enforceOpenMicMute`). This does what the
+    /// player would otherwise do by hand — stop, pick the interface on the INPUT menu,
+    /// start again — through those same three functions, so the mute is decided from
+    /// scratch on a fresh mixer and lands on "no mute" because by then the input
+    /// genuinely is a DI. The one-way latch is never touched; it is thrown away with
+    /// the engine that owned it.
+    ///
+    /// The guards are the design:
+    ///   • only while ENGAGED, and only from `builtInMic` — the one state this is for;
+    ///   • only for a port a guitar arrives on, never another microphone;
+    ///   • once per port, so a box iOS refuses cannot loop the rig through restarts.
+    private func adoptArrivedInterface(_ reason: String) {
+        let live = Self.liveInputPort
+        // Not on the mic any more, or the candidate went away: whatever happened, the
+        // state this guards against is over and the next arrival deserves a fresh try.
+        if live?.portType != .builtInMic { adoptionAttemptUID = nil }
+
+        guard isEngaged, !isAdoptingInterface, live?.portType == .builtInMic,
+              let port = (AVAudioSession.sharedInstance().availableInputs ?? [])
+                  .first(where: { Self.isInstrumentInput($0) }),
+              port.uid != adoptionAttemptUID
+        else { return }
+
+        isAdoptingInterface = true
+        adoptionAttemptUID = port.uid
+        log("\(reason): \(port.portName) arrived while the rig was on the phone's own mic — restarting onto it.")
+
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.isAdoptingInterface = false }
+            // Order matters: `disengage()` first, because `refreshRoutes` drops a
+            // pending pick while a session is live — the pick is only meaningful to
+            // the activation that is about to happen.
+            self.disengage()
+            self.selectInput(RouteOption(name: port.portName, uid: port.uid))
+            await self.engage()
+        }
+    }
+
+    // MARK: - The demo signal
+
+    /// The bundled DI loop is running through the rig in place of a live input.
+    @Published private(set) var isDemoPlaying = false
+    private var demoPlayer: AVAudioPlayerNode?
+
+    static let demoMissingStatus = "Demo riff missing from the bundle"
+
+    /// HEAR THE RIG WITH NO HARDWARE AT ALL.
+    ///
+    /// Everything else in this file is about getting a guitar in. This is the
+    /// answer for when there is not one — and it is the only path that makes the
+    /// app demonstrable to somebody holding nothing but the phone, which App
+    /// Review always is. The 2.1 rejection came down to a reviewer who engaged,
+    /// watched the meters move and heard silence; a card explaining why is an
+    /// improvement on that, but it still ends with them hearing nothing.
+    ///
+    /// `.playback`, NOT `.playAndRecord`, and that is the whole design. There is no
+    /// microphone anywhere in this graph, so there is no permission to ask for, no
+    /// open mic to mute, and no acoustic loop to guard against — which makes the
+    /// phone's own speaker a perfectly good monitor here, the one place in the app
+    /// where that is true. Nothing else about the rig changes: same DSP unit, same
+    /// rig bridge, same master level and speaker compensation, fed from a file
+    /// instead of a jack.
+    ///
+    /// It REPLACES a live session rather than joining one. Two sources into one
+    /// unit is a mix, not a demo, and a loop playing underneath a live guitar is
+    /// the kind of thing that gets reported as "the app makes noises on its own".
+    func startDemo() async {
+        guard !isDemoPlaying else { return }
+        if isEngaged { disengage() }
+
+        guard let url = Bundle.main.url(forResource: "demo-riff", withExtension: "wav"),
+              let file = try? AVAudioFile(forReading: url),
+              let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat,
+                                            frameCapacity: AVAudioFrameCount(file.length)),
+              (try? file.read(into: buffer)) != nil,
+              buffer.frameLength > 0
+        else {
+            status = .error(Self.demoMissingStatus)
+            log("Demo riff could not be read from the bundle.")
+            return
+        }
+        let format = file.processingFormat
+
+        do {
+            let session = AVAudioSession.sharedInstance()
+            // NO OPTIONS, and the absence is the fix for OSStatus -50.
+            //
+            // This was `options: [.allowBluetoothA2DP]`, copied across from the live
+            // path where it is both legal and necessary. On `.playback` it is neither:
+            // A2DP is already how this category routes, and the option is only defined
+            // for `.playAndRecord` and `.multiRoute` — so passing it is a parameter
+            // error, which is what -50 is. The Simulator waved it through; the phone
+            // refused before the graph was ever built, which is why the failure landed
+            // on a device and not here.
+            try session.setCategory(.playback, mode: .default)
+            try? session.setPreferredSampleRate(requestedSampleRate)
+            try? session.setPreferredIOBufferDuration(requestedIOBufferDuration)
+            try session.setActive(true, options: [])
+            // Logged BEFORE the engine work, so the next failure says which half it
+            // was in rather than leaving the whole `do` block as the suspect — the
+            // thing that cost a device round trip this time.
+            log(String(format: "Demo session active — %.0f Hz out.", session.sampleRate))
+
+            StreetRigDSPUnit.registerIfNeeded()
+            let unit = try await Self.instantiateDSPUnit()
+            let engine = AVAudioEngine()
+            let player = AVAudioPlayerNode()
+            engine.attach(unit)
+            engine.attach(player)
+
+            // CUT FOR THE HARDWARE, NOT FOR THE FILE — this is what OSStatus -50 was.
+            //
+            // The first version connected the graph with `file.processingFormat`, which
+            // for this riff is mono at 48 kHz. The Simulator accepted it, because its
+            // "hardware" is whatever CoreAudio feels like on a Mac. A real phone does
+            // not: the unit declares its buses as stereo 48 k (`StreetRigDSPUnit`), the
+            // output runs at whatever rate the session actually granted, and asking the
+            // engine to reconcile a mono file against both at once is a `paramErr`
+            // before a single sample moves.
+            //
+            // So the graph is cut at the rate the session GRANTED — asked for, never
+            // assumed — in the stereo the unit already wants, and the file is converted
+            // to meet it. The live path never had to do this because its format comes
+            // from the input hardware, so it is correct by construction.
+            let graphFormat = AVAudioFormat(standardFormatWithSampleRate: session.sampleRate,
+                                            channels: 2) ?? format
+            let playable = Self.converted(buffer, to: graphFormat) ?? buffer
+            log("Demo graph: file \(Self.describe(format)) → graph \(Self.describe(playable.format))")
+
+            engine.connect(player, to: unit, format: playable.format)
+            engine.connect(unit, to: engine.mainMixerNode, format: playable.format)
+
+            engine.prepare()
+            try engine.start()
+
+            self.engine = engine
+            self.avAudioUnit = unit
+            self.dspUnit = unit.auAudioUnit as? StreetRigDSPUnit
+            self.demoPlayer = player
+            self.wiredInputFormat = format
+            applyMasterLevel()
+            applySpeakerComp()
+
+            // The same two meters a live session gets, with the player standing in
+            // for the DI — so the panel reads exactly as it does with a guitar in.
+            installLevelTaps(on: engine, source: player)
+            if let dsp = self.dspUnit, let store = self.rigStore {
+                rigBridge = RigAudioBridge(store: store, dsp: dsp,
+                                           isRenderLive: { [weak self] in self?.engine?.isRunning ?? false })
+            }
+            isDemoPlaying = true
+            isEngaged = true
+            status = .running
+            startMetering()
+            // AFTER the flags: `refreshRoutes` publishes the INPUT name, and on the
+            // first pass it has to already know this is a demo.
+            refreshRoutes()
+            // CLEARED, because `disengage()` does not clear it and a stale UID from
+            // the session before this one would be left standing. Nothing may fire
+            // `inputChangedUnderUs` during a demo: there is no input to lose, and
+            // tearing the loop down over a route change that has nothing to do with
+            // it would look exactly like the app quitting on its own.
+            engagedInputUID = nil
+            UIApplication.shared.isIdleTimerDisabled = AppPreferences.keepScreenAwakeEnabled
+
+            // `completionHandler: nil` picks the non-async overload. Without it this
+            // resolves to the `async` one, which would suspend here until the loop
+            // finished — and a loop never finishes.
+            player.scheduleBuffer(playable, at: nil, options: .loops, completionHandler: nil)
+            player.play()
+            log(String(format: "Demo riff playing — %.2fs loop through the rig.",
+                       Double(playable.frameLength) / playable.format.sampleRate))
+        } catch {
+            status = .error(error.localizedDescription)
+            teardown()
+            log("startDemo() failed: \(error.localizedDescription)")
+        }
+    }
+
+    private static func describe(_ f: AVAudioFormat) -> String {
+        String(format: "%.0f Hz / %dch", f.sampleRate, f.channelCount)
+    }
+
+    /// Re-lay one buffer into another format — rate, channel count and layout.
+    ///
+    /// The block form rather than `convert(to:from:)`, because that one refuses any
+    /// conversion that changes the sample rate, which is exactly the case this
+    /// exists for. `nil` on failure, and every caller falls back to the original
+    /// buffer: a demo in the wrong format is worth attempting, and the engine will
+    /// say so if it cannot.
+    private static func converted(_ source: AVAudioPCMBuffer,
+                                  to target: AVAudioFormat) -> AVAudioPCMBuffer? {
+        if source.format == target { return source }
+        guard let converter = AVAudioConverter(from: source.format, to: target) else { return nil }
+        let ratio = target.sampleRate / source.format.sampleRate
+        let capacity = AVAudioFrameCount(Double(source.frameLength) * ratio) + 4096
+        guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return nil }
+
+        var delivered = false
+        var error: NSError?
+        converter.convert(to: out, error: &error) { _, status in
+            if delivered { status.pointee = .endOfStream; return nil }
+            delivered = true
+            status.pointee = .haveData
+            return source
+        }
+        if let error {
+            // Not fatal here — the caller falls back — but it is the one line that
+            // explains a demo that comes out at the wrong speed or not at all.
+            print("[StreetRigAudio] Demo buffer conversion failed: \(error.localizedDescription)")
+            return nil
+        }
+        return out.frameLength > 0 ? out : nil
+    }
+
     /// THE HARDWARE MOVED — re-cut the graph against whatever is there now.
     ///
     /// AVAudioEngine negotiates its I/O format ONCE, at start. Move the input
@@ -499,6 +754,13 @@ final class AudioEngineController: ObservableObject {
         // is being torn down is the classic AVAudioEngine crash.
         removeLevelTaps()
         rigBridge = nil
+        // The demo player goes down with everything else. Both `engage()` and
+        // `startDemo()` build a fresh graph, so nothing here is ever reused — and
+        // leaving `isDemoPlaying` set would let STOP look like it did nothing.
+        demoPlayer?.stop()
+        if let player = demoPlayer { engine?.detach(player) }
+        demoPlayer = nil
+        isDemoPlaying = false
         engine?.stop()
         if let unit = avAudioUnit { engine?.detach(unit) }
         engine = nil
@@ -530,7 +792,12 @@ final class AudioEngineController: ObservableObject {
     /// captured as plain `Int`s: the audio thread never queries a format, never
     /// allocates, never locks and never hops a queue. The buses are captured once
     /// (a single retain at install time); each callback just calls through them.
-    private func installLevelTaps(on engine: AVAudioEngine) {
+    ///
+    /// `source` overrides the node the PRE-RIG meter listens to. The demo path
+    /// passes its player: that session is `.playback`, so there is no input node
+    /// to tap, and merely asking for one would open a microphone the demo exists
+    /// to do without.
+    private func installLevelTaps(on engine: AVAudioEngine, source: AVAudioNode? = nil) {
         // Deinterleaved (the engine's normal case) → one plane per channel.
         // Interleaved → a single plane holding channelCount samples per frame.
         // Precomputing both forms keeps the callback free of format lookups.
@@ -550,15 +817,22 @@ final class AudioEngineController: ObservableObject {
         }
         // Independently, so a mixer whose format hasn't settled can't cost us the
         // input meter — the one that answers "is the guitar even reaching me?".
-        install(engine.inputNode, into: levels.inputBus)
+        let preRig = source ?? engine.inputNode
+        install(preRig, into: levels.inputBus)
         install(engine.mainMixerNode, into: levels.outputBus)
+        levelTapSource = preRig
         levelTapsInstalled = true
     }
 
+    /// The node the pre-rig meter was actually installed on, remembered so the tap
+    /// comes off the same one. Taking it off `inputNode` when it went on a player
+    /// leaves a live tap on a node about to be detached — the classic crash.
+    private var levelTapSource: AVAudioNode?
+
     private func removeLevelTaps() {
-        defer { levelTapsInstalled = false }
+        defer { levelTapsInstalled = false; levelTapSource = nil }
         guard levelTapsInstalled, let engine else { return }
-        engine.inputNode.removeTap(onBus: 0)
+        (levelTapSource ?? engine.inputNode).removeTap(onBus: 0)
         engine.mainMixerNode.removeTap(onBus: 0)
     }
 
@@ -683,7 +957,11 @@ final class AudioEngineController: ObservableObject {
             pendingInputUID = nil
         }
 
-        publish(\.currentInputName, pendingInputName ?? routeInput?.portName ?? "—")
+        // A demo session has no input PORT — that is the point of it — so the route
+        // has nothing to name and the zone fell back to "—", which reads as a fault
+        // rather than as the thing the player just asked for.
+        publish(\.currentInputName,
+                isDemoPlaying ? "Demo riff" : (pendingInputName ?? routeInput?.portName ?? "—"))
         publish(\.currentOutputName, route.outputs.first?.portName ?? "—")
 
         // Re-measure latency here too: iOS re-negotiates the buffer and the port
@@ -752,6 +1030,12 @@ final class AudioEngineController: ObservableObject {
         // It can only ever become more protective, never less, so the glitch that
         // withdrew attempt two — a gain following the route DOWN — has no path here.
         if let engine { applyOpenMicMute(engine: engine, reason: reason) }
+
+        // …and the way back OUT of that state, which the mute cannot reach by itself.
+        // Runs here rather than only on the notification because iOS announces a new
+        // box before it will hand it over: the first pass usually still reads the mic,
+        // and it is a settle pass that finds the interface listed. See the function.
+        adoptArrivedInterface(reason)
 
         // Then the input. A route that has NOW settled onto a different port than the
         // one engaged on is the unplug arriving late — the case where the notification

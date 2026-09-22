@@ -87,6 +87,7 @@
 		AD0000000000000000000003 /* Exceptions for "StreetRig" folder in "StreetRig" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				DemoRiff/README.md,
 				Environments/README.md,
 				"GearIcons-README.md",
 				GearModels/README.md,

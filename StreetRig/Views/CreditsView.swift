@@ -14,6 +14,11 @@
 //  Adding an asset later means appending one `Credit` to `Credits.all` — the view
 //  is a list, so nothing else needs touching.
 //
+//  The screen answers the converse question too — see `originality`. What the app
+//  borrowed and what it invented are the same question asked from two sides, and a
+//  user who comes here to find out who made the gear should not have to go
+//  somewhere else to learn that the answer is "nobody real".
+//
 
 import SwiftUI
 import StreetRigEngine
@@ -72,6 +77,8 @@ struct CreditsView: View {
                         ForEach(Credits.all) { credit in
                             card(for: credit)
                         }
+
+                        originality
                     }
                     .padding(20)
                 }
@@ -98,6 +105,34 @@ struct CreditsView: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1)
         }
+    }
+
+    /// THE OTHER HALF OF THE LEGAL SURFACE. The cards above say what StreetRig
+    /// BORROWED; this says what it did not. Every amp, cabinet and pedal in the
+    /// catalogue is an invented brand built to evoke a family of gear without
+    /// being any member of it, and the one place a user goes looking for who made
+    /// what is this screen — so the answer belongs here, next to the borrowing,
+    /// rather than buried in a settings page nobody opens.
+    ///
+    /// Not a card: it is a statement about the whole app, not another asset, and
+    /// giving it the same frame as a credit would file it as one.
+    private var originality: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("EVERYTHING ELSE")
+                .rigLegend(11, weight: .bold)
+                .foregroundStyle(RigTheme.textMuted)
+
+            Text("All amplifier, cabinet and pedal names in StreetRig, and the artwork "
+                 + "and 3D models of them, are original and fictional. StreetRig is not "
+                 + "affiliated with, endorsed by, or licensed by any instrument or audio "
+                 + "equipment manufacturer, and any resemblance to real equipment is "
+                 + "homage rather than reproduction.")
+                .font(.footnote)
+                .foregroundStyle(RigTheme.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 6)
     }
 
     private func card(for credit: Credit) -> some View {

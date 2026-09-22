@@ -195,6 +195,18 @@ public enum GearCatalog {
         0xa2f6097b55f4c5ad: "brig-kabuto-100",
         0xf978fbf506cec286: "mesquite-bootleg-oversized-4x12",
         0xb6ba92b9f11e278d: "tangerine-tsv412",
+        // The half-renamed generation: these six took their new PRODUCT name
+        // while the brand token was still the old one, so the pair that actually
+        // shipped matches neither the row above nor the row below. A save or an
+        // AUv3 session written in that window carries one of these names.
+
+        0x737ff141ab485427: "brig-compression-leveller",
+        0x7351a8814b34eedc: "brig-metal-realm",
+        0xa33bd421f26696a9: "brig-noise-silencer",
+        0x2960b16e01f262e1: "brig-chorister",
+        0xa440cd6b70102ff4: "brig-lv-320h",
+        0x7146a61b0797d2c4: "brig-loop-depot",
+
         // The BRIG generation. These names shipped only inside this branch, but an
         // AUv3 host session saved against one carries the name and no id, so they
         // are promises like any other row.

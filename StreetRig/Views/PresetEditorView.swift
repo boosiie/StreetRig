@@ -80,7 +80,7 @@ struct PresetIconView: View {
         }
         .frame(width: size, height: size)
         // The artwork never speaks for itself — the row or the tile that contains
-        // it owns the label, so VoiceOver says "MY CRUNCH, Marswell JCM800" once
+        // it owns the label, so VoiceOver says "MY CRUNCH, Marswell MSW900" once
         // instead of that plus "Plectrum avatar in Ember".
         .accessibilityHidden(true)
     }

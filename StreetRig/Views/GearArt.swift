@@ -337,8 +337,8 @@ extension GearArtView {
     ///
     /// Pedals come from `PedalFinish` — the same artwork-sampled table the 3D
     /// stage paints with — so zooming into a pedal shows the colour you just
-    /// tapped. The old path fell through to `spec`, whose per-model rules ("ce-2",
-    /// "rv-6", "carbon copy") name pedals this catalog no longer ships, so every
+    /// tapped. The old path fell through to `spec`, whose per-model rules ("chorus",
+    /// "plate", "tape echo") name pedals this catalog no longer ships, so every
     /// pedal landed on a category tint: the delay panel came up green behind a
     /// white pedal, the Slingshot blue behind a red one.
     ///
@@ -452,8 +452,8 @@ private extension Color {
 
 #Preview {
     let names = ["Iberon Valve Shrieker", "electro-galvanic BIG MITT Ω", "KRX damper comp",
-                 "KRX swirl 72", "VOSS Digital Delay", "VOSS Loop Depot",
-                 "VOSS Chromatic Tuner", "VOSS Chorus", "VOSS Reverb", "DUNRIDGE WEEPING WILLOW"]
+                 "KRX swirl 72", "BRIG Digital Delay", "BRIG Loop Depot",
+                 "BRIG Chromatic Tuner", "BRIG Chorus", "BRIG Reverb", "DUNRIDGE WEEPING WILLOW"]
     return VStack(alignment: .leading, spacing: 20) {
         // Override vs fallback: every shipped pedal has a bespoke asset, so it
         // renders the supplied image; an unknown name has none (procedural art).
